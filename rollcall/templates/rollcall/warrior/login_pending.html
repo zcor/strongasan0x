@@ -1,0 +1,65 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Waiting for Confirmation - Warrior Dashboard{% endblock %}
+
+{% block header %}
+<div class="warrior-header" style="justify-content: center;">
+    <h1>Warrior Dashboard</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="warrior-card" style="text-align: center; max-width: 500px; margin: 50px auto;">
+    <h2>Waiting for Telegram Confirmation</h2>
+
+    <div style="padding: 30px; background: rgba(255,193,7,0.1); border-radius: 8px; margin: 20px 0;">
+        <div style="font-size: 3rem; margin-bottom: 15px;">
+            <span id="loading-spinner">&#8987;</span>
+        </div>
+        <p style="color: #ffc107; margin: 0; font-size: 1.1rem;">
+            Please open Telegram and press <strong>Start</strong> in the bot chat.
+        </p>
+    </div>
+
+    <p style="color: #87ceeb; margin: 20px 0;">
+        Haven't opened the bot yet?
+    </p>
+
+    <a href="https://t.me/{{ telegram_bot_username }}?start=login_{{ token }}"
+       target="_blank"
+       class="btn btn-primary"
+       style="display: inline-flex; align-items: center; gap: 10px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.05-.2-.06-.06-.16-.04-.23-.02-.09.02-1.56.99-4.4 2.91-.42.29-.8.43-1.13.42-.37-.01-1.09-.21-1.62-.38-.65-.22-1.17-.33-1.13-.7.02-.19.31-.38.87-.58 3.4-1.48 5.67-2.46 6.81-2.93 3.24-1.35 3.91-1.58 4.35-1.59.1 0 .31.02.45.13.12.09.15.21.17.31-.01.06.01.24-.01.38z"/>
+        </svg>
+        Open Telegram Bot
+    </a>
+
+    <div style="margin-top: 30px;">
+        <a href="{% url 'warrior:check_login' %}?token={{ token }}" class="btn btn-secondary">
+            Check Again
+        </a>
+    </div>
+
+    <p style="font-size: 0.85rem; color: #666; margin-top: 20px;">
+        This page will not auto-refresh. Click "Check Again" after confirming in Telegram.
+    </p>
+</div>
+
+<div class="warrior-card" style="max-width: 500px; margin: 20px auto; text-align: center;">
+    <p style="font-size: 0.9rem; color: #87ceeb;">
+        <a href="{% url 'warrior:login' %}" style="color: #ffd700;">Start Over</a>
+    </p>
+</div>
+
+<style>
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+#loading-spinner {
+    display: inline-block;
+    animation: spin 2s linear infinite;
+}
+</style>
+{% endblock %}

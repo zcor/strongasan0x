@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["discord_dashboard", "rollcall/migrations"]
+
+[tool.ruff.lint]
+select = ["F401", "F811"]  # Unused imports, redefined names
+ignore = []
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]

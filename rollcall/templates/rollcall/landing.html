@@ -1,0 +1,123 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="The Roll Call of the Crypto Phalanx - Where honor is tallied and the shields stand unbroken">
+    <title>Strong as an 0x</title>
+
+    <!-- Landing Page CSS -->
+    <link rel="stylesheet" href="{% static 'rollcall/css/landing.css' %}">
+
+    <!-- Favicon (optional) -->
+    <link rel="icon" type="image/png" href="{% static 'rollcall/images/scroll-top.png' %}">
+</head>
+<body>
+
+    <!-- ===================================================
+         VIDEO BACKGROUND - Looping Battlefield Scene
+         =================================================== -->
+    <div class="video-background">
+        <video autoplay muted loop playsinline>
+            <source src="{{ video_url }}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+
+    <!-- ===================================================
+         MAIN LANDING CONTENT - Parchment Scroll Overlay
+         =================================================== -->
+    <main class="landing-container">
+        <div class="parchment-scroll">
+
+            <!-- Scroll Container with Tessellated Background -->
+            <div class="scroll-container">
+
+                <!-- Scroll Top Image -->
+                <div class="scroll-top"></div>
+
+                <!-- Scroll Middle - Repeating Tessellation -->
+                <div class="scroll-middle">
+                    <div class="scroll-content">
+
+                        <!-- Main Header -->
+                        <h1 class="scroll-header" style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Great Vibes'{% endif %}, cursive;">
+                           Strong as an 0x 
+                        </h1>
+
+                        <!-- Subtitle / Tagline -->
+                        <p class="scroll-subtitle" style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                           Submit weekly or proceed weakly  
+                        </p>
+
+                        <!-- Week Navigation and Date -->
+                        <div class="week-navigation" style="margin: 20px 0; text-align: center; font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Great Vibes'{% endif %}, cursive; font-size: 1.3rem; font-weight: 400;">
+                            {% if has_previous_week %}
+                            <a href="?date={{ previous_week_date }}" class="footer-link" style="margin-right: 20px;">← Previous Week</a>
+                            {% endif %}
+                            {% if weekly_roll_call %}
+                            <span style="margin: 0 15px;">Week of {{ weekly_roll_call.week_start_date|date:"F d, Y" }} - {{ weekly_roll_call.week_end_date|date:"F d, Y" }}</span>
+                            {% endif %}
+                            {% if has_next_week %}
+                            <a href="?date={{ next_week_date }}" class="footer-link" style="margin-left: 20px;">Next Week →</a>
+                            {% endif %}
+                        </div>
+
+                       
+                        <!-- The Roll Call List -->
+                        {% if weekly_roll_call and rankings %}
+                        <ol class="roll-call-list">
+                            {% for ranking in rankings %}
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                                {% if ranking.twitter_handle %}
+                                <a href="https://x.com/{{ ranking.twitter_handle }}" target="_blank" rel="noopener noreferrer" class="roll-call-link">{{ ranking.display_name|default:ranking.name }}</a>
+                                {% else %}
+                                <span class="roll-call-link" style="text-decoration: none; cursor: default;">{{ ranking.display_name|default:ranking.name }}</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ol>
+                        {% elif not weekly_roll_call %}
+                        <!-- Fallback hardcoded list if no data exists -->
+                        <ol class="roll-call-list">
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/rektdiomedes" target="_blank" rel="noopener noreferrer" class="roll-call-link">RektDiomedes</a></li>
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/johnnyonline_" target="_blank" rel="noopener noreferrer" class="roll-call-link">JohnnyOnline</a></li>
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/curvecap" target="_blank" rel="noopener noreferrer" class="roll-call-link">CurveCap</a></li>
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/0x_vikt0r" target="_blank" rel="noopener noreferrer" class="roll-call-link">0x_Vikt0r</a></li>
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/Rozengarden_eth" target="_blank" rel="noopener noreferrer" class="roll-call-link">Alice Rozengarden</a></li>
+                            <li style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;"><a href="https://x.com/mcitizen42" target="_blank" rel="noopener noreferrer" class="roll-call-link">Citizen 42</a></li>
+                        </ol>
+                        {% endif %}
+
+                        <!-- Post Preview Text -->
+                        {% if weekly_roll_call %}
+                        <div class="post-preview" style="margin: 20px 0; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                            <p style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                                {{ weekly_roll_call.full_text|linebreaks|truncatewords:100 }}
+                            </p>
+                            {% if weekly_roll_call.substack_url %}
+                            <p style="margin-top: 10px; text-align: center; font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                                <a href="{% url 'ab_track_redirect' 'read_post' %}?week={{ current_week_start|date:'Y-m-d' }}" class="footer-link">Read Full Post →</a>
+                            </p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <!-- Footer -->
+                        <p class="scroll-footer" style="font-family: {% if ab_variant == 'A' %}'Satisfy'{% else %}'Dancing Script'{% endif %}, cursive;">
+                            <a href="{% url 'ab_track_redirect' 'join' %}" class="footer-link">Join</a>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Scroll Bottom Image -->
+                <div class="scroll-bottom"></div>
+
+            </div>
+
+        </div>
+    </main>
+
+</body>
+</html>

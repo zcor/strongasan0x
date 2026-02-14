@@ -1,0 +1,90 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Dashboard - Warrior Dashboard{% endblock %}
+
+{% block content %}
+<!-- Current Week Status -->
+<div class="warrior-card">
+    <h2>Current Week</h2>
+    {% if current_roll_call %}
+    <p>Week of {{ current_roll_call.week_start_date|date:"F d" }} - {{ current_roll_call.week_end_date|date:"F d, Y" }}</p>
+
+    {% if current_attestation %}
+    <p>
+        <span class="status-badge status-submitted">Attestation Submitted</span>
+        <span style="margin-left: 10px; font-size: 0.9rem; color: #87ceeb;">
+            Posted {{ current_attestation.posted_at|date:"M d, Y H:i" }}
+        </span>
+    </p>
+
+    <div class="attestation-text" style="margin-top: 15px;">
+        {{ current_attestation.raw_text }}
+    </div>
+
+    {% if current_attestation.has_attachments %}
+    <p style="margin-top: 10px; font-size: 0.9rem; color: #87ceeb;">
+        Attachments: {{ current_attestation.attachment_count }}
+    </p>
+    {% endif %}
+
+    <div style="margin-top: 20px;">
+        <a href="{% url 'warrior:edit' %}" class="btn btn-primary">Edit Attestation</a>
+    </div>
+
+    {% else %}
+    <p><span class="status-badge status-pending">No Attestation Yet</span></p>
+    <p style="margin-top: 15px; color: #87ceeb;">
+        Submit your attestation to record your progress for this week.
+    </p>
+    <div style="margin-top: 20px;">
+        <a href="{% url 'warrior:edit' %}" class="btn btn-primary">Create Attestation</a>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <p style="color: #87ceeb;">No active roll call available.</p>
+    {% endif %}
+</div>
+
+<!-- Strava Integration -->
+<div class="warrior-card">
+    <h2>Strava Integration</h2>
+    {% if strava_auth %}
+    <p>
+        <span class="status-badge status-submitted">Connected</span>
+        <span style="margin-left: 10px;">{{ strava_auth.athlete_data.firstname }} {{ strava_auth.athlete_data.lastname }}</span>
+    </p>
+    <div style="margin-top: 15px;">
+        <a href="{% url 'warrior:strava_attestation' %}" class="btn btn-primary">Generate Attestation</a>
+        <form method="post" action="{% url 'warrior:unlink_strava' %}" style="display: inline; margin-left: 10px;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-secondary" onclick="return confirm('Unlink your Strava account?')">Unlink</button>
+        </form>
+    </div>
+    {% else %}
+    <p style="color: #87ceeb;">
+        Connect your Strava account to auto-generate weekly attestations from your activities.
+    </p>
+    <div style="margin-top: 15px;">
+        <a href="{% url 'warrior:link_strava' %}" class="btn btn-primary">Link Strava</a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Profile Info -->
+{% if telegram_user %}
+<div class="warrior-card">
+    <h2>Your Profile</h2>
+    <p><strong>Telegram:</strong> {{ telegram_user.telegram_first_name }} {{ telegram_user.telegram_last_name }}</p>
+    {% if telegram_user.telegram_username %}
+    <p><strong>Username:</strong> @{{ telegram_user.telegram_username }}</p>
+    {% endif %}
+    {% if telegram_user.linked_name %}
+    <p><strong>Contest Name:</strong> {{ telegram_user.linked_name }}</p>
+    {% endif %}
+    {% if telegram_user.linked_twitter_handle %}
+    <p><strong>Twitter:</strong> @{{ telegram_user.linked_twitter_handle }}</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

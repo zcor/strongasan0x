@@ -1,0 +1,33 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Login Error - Warrior Dashboard{% endblock %}
+
+{% block header %}
+<div class="warrior-header" style="justify-content: center;">
+    <h1>Warrior Dashboard</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="warrior-card" style="text-align: center; max-width: 500px; margin: 50px auto;">
+    <h2>Login Error</h2>
+
+    <div style="padding: 20px; background: rgba(255,107,107,0.1); border-radius: 8px; margin: 20px 0; border: 1px solid rgba(255,107,107,0.3);">
+        <p style="color: #ff6b6b; margin: 0; font-size: 1.1rem;">
+            {{ error }}
+        </p>
+    </div>
+
+    <div style="margin-top: 30px;">
+        <a href="{% url 'warrior:login' %}" class="btn btn-primary">
+            Try Again
+        </a>
+    </div>
+</div>
+
+<div class="warrior-card" style="max-width: 500px; margin: 20px auto; text-align: center;">
+    <p style="font-size: 0.9rem; color: #87ceeb;">
+        <a href="/" style="color: #ffd700;">Return to main site</a>
+    </p>
+</div>
+{% endblock %}

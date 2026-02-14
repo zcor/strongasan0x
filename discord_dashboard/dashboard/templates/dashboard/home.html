@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}Discord Intelligence Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-4 text-primary">
+                <i class="fab fa-discord"></i> Discord Intelligence Dashboard
+            </h1>
+            <p class="lead text-muted">Real-time project coordination insights</p>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="card-title">{{ stats.total_messages|default:0 }}</h4>
+                            <p class="card-text">Total Messages</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-comments fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="card-title">{{ stats.total_users|default:0 }}</h4>
+                            <p class="card-text">Total Users</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-users fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="card-title">{{ stats.messages_today|default:0 }}</h4>
+                            <p class="card-text">Messages Today</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-calendar-day fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="card-title">{{ stats.active_users_today|default:0 }}</h4>
+                            <p class="card-text">Active Today</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-user-check fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="row">
+        <!-- Recent Messages Timeline -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-stream"></i> Recent Activity Timeline
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="messages-timeline" style="max-height: 600px; overflow-y: auto;">
+                        {% for message in recent_messages %}
+                        <div class="message-item border-bottom py-3">
+                            <div class="d-flex">
+                                <div class="flex-shrink-0 me-3">
+                                    {% if message.author.avatar_url %}
+                                    <img src="{{ message.author.avatar_url }}" 
+                                         class="rounded-circle" 
+                                         width="40" height="40" 
+                                         alt="{{ message.author.username }}">
+                                    {% else %}
+                                    <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" 
+                                         style="width: 40px; height: 40px;">
+                                        <i class="fas fa-user text-white"></i>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <strong class="text-primary">{{ message.author.display_name|default:message.author.username }}</strong>
+                                            <span class="text-muted small ms-2">#{{ message.channel.name }}</span>
+                                        </div>
+                                        <small class="text-muted">{{ message.timestamp|date:"M d, Y H:i" }}</small>
+                                    </div>
+                                    <div class="mt-1">
+                                        <p class="mb-0">{{ message.content|truncatewords:30 }}</p>
+                                        {% if message.has_attachments %}
+                                        <small class="text-info">
+                                            <i class="fas fa-paperclip"></i> {{ message.attachment_count }} attachment(s)
+                                        </small>
+                                        {% endif %}
+                                        {% if message.has_embeds %}
+                                        <small class="text-info ms-2">
+                                            <i class="fas fa-link"></i> {{ message.embed_count }} embed(s)
+                                        </small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-comments fa-3x mb-3"></i>
+                            <p>No recent messages found. The bot may still be syncing data.</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Sidebar -->
+        <div class="col-lg-4">
+            <!-- Top Channels -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-hashtag"></i> Most Active Channels
+                    </h6>
+                </div>
+                <div class="card-body">
+                    {% for channel in channel_stats.top_channels %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <span class="text-primary">#{{ channel.name }}</span>
+                            <small class="text-muted d-block">{{ channel.server.name }}</small>
+                        </div>
+                        <span class="badge bg-primary">{{ channel.message_count }}</span>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted small">No channel data available</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Top Users -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-trophy"></i> Most Active Users
+                    </h6>
+                </div>
+                <div class="card-body">
+                    {% for user in user_stats.top_users %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center">
+                            {% if user.avatar_url %}
+                            <img src="{{ user.avatar_url }}" 
+                                 class="rounded-circle me-2" 
+                                 width="24" height="24" 
+                                 alt="{{ user.username }}">
+                            {% else %}
+                            <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-2" 
+                                 style="width: 24px; height: 24px;">
+                                <i class="fas fa-user text-white" style="font-size: 10px;"></i>
+                            </div>
+                            {% endif %}
+                            <span>{{ user.display_name|default:user.username }}</span>
+                        </div>
+                        <span class="badge bg-success">{{ user.message_count }}</span>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted small">No user data available</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Activity Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-chart-line"></i> Weekly Activity
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="activityChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Auto-refresh script -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-refresh every 30 seconds
+    setInterval(function() {
+        fetch('/api/messages/?limit=50')
+            .then(response => response.json())
+            .then(data => {
+                // Update timeline with new messages
+                updateTimeline(data.messages);
+            })
+            .catch(error => console.error('Error fetching messages:', error));
+    }, 30000);
+});
+
+function updateTimeline(messages) {
+    const timeline = document.getElementById('messages-timeline');
+    if (messages.length === 0) return;
+    
+    // Simple update - in production, you'd want more sophisticated diffing
+    location.reload();
+}
+</script>
+{% endblock %}
+
+
+
+
+

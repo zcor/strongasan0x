@@ -1,0 +1,467 @@
+{% extends "rollcall/base.html" %}
+
+{% block title %}Review Attestations{% endblock %}
+
+{% block content %}
+<style>
+    .review-container {
+        max-width: 1000px;
+        margin: 30px auto;
+        padding: 0 20px;
+    }
+    .review-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .week-selector {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .week-selector select {
+        padding: 8px 12px;
+        font-size: 14px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+    }
+    .stats-summary {
+        background: #f8f9fa;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        gap: 30px;
+        flex-wrap: wrap;
+    }
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+    }
+    .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+    }
+    .stat-label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+    }
+    .add-section {
+        margin-bottom: 30px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+    }
+    .add-section summary {
+        padding: 15px 20px;
+        cursor: pointer;
+        font-weight: 600;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .add-section[open] summary {
+        border-radius: 8px 8px 0 0;
+        border-bottom: 1px solid #ddd;
+    }
+    .add-form {
+        padding: 20px;
+    }
+    .add-form .form-row {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+    }
+    .add-form .form-group {
+        flex: 1;
+        min-width: 200px;
+    }
+    .add-form label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        font-size: 14px;
+    }
+    .add-form select,
+    .add-form textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    .add-form textarea {
+        min-height: 150px;
+        font-family: inherit;
+    }
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    .btn-primary {
+        background: #007bff;
+        color: white;
+    }
+    .btn-primary:hover {
+        background: #0056b3;
+    }
+    .btn-danger {
+        background: #dc3545;
+        color: white;
+    }
+    .btn-danger:hover {
+        background: #c82333;
+    }
+    .btn-success {
+        background: #28a745;
+        color: white;
+    }
+    .btn-success:hover {
+        background: #218838;
+    }
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+    .attestation-card {
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        transition: opacity 0.2s;
+    }
+    .attestation-card.hidden-attestation {
+        opacity: 0.6;
+        border-left: 4px solid #dc3545;
+    }
+    .attestation-card summary {
+        padding: 15px 20px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .attestation-card summary::-webkit-details-marker {
+        margin-right: 10px;
+    }
+    .user-name {
+        font-weight: 600;
+        font-size: 16px;
+    }
+    .badge {
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        background: #e9ecef;
+        color: #495057;
+    }
+    .badge-hidden {
+        background: #dc3545;
+        color: white;
+    }
+    .badge-source {
+        background: #007bff;
+        color: white;
+    }
+    .attestation-content {
+        padding: 0 20px 20px;
+    }
+    .attestation-text {
+        white-space: pre-wrap;
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+        max-height: 400px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+    }
+    .attestation-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: #666;
+        font-size: 13px;
+    }
+    .part-separator {
+        margin: 20px 0;
+        border: none;
+        border-top: 1px dashed #ccc;
+    }
+    .part-label {
+        font-style: italic;
+        color: #666;
+        margin-bottom: 10px;
+    }
+    .no-attestations {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+    }
+    .no-attestations h3 {
+        margin-bottom: 10px;
+    }
+</style>
+
+<div class="review-container">
+    <div class="review-header">
+        <h2>Review Attestations</h2>
+
+        <form method="get" class="week-selector">
+            <label for="week-select">Week:</label>
+            <select name="week" id="week-select" onchange="this.form.submit()">
+                {% for week in available_weeks %}
+                    <option value="{{ week.week_end_date }}" {% if current_week and week.id == current_week.id %}selected{% endif %}>
+                        {{ week.week_start_date|date:"M j" }} - {{ week.week_end_date|date:"M j, Y" }}
+                    </option>
+                {% empty %}
+                    <option value="">No weeks available</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+
+    {% if current_week %}
+    <div class="stats-summary">
+        <div class="stat-item">
+            <span class="stat-value">{{ participant_count }}</span>
+            <span class="stat-label">Participants</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-value">{{ total_count }}</span>
+            <span class="stat-label">Attestations</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-value">{{ hidden_count }}</span>
+            <span class="stat-label">Hidden</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-value">{{ active_count }}</span>
+            <span class="stat-label">Active</span>
+        </div>
+    </div>
+
+    <details class="add-section">
+        <summary>+ Add Missing Attestation</summary>
+        <form method="post" action="{% url 'add_manual_attestation' %}" class="add-form">
+            {% csrf_token %}
+            <input type="hidden" name="week_id" value="{{ current_week.id }}">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="user_type">Platform</label>
+                    <select name="user_type" id="user_type" onchange="updateUserDropdown()">
+                        <option value="discord">Discord</option>
+                        <option value="telegram">Telegram</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="user_id">User</label>
+                    <select name="user_id" id="user_id">
+                        <optgroup label="Discord Users" id="discord-users">
+                            {% for user in discord_users %}
+                                <option value="{{ user.id }}" data-type="discord">
+                                    {{ user.linked_name }} ({{ user.discord_username }})
+                                </option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Telegram Users" id="telegram-users" style="display: none;">
+                            {% for user in telegram_users %}
+                                <option value="{{ user.id }}" data-type="telegram">
+                                    {{ user.linked_name }} ({{ user.telegram_first_name }})
+                                </option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="text">Attestation Text</label>
+                <textarea name="text" id="text" placeholder="Paste the attestation text here..." required></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Add Attestation</button>
+        </form>
+    </details>
+
+    {% if attestations_by_user %}
+        {% for user_name, attestations in attestations_by_user.items %}
+            {% with att=attestations.0 %}
+            <div class="attestation-card {% if att.is_hidden %}hidden-attestation{% endif %}" id="card-{{ att.id }}">
+                <details open>
+                    <summary>
+                        <span class="user-name">{{ user_name }}</span>
+                        <span class="badge badge-source">{{ att.source|title }}</span>
+                        {% if att.parts.count > 0 %}
+                            <span class="badge">{{ att.parts.count|add:1 }} parts</span>
+                        {% endif %}
+                        {% if att.has_attachments %}
+                            <span class="badge">{{ att.attachment_count }} attachment(s)</span>
+                        {% endif %}
+                        {% if att.is_hidden %}
+                            <span class="badge badge-hidden">HIDDEN</span>
+                        {% endif %}
+                    </summary>
+
+                    <div class="attestation-content">
+                        <pre class="attestation-text">{{ att.raw_text }}</pre>
+
+                        {% for part in att.parts.all %}
+                            {% if part.part_number > 1 %}
+                                <hr class="part-separator">
+                                <p class="part-label">Part {{ part.part_number }}</p>
+                                <pre class="attestation-text">{{ part.raw_text }}</pre>
+                                {% if part.has_attachments %}
+                                    <p style="color: #666; font-size: 13px;">Attachments: {{ part.attachment_count }}</p>
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+
+                        <div class="attestation-meta">
+                            <span>
+                                Posted: {{ att.posted_at|date:"M j, Y g:i A" }}
+                                {% if att.parsed_data.manually_added %}
+                                    &bull; Manually added by {{ att.parsed_data.added_by }}
+                                {% endif %}
+                            </span>
+                            <button
+                                onclick="toggleHidden({{ att.id }})"
+                                class="btn btn-sm {% if att.is_hidden %}btn-success{% else %}btn-danger{% endif %}"
+                                id="toggle-btn-{{ att.id }}"
+                            >
+                                {% if att.is_hidden %}Unhide{% else %}Hide{% endif %}
+                            </button>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            {% endwith %}
+        {% endfor %}
+    {% else %}
+        <div class="no-attestations">
+            <h3>No attestations for this week</h3>
+            <p>Use the form above to add attestations manually.</p>
+        </div>
+    {% endif %}
+
+    {% else %}
+    <div class="no-attestations">
+        <h3>No weeks available</h3>
+        <p>Create a WeeklyRollCall first.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+async function toggleHidden(attestationId) {
+    const btn = document.getElementById('toggle-btn-' + attestationId);
+    const card = document.getElementById('card-' + attestationId);
+
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const response = await fetch(`/review-attestations/toggle-hidden/${attestationId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            if (data.is_hidden) {
+                card.classList.add('hidden-attestation');
+                btn.textContent = 'Unhide';
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-success');
+                // Add hidden badge if not present
+                const summary = card.querySelector('summary');
+                if (!summary.querySelector('.badge-hidden')) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge badge-hidden';
+                    badge.textContent = 'HIDDEN';
+                    summary.appendChild(badge);
+                }
+            } else {
+                card.classList.remove('hidden-attestation');
+                btn.textContent = 'Hide';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-danger');
+                // Remove hidden badge
+                const hiddenBadge = card.querySelector('.badge-hidden');
+                if (hiddenBadge) hiddenBadge.remove();
+            }
+        } else {
+            alert('Failed to update attestation');
+            btn.textContent = card.classList.contains('hidden-attestation') ? 'Unhide' : 'Hide';
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error updating attestation');
+        btn.textContent = card.classList.contains('hidden-attestation') ? 'Unhide' : 'Hide';
+    }
+
+    btn.disabled = false;
+}
+
+function updateUserDropdown() {
+    const userType = document.getElementById('user_type').value;
+    const userSelect = document.getElementById('user_id');
+    const options = userSelect.querySelectorAll('option');
+
+    // Hide all options first
+    options.forEach(opt => {
+        if (opt.dataset.type === userType) {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+
+    // Select first visible option
+    for (let opt of options) {
+        if (opt.style.display !== 'none') {
+            userSelect.value = opt.value;
+            break;
+        }
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', updateUserDropdown);
+</script>
+{% endblock %}

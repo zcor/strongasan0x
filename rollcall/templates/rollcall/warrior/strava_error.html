@@ -1,0 +1,11 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Strava Error - Warrior Dashboard{% endblock %}
+
+{% block content %}
+<div class="warrior-card">
+    <h2 style="color: #dc3545;">Strava Connection Error</h2>
+    <p style="color: #e0e0e0; margin-bottom: 20px;">{{ error }}</p>
+    <a href="{% url 'warrior:dashboard' %}" class="btn btn-primary">Back to Dashboard</a>
+</div>
+{% endblock %}

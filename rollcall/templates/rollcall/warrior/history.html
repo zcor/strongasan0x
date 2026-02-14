@@ -1,0 +1,41 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}History - Warrior Dashboard{% endblock %}
+
+{% block content %}
+<div class="warrior-card">
+    <h2>Attestation History</h2>
+
+    {% if attestations %}
+    {% for attestation in attestations %}
+    <div style="margin-bottom: 25px; padding-bottom: 25px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+            <h3 style="margin: 0; color: #ffd700; font-size: 1.1rem;">
+                Week of {{ attestation.weekly_roll_call.week_start_date|date:"M d" }} - {{ attestation.weekly_roll_call.week_end_date|date:"M d, Y" }}
+            </h3>
+            <span style="font-size: 0.85rem; color: #87ceeb;">
+                Posted {{ attestation.posted_at|date:"M d, Y H:i" }}
+            </span>
+        </div>
+
+        <details>
+            <summary style="cursor: pointer; color: #87ceeb; padding: 10px 0;">
+                View Attestation
+            </summary>
+            <div class="attestation-text" style="margin-top: 10px;">
+                {{ attestation.raw_text }}
+            </div>
+            {% if attestation.has_attachments %}
+            <p style="margin-top: 10px; font-size: 0.9rem; color: #87ceeb;">
+                Attachments: {{ attestation.attachment_count }}
+            </p>
+            {% endif %}
+        </details>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="color: #87ceeb;">No attestations found. Start by creating your first attestation!</p>
+    <a href="{% url 'warrior:edit' %}" class="btn btn-primary" style="margin-top: 15px;">Create Attestation</a>
+    {% endif %}
+</div>
+{% endblock %}

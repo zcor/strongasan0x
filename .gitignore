@@ -1,0 +1,58 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Database
+*.sqlite3
+db.sqlite3*
+
+# Logs
+logs/
+*.log
+
+# Personal data files (targeted paths, not blanket extensions)
+/attestations_*.txt
+/ranked_attestations.txt
+/roll_call_text_*.txt
+/*-*.txt
+/ode_*.txt
+/substack_*.txt
+/discord_inventory_*.json
+/rankings_*.json
+/attestations.txt
+
+# Root scripts (not copied to new repo)
+/import_*.py
+/manual_import.py
+/test_*.py
+/research_*.py
+/fix_*.py
+/parse_*.py
+/*.sh
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.backup*
+
+# Claude
+.claude/

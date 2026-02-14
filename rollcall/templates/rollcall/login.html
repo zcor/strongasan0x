@@ -1,0 +1,42 @@
+{% extends "rollcall/base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 600px; margin: 50px auto;">
+    <h2>Login to Your Account</h2>
+    <p>Link your Discord and Telegram accounts to manage your attestations.</p>
+    
+    <div class="login-options" style="margin-top: 30px;">
+        <div class="login-option" style="border: 1px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h3>Discord Login</h3>
+            <p>Connect with Discord to link your account</p>
+            <a href="#" class="btn btn-primary" style="display: inline-block; padding: 10px 20px; background: #5865F2; color: white; text-decoration: none; border-radius: 4px;">
+                Login with Discord
+            </a>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                Note: Discord OAuth integration coming soon. For now, contact admin to link your account.
+            </p>
+        </div>
+        
+        <div class="login-option" style="border: 1px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h3>Telegram Login</h3>
+            <p>Connect with Telegram to link your account</p>
+            <a href="#" class="btn btn-primary" style="display: inline-block; padding: 10px 20px; background: #0088cc; color: white; text-decoration: none; border-radius: 4px;">
+                Login with Telegram
+            </a>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                Note: Telegram OAuth integration coming soon. For now, contact admin to link your account.
+            </p>
+        </div>
+    </div>
+    
+    <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
+        <p><strong>Need help?</strong></p>
+        <p>To link your accounts, you'll need to contact an administrator with your Discord/Telegram user IDs.</p>
+    </div>
+</div>
+{% endblock %}
+
+
+

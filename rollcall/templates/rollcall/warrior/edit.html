@@ -1,0 +1,51 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Edit Attestation - Warrior Dashboard{% endblock %}
+
+{% block content %}
+<div class="warrior-card">
+    <h2>{% if attestation %}Edit{% else %}Create{% endif %} Attestation</h2>
+
+    {% if current_roll_call %}
+    <p style="margin-bottom: 20px; color: #87ceeb;">
+        Week of {{ current_roll_call.week_start_date|date:"F d" }} - {{ current_roll_call.week_end_date|date:"F d, Y" }}
+    </p>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div style="margin-bottom: 20px;">
+            <label for="raw_text" style="display: block; margin-bottom: 10px; font-weight: 600;">
+                Attestation Text
+            </label>
+            <textarea
+                id="raw_text"
+                name="raw_text"
+                placeholder="Write your weekly attestation here...
+
+Example:
+## Sunday
+- Morning run: 5 miles
+- Evening yoga: 30 minutes
+
+## Monday
+- Gym workout: chest and back
+- Steps: 12,000"
+                required
+            >{% if attestation %}{{ attestation.raw_text }}{% endif %}</textarea>
+        </div>
+
+        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <button type="submit" class="btn btn-primary">
+                {% if attestation %}Update{% else %}Submit{% endif %} Attestation
+            </button>
+            <a href="{% url 'warrior:dashboard' %}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+
+    {% else %}
+    <p style="color: #ff6b6b;">No active roll call available. Please try again later.</p>
+    <a href="{% url 'warrior:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    {% endif %}
+</div>
+{% endblock %}

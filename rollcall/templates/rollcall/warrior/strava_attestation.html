@@ -1,0 +1,176 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Strava Attestation - Warrior Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .copy-btn {
+        background: linear-gradient(135deg, #fc4c02 0%, #ff6b35 100%);
+        color: white;
+    }
+    .copy-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(252, 76, 2, 0.3);
+    }
+    .activity-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    .activity-item {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 12px 15px;
+        margin-bottom: 10px;
+        border-left: 3px solid #fc4c02;
+    }
+    .activity-name {
+        color: #ffd700;
+        font-weight: 600;
+    }
+    .activity-details {
+        color: #87ceeb;
+        font-size: 0.9rem;
+        margin-top: 5px;
+    }
+    .totals-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .total-item {
+        background: rgba(252, 76, 2, 0.1);
+        border-radius: 8px;
+        padding: 15px;
+        text-align: center;
+    }
+    .total-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #fc4c02;
+    }
+    .total-label {
+        font-size: 0.8rem;
+        color: #87ceeb;
+        margin-top: 5px;
+    }
+    .sync-message {
+        background: rgba(40, 167, 69, 0.1);
+        border-radius: 8px;
+        padding: 10px 15px;
+        margin-bottom: 15px;
+        color: #28a745;
+        font-size: 0.9rem;
+    }
+    #attestation-text {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 20px;
+        white-space: pre-wrap;
+        font-family: inherit;
+        line-height: 1.6;
+        margin-bottom: 20px;
+    }
+    .copied-toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #28a745;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        display: none;
+        z-index: 1000;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="warrior-card">
+    <h2>Weekly Strava Attestation</h2>
+    <p>Week of {{ week_start|date:"F d" }} - {{ week_end|date:"F d, Y" }}</p>
+
+    {% if sync_message %}
+    <div class="sync-message">{{ sync_message }}</div>
+    {% endif %}
+
+    {% if activities %}
+    <!-- Weekly Totals -->
+    <div class="totals-grid">
+        <div class="total-item">
+            <div class="total-value">{{ activity_count }}</div>
+            <div class="total-label">Activities</div>
+        </div>
+        <div class="total-item">
+            <div class="total-value">{{ total_time_formatted }}</div>
+            <div class="total-label">Moving Time</div>
+        </div>
+        <div class="total-item">
+            <div class="total-value">{{ total_distance_miles }} mi</div>
+            <div class="total-label">Distance</div>
+        </div>
+        <div class="total-item">
+            <div class="total-value">{{ total_elevation_feet }} ft</div>
+            <div class="total-label">Elevation</div>
+        </div>
+    </div>
+
+    <!-- Activity List -->
+    <h3 style="color: #ffd700; margin-bottom: 15px;">Activities</h3>
+    <ul class="activity-list">
+        {% for activity in activities %}
+        <li class="activity-item">
+            <div class="activity-name">{{ activity.name }}</div>
+            <div class="activity-details">
+                {{ activity.sport_type }} &bull;
+                {{ activity.moving_time_formatted }} &bull;
+                {% if activity.distance_miles %}{{ activity.distance_miles|floatformat:1 }} mi{% endif %}
+                {% if activity.total_elevation_gain %} &bull; {{ activity.elevation_gain_feet|floatformat:0 }} ft elev{% endif %}
+                {% if activity.average_heartrate %} &bull; {{ activity.average_heartrate|floatformat:0 }} avg HR{% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <!-- Generated Attestation Text -->
+    <h3 style="color: #ffd700; margin: 25px 0 15px;">Generated Attestation</h3>
+    <div id="attestation-text">WEEKLY HEALTH ATTESTATION
+Week of {{ week_start|date:"M d" }} - {{ week_end|date:"M d, Y" }}
+
+{{ activity_count }} activities this week ({{ total_time_formatted }} total moving time)
+Total distance: {{ total_distance_miles }} miles
+Total elevation: {{ total_elevation_feet }} feet
+
+ACTIVITIES:
+{% for activity in activities %}
+- {{ activity.start_date_local|date:"l" }}: {{ activity.name }} ({{ activity.sport_type }})
+  Duration: {{ activity.moving_time_formatted }}{% if activity.distance_miles %}, Distance: {{ activity.distance_miles|floatformat:1 }} mi{% endif %}{% if activity.average_heartrate %}, Avg HR: {{ activity.average_heartrate|floatformat:0 }}{% endif %}
+{% endfor %}</div>
+
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <button id="copy-btn" class="btn copy-btn" onclick="copyAttestation()">Copy to Clipboard</button>
+        <a href="{% url 'warrior:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    {% else %}
+    <p style="color: #87ceeb;">No activities found for this week. Make sure you have activities logged in Strava!</p>
+    <a href="{% url 'warrior:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    {% endif %}
+</div>
+
+<div id="copied-toast" class="copied-toast">Copied to clipboard!</div>
+
+<script>
+function copyAttestation() {
+    const text = document.getElementById('attestation-text').innerText;
+    navigator.clipboard.writeText(text).then(function() {
+        const toast = document.getElementById('copied-toast');
+        toast.style.display = 'block';
+        setTimeout(function() {
+            toast.style.display = 'none';
+        }, 2000);
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,132 @@
+{% extends "rollcall/base.html" %}
+{% load timezone_filters %}
+
+{% block title %}My Account{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 900px; margin: 30px auto;">
+    <h2>My Account</h2>
+    
+    <!-- Linked Accounts Section -->
+    <div class="account-section" style="margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        <h3>Linked Accounts</h3>
+        
+        <div style="margin: 20px 0;">
+            <h4>Discord</h4>
+            {% if discord_mapping %}
+                <p>✅ Linked: <strong>{{ discord_mapping.discord_username }}</strong></p>
+                {% if discord_mapping.linked_name %}
+                    <p>Contest Name: <strong>{{ discord_mapping.linked_name }}</strong></p>
+                {% endif %}
+                <form method="post" action="{% url 'unlink_discord' %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger" style="padding: 5px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Unlink Discord
+                    </button>
+                </form>
+            {% else %}
+                <p>❌ Not linked</p>
+                <p style="font-size: 0.9em; color: #666;">Contact admin to link your Discord account</p>
+            {% endif %}
+        </div>
+        
+        <div style="margin: 20px 0;">
+            <h4>Telegram</h4>
+            {% if telegram_mapping %}
+                <p>✅ Linked: <strong>{{ telegram_mapping.telegram_first_name }} {{ telegram_mapping.telegram_last_name }}</strong></p>
+                {% if telegram_mapping.telegram_username %}
+                    <p>Username: @{{ telegram_mapping.telegram_username }}</p>
+                {% endif %}
+                {% if telegram_mapping.linked_name %}
+                    <p>Contest Name: <strong>{{ telegram_mapping.linked_name }}</strong></p>
+                {% endif %}
+                <form method="post" action="{% url 'unlink_telegram' %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger" style="padding: 5px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Unlink Telegram
+                    </button>
+                </form>
+            {% else %}
+                <p>❌ Not linked</p>
+                <p style="font-size: 0.9em; color: #666;">Contact admin to link your Telegram account</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Current Week Status -->
+    <div class="account-section" style="margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        <h3>Current Week Status</h3>
+        {% if current_roll_call %}
+            <p>Week of {{ current_roll_call.week_start_date }} to {{ current_roll_call.week_end_date }}</p>
+            
+            {% if current_week_attestation %}
+                <p>✅ <strong>Attestation Submitted</strong></p>
+                        <p>Posted: {{ current_week_attestation.posted_at|date:"Y-m-d H:i" }}</p>
+                <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
+                    <h4>Your Attestation:</h4>
+                    {% with main_part=current_week_attestation additional_parts=current_week_attestation.parts.all %}
+                        <pre style="white-space: pre-wrap; font-family: inherit;">{{ main_part.raw_text }}</pre>
+                        {% if main_part.has_attachments %}
+                            <p>📎 {{ main_part.attachment_count }} attachment(s)</p>
+                        {% endif %}
+                        {% for part in additional_parts %}
+                            {% if part.part_number > 1 %}
+                                <hr style="margin: 20px 0;">
+                                <p><em>Part {{ part.part_number }}</em></p>
+                                <pre style="white-space: pre-wrap; font-family: inherit;">{{ part.raw_text }}</pre>
+                                {% if part.has_attachments %}
+                                    <p>📎 {{ part.attachment_count }} attachment(s)</p>
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endwith %}
+                </div>
+            {% else %}
+                <p>❌ <strong>No Attestation Submitted</strong></p>
+                <p>Post your attestation in Discord #attestations channel or Telegram group to submit.</p>
+            {% endif %}
+        {% else %}
+            <p>No roll call data available</p>
+        {% endif %}
+    </div>
+    
+    <!-- Attestation History -->
+    <div class="account-section" style="margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        <h3>Attestation History</h3>
+        {% if user_attestations %}
+            <div class="attestation-list">
+                {% for attestation in user_attestations %}
+                    <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 4px;">
+                        <h4>Week of {{ attestation.weekly_roll_call.week_start_date }}</h4>
+                        <p>Posted: {{ attestation.posted_at|date:"Y-m-d H:i" }} via {{ attestation.source|title }}</p>
+                        <details>
+                            <summary style="cursor: pointer; color: #007bff;">View Attestation</summary>
+                            <div style="margin-top: 10px;">
+                                {% with main_part=attestation additional_parts=attestation.parts.all %}
+                                    <pre style="white-space: pre-wrap; font-family: inherit;">{{ main_part.raw_text }}</pre>
+                                    {% if main_part.has_attachments %}
+                                        <p>📎 {{ main_part.attachment_count }} attachment(s)</p>
+                                    {% endif %}
+                                    {% for part in additional_parts %}
+                                        {% if part.part_number > 1 %}
+                                            <hr style="margin: 15px 0;">
+                                            <p><em>Part {{ part.part_number }}</em></p>
+                                            <pre style="white-space: pre-wrap; font-family: inherit;">{{ part.raw_text }}</pre>
+                                            {% if part.has_attachments %}
+                                                <p>📎 {{ part.attachment_count }} attachment(s)</p>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endwith %}
+                            </div>
+                        </details>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No attestations found</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Warrior Dashboard{% endblock %}</title>
+    {% block extra_head %}{% endblock %}
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        .warrior-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .warrior-header {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .warrior-header h1 {
+            margin: 0;
+            color: #ffd700;
+            font-size: 1.5rem;
+        }
+        .warrior-nav {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .warrior-nav a {
+            color: #87ceeb;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .warrior-nav a:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffd700;
+        }
+        .warrior-nav a.active {
+            background: rgba(255, 215, 0, 0.2);
+            color: #ffd700;
+        }
+        .warrior-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .warrior-card h2 {
+            color: #ffd700;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1a1a2e;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .user-info {
+            color: #87ceeb;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .attestation-text {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-family: inherit;
+            line-height: 1.6;
+        }
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 1rem;
+            line-height: 1.6;
+            resize: vertical;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status-submitted {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+        .status-pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        @media (max-width: 600px) {
+            .warrior-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            .user-info {
+                flex-direction: column;
+            }
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="warrior-container">
+        {% block header %}
+        <div class="warrior-header">
+            <h1>Warrior Dashboard</h1>
+            {% if telegram_first_name %}
+            <div class="user-info">
+                <span>Welcome, {{ telegram_first_name }}</span>
+                <a href="{% url 'warrior:logout' %}" class="btn btn-secondary" style="padding: 6px 12px;">Logout</a>
+            </div>
+            {% endif %}
+        </div>
+        {% if telegram_first_name %}
+        <nav class="warrior-nav" style="margin-bottom: 20px;">
+            <a href="{% url 'warrior:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{% url 'warrior:history' %}" class="{% if request.resolver_match.url_name == 'history' %}active{% endif %}">History</a>
+            <a href="{% url 'warrior:edit' %}" class="{% if request.resolver_match.url_name == 'edit' %}active{% endif %}">Edit Attestation</a>
+        </nav>
+        {% endif %}
+        {% endblock %}
+
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
