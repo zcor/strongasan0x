@@ -12,9 +12,8 @@ Usage:
 """
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 from django.db import models
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from rollcall.models import WeeklyRollCall, Attestation, RankingTrial
 from rollcall.services.ai_ranking import (
     get_available_providers,
@@ -942,7 +941,6 @@ class Command(BaseCommand):
             attestations_list: List of Attestation objects
             output_file: Path to output file
         """
-        import os
         
         # Sort stats by average rank to get final order
         sorted_stats = sorted(stats.items(), key=lambda x: x[1]['average_rank'])

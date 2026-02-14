@@ -7,7 +7,7 @@ from django.views.decorators.http import require_POST
 import json
 import logging
 import asyncio
-from rollcall.telegram_bot.bot import GarminTelegramBot
+from rollcall.telegram_bot.bot import RollCallTelegramBot
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def get_bot_instance():
     """Get or create bot instance"""
     global _bot_instance
     if _bot_instance is None:
-        _bot_instance = GarminTelegramBot()
+        _bot_instance = RollCallTelegramBot()
     return _bot_instance
 
 

@@ -21,7 +21,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text(
-        "Welcome to the Garmin Fitness Bot! 🏋️\n\n"
+        "Welcome to the Roll Call Bot! 🏋️\n\n"
         "Available commands:\n"
         "/status - View attestation status for all users\n"
         "/view <username> - View full attestation for a user\n"

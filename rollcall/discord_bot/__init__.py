@@ -1,3 +1,3 @@
-# Discord bot integration for Garmin project
+# Discord bot integration for Roll Call
 
 

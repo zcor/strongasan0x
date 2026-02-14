@@ -3,30 +3,27 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.garmin.telegrambot</string>
+    <string>com.rollcall.telegrambot</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/gerrithall/dev/ox/venv/bin/python</string>
-        <string>/Users/gerrithall/dev/ox/garmin_project/manage.py</string>
+        <string>/path/to/venv/bin/python</string>
+        <string>/path/to/strongasan0x/manage.py</string>
         <string>run_telegram_bot</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/gerrithall/dev/ox/garmin_project</string>
+    <string>/path/to/strongasan0x</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/gerrithall/dev/ox/garmin_project/logs/telegram_bot.log</string>
+    <string>/path/to/strongasan0x/logs/telegram_bot.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/gerrithall/dev/ox/garmin_project/logs/telegram_bot_error.log</string>
+    <string>/path/to/strongasan0x/logs/telegram_bot_error.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/gerrithall/dev/ox/venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>/path/to/venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 </dict>
 </plist>
-
-
-

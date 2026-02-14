@@ -3,7 +3,6 @@ from django.conf import settings
 import asyncio
 import logging
 import discord
-from datetime import date, datetime
 from rollcall.models import WeeklyRollCall, RollCallRanking, DiscordUserMapping
 from asgiref.sync import sync_to_async
 

@@ -13,8 +13,8 @@ from rollcall.discord_bot.cogs.admin import AdminCog
 logger = logging.getLogger(__name__)
 
 
-class GarminDiscordBot(commands.Bot):
-    """Discord bot for Garmin project - manages rankings, attestations, and permissions"""
+class RollCallDiscordBot(commands.Bot):
+    """Discord bot for Roll Call - manages rankings, attestations, and permissions"""
     
     def __init__(self):
         intents = discord.Intents.default()
@@ -140,7 +140,7 @@ async def start_bot():
         logger.error("DISCORD_BOT_TOKEN not set in environment variables")
         return
     
-    bot = GarminDiscordBot()
+    bot = RollCallDiscordBot()
     
     try:
         await bot.start(settings.DISCORD_BOT_TOKEN)

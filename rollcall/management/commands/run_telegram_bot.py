@@ -3,7 +3,7 @@ from django.conf import settings
 import logging
 import signal
 import sys
-from rollcall.telegram_bot.bot import GarminTelegramBot
+from rollcall.telegram_bot.bot import RollCallTelegramBot
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(
-            self.style.SUCCESS('Starting Garmin Telegram Bot...')
+            self.style.SUCCESS('Starting Roll Call Telegram Bot...')
         )
         self.stdout.write(f'Bot Token: {"✅ Set" if settings.TELEGRAM_BOT_TOKEN else "❌ Missing"}')
 
@@ -67,7 +67,7 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, signal_handler)
 
         try:
-            bot = GarminTelegramBot()
+            bot = RollCallTelegramBot()
             _bot_instance = bot
             
             if options.get('webhook'):

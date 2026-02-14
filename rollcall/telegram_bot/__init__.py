@@ -1,4 +1,4 @@
-# Telegram bot integration for Garmin project
+# Telegram bot integration for Roll Call
 
 
 

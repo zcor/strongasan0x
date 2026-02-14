@@ -29,7 +29,7 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(
-            self.style.SUCCESS('Starting Garmin Discord Bot...')
+            self.style.SUCCESS('Starting Roll Call Discord Bot...')
         )
         self.stdout.write(f'Bot Token: {"✅ Set" if settings.DISCORD_BOT_TOKEN else "❌ Missing"}')
         self.stdout.write(f'Guild ID: {"✅ Set" if settings.DISCORD_GUILD_ID else "❌ Missing"}')

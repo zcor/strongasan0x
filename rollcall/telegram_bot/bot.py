@@ -1,5 +1,5 @@
 """
-Telegram bot for Garmin project
+Telegram bot for Roll Call
 Uses polling mode by default (recommended for local/desktop deployment)
 Webhook mode available for servers with public IP addresses
 """
@@ -13,7 +13,7 @@ from rollcall.models import TelegramUserMapping
 logger = logging.getLogger(__name__)
 
 
-class GarminTelegramBot:
+class RollCallTelegramBot:
     """Telegram bot for managing attestations and rankings"""
     
     def __init__(self):
