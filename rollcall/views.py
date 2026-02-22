@@ -6,14 +6,16 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
-from collections import defaultdict
+from collections import defaultdict, Counter
 from django.templatetags.static import static
+import math
 import time
 from .models import (
     WeeklyRollCall, RollCallRanking,
     DiscordUserMapping, TelegramUserMapping, Attestation
 )
 from rollcall.utils.rollcalls import get_active_roll_call
+from rollcall.services.ranking_stats import normalize_name
 
 
 def get_week_monday(date):
@@ -21,6 +23,221 @@ def get_week_monday(date):
     from datetime import timedelta
     # Monday is weekday 0, so subtract the weekday to get Monday
     return date - timedelta(days=date.weekday())
+
+
+def _clean_name(name):
+    """Fuzzy cleanup for name matching: lowercase, strip spaces/underscores/pipes/dashes/of/house."""
+    if not name:
+        return ''
+    return name.lower().replace(' ', '').replace('_', '').replace('|', '').replace('-', '').replace('of', '').replace('house', '')
+
+
+def _build_mapping_indices(discord_mappings, telegram_mappings):
+    """Build in-memory lookup indices from preloaded mappings.
+
+    Discord mappings are inserted first so they have natural precedence
+    over Telegram mappings for the same key.
+
+    Returns (exact_name_index, clean_name_index, twitter_index).
+    """
+    exact_name_index = {}   # name.lower() -> mapping
+    clean_name_index = {}   # _clean_name(name) -> mapping
+    twitter_index = {}      # handle.lower() -> mapping
+
+    # Discord first (wins ties)
+    for m in discord_mappings:
+        if m.linked_name:
+            key = m.linked_name.lower()
+            exact_name_index.setdefault(key, m)
+            clean_key = _clean_name(m.linked_name)
+            clean_name_index.setdefault(clean_key, m)
+        if m.linked_twitter_handle:
+            twitter_index.setdefault(m.linked_twitter_handle.lower(), m)
+
+    # Then Telegram (fills gaps only)
+    for m in telegram_mappings:
+        if m.linked_name:
+            key = m.linked_name.lower()
+            exact_name_index.setdefault(key, m)
+            clean_key = _clean_name(m.linked_name)
+            clean_name_index.setdefault(clean_key, m)
+        if m.linked_twitter_handle:
+            twitter_index.setdefault(m.linked_twitter_handle.lower(), m)
+
+    return exact_name_index, clean_name_index, twitter_index
+
+
+def _enrich_name(name, twitter_handle, exact_index, clean_index, twitter_index):
+    """Return (display_name, twitter_handle) using preloaded mapping indices.
+
+    Identity precedence:
+    1. Twitter handle exact match (highest confidence)
+    2. Exact name match
+    3. Fuzzy/clean name match (includes substring matching)
+    """
+    mapping = None
+
+    # 1. Twitter handle match
+    if twitter_handle:
+        mapping = twitter_index.get(twitter_handle.lower())
+
+    # 2. Exact name match
+    if not mapping and name:
+        mapping = exact_index.get(name.lower())
+
+    # 3. Fuzzy clean name match (exact clean match + substring)
+    if not mapping and name:
+        name_clean = _clean_name(name)
+        mapping = clean_index.get(name_clean)
+        if not mapping:
+            for clean_key, m in clean_index.items():
+                if name_clean in clean_key or clean_key in name_clean:
+                    mapping = m
+                    break
+
+    if mapping:
+        return (mapping.linked_name or name, mapping.linked_twitter_handle or twitter_handle)
+    return (name, twitter_handle)
+
+
+def _rank_to_points(rank):
+    """Convert a rank (1-based) to points: rank 1=10, rank 2=9, ..., rank 10=1, rank 11+=0."""
+    if rank < 1 or rank > 10:
+        return 0
+    return 11 - rank
+
+
+def _compute_leaderboards(exact_index, clean_index, twitter_index):
+    """Compute champion and consistency leaderboards from all published rankings.
+
+    Returns (champions_list, consistency_list, total_published_weeks).
+    Each list entry is a dict with keys: rank, display_name, twitter_handle,
+    champion_score, total_points, avg_rank, weeks_participated, participation_pct.
+
+    Name merging uses two passes:
+    1. Group by _clean_name (catches Alice Rozengarden / alice_rozengarden, Devin variants)
+    2. Merge groups that share a twitter handle (catches Vikt0r / 0x_Vikt0r)
+    """
+    all_rankings = list(
+        RollCallRanking.objects.filter(
+            weekly_roll_call__is_published=True
+        ).select_related('weekly_roll_call')
+    )
+
+    total_published_weeks = WeeklyRollCall.objects.filter(is_published=True).count()
+
+    if not all_rankings or total_published_weeks == 0:
+        return [], [], 0
+
+    # --- Pass 1: group by _clean_name ---
+    groups = defaultdict(lambda: {
+        'name_variants': [],
+        'twitter_handles': set(),
+        'ranks': [],
+        'weeks': set(),
+        'total_points': 0,
+    })
+
+    for r in all_rankings:
+        key = _clean_name(r.name)
+        g = groups[key]
+        g['name_variants'].append(r.name)
+        handle = (r.twitter_handle or '').strip().strip('@').lower()
+        if handle:
+            g['twitter_handles'].add(handle)
+        g['ranks'].append(r.rank)
+        g['weeks'].add(r.weekly_roll_call.week_start_date)
+        g['total_points'] += _rank_to_points(r.rank)
+
+    # --- Pass 2: merge groups sharing a twitter handle (union-find) ---
+    # Build handle -> list of clean_name keys
+    handle_to_keys = defaultdict(set)
+    for key, g in groups.items():
+        for h in g['twitter_handles']:
+            handle_to_keys[h].add(key)
+
+    # Find groups to merge (sets of clean_name keys that share a handle)
+    merged = set()
+    final_groups = {}
+    for key in list(groups.keys()):
+        if key in merged:
+            continue
+        # Find all keys reachable via shared twitter handles
+        cluster = {key}
+        queue = [key]
+        while queue:
+            current = queue.pop()
+            for h in groups[current]['twitter_handles']:
+                for sibling in handle_to_keys[h]:
+                    if sibling not in cluster:
+                        cluster.add(sibling)
+                        queue.append(sibling)
+        # Merge all cluster members into one group
+        combined = {
+            'name_variants': [],
+            'twitter_handles': set(),
+            'ranks': [],
+            'weeks': set(),
+            'total_points': 0,
+        }
+        for k in cluster:
+            g = groups[k]
+            combined['name_variants'].extend(g['name_variants'])
+            combined['twitter_handles'].update(g['twitter_handles'])
+            combined['ranks'].extend(g['ranks'])
+            combined['weeks'].update(g['weeks'])
+            combined['total_points'] += g['total_points']
+            merged.add(k)
+        # Use the first key alphabetically as the canonical key
+        canonical = min(cluster)
+        final_groups[canonical] = combined
+
+    # --- Build leaderboard entries ---
+    entries = []
+    for canonical_key, g in final_groups.items():
+        # Most common variant as raw display name
+        variant_counts = Counter(g['name_variants'])
+        raw_name = variant_counts.most_common(1)[0][0]
+
+        # Pick best twitter handle (first non-empty from the set)
+        raw_twitter = ''
+        for h in sorted(g['twitter_handles']):
+            if h:
+                raw_twitter = h
+                break
+
+        # Enrich via mapping indices
+        display_name, twitter_handle = _enrich_name(
+            raw_name, raw_twitter,
+            exact_index, clean_index, twitter_index
+        )
+
+        weeks_participated = len(g['weeks'])
+        avg_rank = sum(g['ranks']) / len(g['ranks'])
+        champion_score = g['total_points'] * math.log2(1 + weeks_participated) / math.sqrt(weeks_participated)
+
+        entries.append({
+            'display_name': display_name,
+            'twitter_handle': twitter_handle,
+            'champion_score': champion_score,
+            'total_points': g['total_points'],
+            'avg_rank': avg_rank,
+            'weeks_participated': weeks_participated,
+            'participation_pct': (weeks_participated / total_published_weeks * 100) if total_published_weeks else 0,
+        })
+
+    # Champion leaderboard: champion_score desc, avg_rank asc tiebreak
+    champions = sorted(entries, key=lambda e: (-e['champion_score'], e['avg_rank']))
+    for i, entry in enumerate(champions, 1):
+        entry['rank'] = i
+
+    # Consistency leaderboard: weeks_participated desc, avg_rank asc tiebreak
+    # Copy dicts so rank assignment doesn't clobber champion ranks
+    consistency = [dict(e) for e in sorted(entries, key=lambda e: (-e['weeks_participated'], e['avg_rank']))]
+    for i, entry in enumerate(consistency, 1):
+        entry['rank'] = i
+
+    return champions, consistency, total_published_weeks
 
 
 def landing(request):
@@ -79,41 +296,25 @@ def landing(request):
         week_start = get_week_monday(today)
         week_end = week_start + timedelta(days=6)
 
+    # --- Preload identity mappings (shared by weekly enrichment + leaderboards) ---
+    active_discord_mappings = list(DiscordUserMapping.objects.filter(is_active=True))
+    active_telegram_mappings = list(TelegramUserMapping.objects.filter(is_active=True))
+    exact_index, clean_index, twitter_index = _build_mapping_indices(
+        active_discord_mappings, active_telegram_mappings
+    )
+
     # Fetch rankings for the determined week (only if a roll_call object was found and it's published)
     rankings = []
     if weekly_roll_call and weekly_roll_call.is_published:
         rankings_queryset = RollCallRanking.objects.filter(weekly_roll_call=weekly_roll_call).order_by('rank')
         rankings = list(rankings_queryset)
         for ranking in rankings:
-            # Enrich rankings with Discord mapping data (linked_name and linked_twitter_handle)
-            discord_mapping = None
-
-            if ranking.name:
-                discord_mapping = DiscordUserMapping.objects.filter(
-                    linked_name__iexact=ranking.name,
-                    is_active=True
-                ).first()
-
-                if not discord_mapping:
-                    ranking_clean = ranking.name.lower().replace(' ', '').replace('_', '').replace('|', '').replace('-', '').replace('of', '').replace('house', '')
-                    for mapping in DiscordUserMapping.objects.filter(is_active=True):
-                        if mapping.linked_name:
-                            linked_clean = mapping.linked_name.lower().replace(' ', '').replace('_', '').replace('|', '').replace('-', '').replace('of', '').replace('house', '')
-                            if ranking_clean == linked_clean or ranking_clean in linked_clean or linked_clean in ranking_clean:
-                                discord_mapping = mapping
-                                break
-
-            if not discord_mapping and ranking.twitter_handle:
-                discord_mapping = DiscordUserMapping.objects.filter(
-                    linked_twitter_handle__iexact=ranking.twitter_handle,
-                    is_active=True
-                ).first()
-
-            if discord_mapping:
-                ranking.display_name = discord_mapping.linked_name or ranking.name
-                ranking.twitter_handle = discord_mapping.linked_twitter_handle or ranking.twitter_handle
-            else:
-                ranking.display_name = ranking.name
+            display_name, twitter_handle = _enrich_name(
+                ranking.name, ranking.twitter_handle,
+                exact_index, clean_index, twitter_index
+            )
+            ranking.display_name = display_name
+            ranking.twitter_handle = twitter_handle
 
     # Calculate previous and next week dates for navigation, considering only PUBLISHED weeks
     previous_week_roll_call = None
@@ -133,6 +334,11 @@ def landing(request):
     previous_week_date = previous_week_roll_call.week_start_date.strftime('%Y-%m-%d') if previous_week_roll_call else None
     next_week_date = next_week_roll_call.week_start_date.strftime('%Y-%m-%d') if next_week_roll_call else None
 
+    # --- Compute all-time leaderboards ---
+    champions, consistency, total_published_weeks = _compute_leaderboards(
+        exact_index, clean_index, twitter_index
+    )
+
     # Build video URL with cache-busting timestamp
     video_url = static('rollcall/videos/vid1.mp4')
     video_url_with_timestamp = f"{video_url}?v={int(time.time())}"
@@ -149,6 +355,9 @@ def landing(request):
         'publication_date': week_end + timedelta(days=1),  # Monday after week ends
         'has_previous_week': bool(previous_week_roll_call),
         'has_next_week': bool(next_week_roll_call),
+        'champions': champions,
+        'consistency': consistency,
+        'total_published_weeks': total_published_weeks,
     }
     return render(request, 'rollcall/landing.html', context)
 

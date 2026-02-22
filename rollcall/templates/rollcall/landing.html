@@ -16,105 +16,312 @@
 <body>
 
     <!-- ===================================================
-         VIDEO BACKGROUND - Looping Battlefield Scene
+         HERO SECTION: Video + Parchment Scroll
          =================================================== -->
-    <div class="video-background">
-        <video autoplay muted loop playsinline>
-            <source src="{{ video_url }}" type="video/mp4">
-            Your browser does not support the video tag.
-        </video>
-    </div>
+    <section class="hero-section">
 
-    <!-- ===================================================
-         MAIN LANDING CONTENT - Parchment Scroll Overlay
-         =================================================== -->
-    <main class="landing-container">
-        <div class="parchment-scroll">
+        <!-- VIDEO BACKGROUND - Looping Battlefield Scene -->
+        <div class="video-background">
+            <video autoplay muted loop playsinline>
+                <source src="{{ video_url }}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>
 
-            <!-- Scroll Container with Tessellated Background -->
-            <div class="scroll-container">
+        <!-- MAIN LANDING CONTENT - Parchment Scroll Overlay -->
+        <main class="landing-container">
+            <div class="parchment-scroll">
 
-                <!-- Scroll Top Image -->
-                <div class="scroll-top"></div>
+                <!-- Scroll Container with Tessellated Background -->
+                <div class="scroll-container">
 
-                <!-- Scroll Middle - Repeating Tessellation -->
-                <div class="scroll-middle">
-                    <div class="scroll-content">
+                    <!-- Scroll Top Image -->
+                    <div class="scroll-top"></div>
 
-                        <!-- Main Header -->
-                        <h1 class="scroll-header" style="font-family: 'Great Vibes', cursive;">
-                           Strong as an 0x
-                        </h1>
+                    <!-- Scroll Middle - Repeating Tessellation -->
+                    <div class="scroll-middle">
+                        <div class="scroll-content">
 
-                        <!-- Subtitle / Tagline -->
-                        <p class="scroll-subtitle" style="font-family: 'Dancing Script', cursive;">
-                           Submit weekly or proceed weakly
-                        </p>
+                            <!-- Main Header -->
+                            <h1 class="scroll-header" style="font-family: 'Great Vibes', cursive;">
+                               Strong as an 0x
+                            </h1>
 
-                        <!-- Week Navigation and Date -->
-                        <div class="week-navigation" style="margin: 20px 0; text-align: center; font-family: 'Great Vibes', cursive; font-size: 1.3rem; font-weight: 400;">
-                            {% if has_previous_week %}
-                            <a href="?date={{ previous_week_date }}" class="footer-link" style="margin-right: 20px;">&larr; Previous Week</a>
-                            {% endif %}
-                            {% if weekly_roll_call %}
-                            <span style="margin: 0 15px;">Week of {{ weekly_roll_call.week_start_date|date:"F d, Y" }} - {{ weekly_roll_call.week_end_date|date:"F d, Y" }}</span>
-                            {% endif %}
-                            {% if has_next_week %}
-                            <a href="?date={{ next_week_date }}" class="footer-link" style="margin-left: 20px;">Next Week &rarr;</a>
-                            {% endif %}
-                        </div>
+                            <!-- Subtitle / Tagline -->
+                            <p class="scroll-subtitle" style="font-family: 'Dancing Script', cursive;">
+                               Submit weekly or proceed weakly
+                            </p>
 
-
-                        <!-- The Roll Call List -->
-                        {% if weekly_roll_call and rankings %}
-                        <ol class="roll-call-list">
-                            {% for ranking in rankings %}
-                            <li style="font-family: 'Dancing Script', cursive;">
-                                {% if ranking.twitter_handle %}
-                                <a href="https://x.com/{{ ranking.twitter_handle }}" target="_blank" rel="noopener noreferrer" class="roll-call-link">{{ ranking.display_name|default:ranking.name }}</a>
-                                {% else %}
-                                <span class="roll-call-link" style="text-decoration: none; cursor: default;">{{ ranking.display_name|default:ranking.name }}</span>
+                            <!-- Week Navigation and Date -->
+                            <div class="week-navigation" style="margin: 20px 0; text-align: center; font-family: 'Great Vibes', cursive; font-size: 1.3rem; font-weight: 400;">
+                                {% if has_previous_week %}
+                                <a href="?date={{ previous_week_date }}" class="footer-link" style="margin-right: 20px;">&larr; Previous Week</a>
                                 {% endif %}
-                            </li>
-                            {% endfor %}
-                        </ol>
-                        {% elif not weekly_roll_call %}
-                        <!-- Placeholder list shown when no weekly data exists yet -->
-                        <ol class="roll-call-list">
-                            <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior One</span></li>
-                            <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior Two</span></li>
-                            <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior Three</span></li>
-                        </ol>
-                        {% endif %}
+                                {% if weekly_roll_call %}
+                                <span style="margin: 0 15px;">Week of {{ weekly_roll_call.week_start_date|date:"F d, Y" }} - {{ weekly_roll_call.week_end_date|date:"F d, Y" }}</span>
+                                {% endif %}
+                                {% if has_next_week %}
+                                <a href="?date={{ next_week_date }}" class="footer-link" style="margin-left: 20px;">Next Week &rarr;</a>
+                                {% endif %}
+                            </div>
 
-                        <!-- Post Preview Text -->
-                        {% if weekly_roll_call %}
-                        <div class="post-preview" style="margin: 20px 0; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; font-family: 'Dancing Script', cursive;">
-                            <p style="font-family: 'Dancing Script', cursive;">
-                                {{ weekly_roll_call.full_text|linebreaks|truncatewords:100 }}
-                            </p>
-                            {% if weekly_roll_call.substack_url %}
-                            <p style="margin-top: 10px; text-align: center; font-family: 'Dancing Script', cursive;">
-                                <a href="{{ weekly_roll_call.substack_url }}" target="_blank" rel="noopener noreferrer" class="footer-link">Read Full Post &rarr;</a>
-                            </p>
+
+                            <!-- The Roll Call List -->
+                            {% if weekly_roll_call and rankings %}
+                            <ol class="roll-call-list">
+                                {% for ranking in rankings %}
+                                <li style="font-family: 'Dancing Script', cursive;">
+                                    {% if ranking.twitter_handle %}
+                                    <a href="https://x.com/{{ ranking.twitter_handle }}" target="_blank" rel="noopener noreferrer" class="roll-call-link">{{ ranking.display_name|default:ranking.name }}</a>
+                                    {% else %}
+                                    <span class="roll-call-link" style="text-decoration: none; cursor: default;">{{ ranking.display_name|default:ranking.name }}</span>
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                            </ol>
+                            {% elif not weekly_roll_call %}
+                            <!-- Placeholder list shown when no weekly data exists yet -->
+                            <ol class="roll-call-list">
+                                <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior One</span></li>
+                                <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior Two</span></li>
+                                <li style="font-family: 'Dancing Script', cursive;"><span class="roll-call-link" style="text-decoration: none; cursor: default;">Warrior Three</span></li>
+                            </ol>
                             {% endif %}
-                        </div>
-                        {% endif %}
 
-                        <!-- Footer -->
-                        <p class="scroll-footer" style="font-family: 'Dancing Script', cursive;">
-                            <a href="{% url 'landing' %}" class="footer-link">The Roll Call</a>
-                        </p>
+                            <!-- Post Preview Text -->
+                            {% if weekly_roll_call %}
+                            <div class="post-preview" style="margin: 20px 0; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; font-family: 'Dancing Script', cursive;">
+                                <p style="font-family: 'Dancing Script', cursive;">
+                                    {{ weekly_roll_call.full_text|linebreaks|truncatewords:100 }}
+                                </p>
+                                {% if weekly_roll_call.substack_url %}
+                                <p style="margin-top: 10px; text-align: center; font-family: 'Dancing Script', cursive;">
+                                    <a href="{{ weekly_roll_call.substack_url }}" target="_blank" rel="noopener noreferrer" class="footer-link">Read Full Post &rarr;</a>
+                                </p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            <!-- Footer -->
+                            <p class="scroll-footer" style="font-family: 'Dancing Script', cursive;">
+                                <a href="{% url 'landing' %}" class="footer-link">The Roll Call</a>
+                            </p>
+                        </div>
                     </div>
+
+                    <!-- Scroll Bottom Image -->
+                    <div class="scroll-bottom"></div>
+
                 </div>
 
-                <!-- Scroll Bottom Image -->
-                <div class="scroll-bottom"></div>
+            </div>
+        </main>
 
+        <!-- Scroll-Down Indicator -->
+        {% if champions %}
+        <div class="scroll-indicator" onclick="document.getElementById('leaderboard').scrollIntoView({behavior: 'smooth'})">
+            <span class="scroll-indicator__text">All-Time Leaderboard</span>
+            <span class="scroll-indicator__arrow"></span>
+        </div>
+        {% endif %}
+
+    </section>
+
+    <!-- ===================================================
+         ALL-TIME LEADERBOARD SECTION
+         =================================================== -->
+    <section class="content-section leaderboard-section" id="leaderboard">
+        <div class="leaderboard-inner">
+            <h2 class="section-title">Hall of Champions</h2>
+            <p class="section-subtitle">
+                {% if total_published_weeks %}
+                    {{ total_published_weeks }} week{{ total_published_weeks|pluralize }} of competition
+                {% else %}
+                    The saga begins soon
+                {% endif %}
+            </p>
+
+            {% if champions %}
+            <!-- Tab Switcher -->
+            <div class="tab-switcher">
+                <button class="tab-btn active" data-tab="champions">Champions</button>
+                <button class="tab-btn" data-tab="consistency">Iron Consistency</button>
             </div>
 
+            <!-- Champions Panel -->
+            <div class="leaderboard-panel active" id="panel-champions">
+                <div class="leaderboard-table-wrap">
+                    <table class="leaderboard-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Warrior</th>
+                                <th>Score</th>
+                                <th>Avg Rank</th>
+                                <th>Weeks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in champions %}
+                            <tr data-rank="{{ entry.rank }}"{% if entry.rank > 10 %} class="overflow-row" style="display:none"{% endif %}>
+                                <td>
+                                    <span class="rank-badge {% if entry.rank == 1 %}rank-badge--gold{% elif entry.rank == 2 %}rank-badge--silver{% elif entry.rank == 3 %}rank-badge--bronze{% else %}rank-badge--default{% endif %}">
+                                        {{ entry.rank }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if entry.twitter_handle %}
+                                    <a href="https://x.com/{{ entry.twitter_handle }}" target="_blank" rel="noopener noreferrer" class="warrior-name">{{ entry.display_name }}</a>
+                                    {% else %}
+                                    <span class="warrior-name">{{ entry.display_name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="score-value">{{ entry.champion_score|floatformat:1 }}</td>
+                                <td>{{ entry.avg_rank|floatformat:1 }}</td>
+                                <td>{{ entry.weeks_participated }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if champions|length > 10 %}
+                <button class="show-all-btn" data-panel="panel-champions">Show All {{ champions|length }}</button>
+                {% endif %}
+            </div>
+
+            <!-- Iron Consistency Panel -->
+            <div class="leaderboard-panel" id="panel-consistency">
+                <div class="leaderboard-table-wrap">
+                    <table class="leaderboard-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Warrior</th>
+                                <th>Weeks</th>
+                                <th>Rate</th>
+                                <th>Avg Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in consistency %}
+                            <tr data-rank="{{ entry.rank }}"{% if entry.rank > 10 %} class="overflow-row" style="display:none"{% endif %}>
+                                <td>
+                                    <span class="rank-badge {% if entry.rank == 1 %}rank-badge--gold{% elif entry.rank == 2 %}rank-badge--silver{% elif entry.rank == 3 %}rank-badge--bronze{% else %}rank-badge--default{% endif %}">
+                                        {{ entry.rank }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if entry.twitter_handle %}
+                                    <a href="https://x.com/{{ entry.twitter_handle }}" target="_blank" rel="noopener noreferrer" class="warrior-name">{{ entry.display_name }}</a>
+                                    {% else %}
+                                    <span class="warrior-name">{{ entry.display_name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="score-value">{{ entry.weeks_participated }}</td>
+                                <td>{{ entry.participation_pct|floatformat:0 }}%</td>
+                                <td>{{ entry.avg_rank|floatformat:1 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if consistency|length > 10 %}
+                <button class="show-all-btn" data-panel="panel-consistency">Show All {{ consistency|length }}</button>
+                {% endif %}
+            </div>
+
+            {% else %}
+            <div class="leaderboard-empty">
+                <p>No published rankings yet. The first warriors have yet to be judged.</p>
+            </div>
+            {% endif %}
         </div>
-    </main>
+    </section>
+
+    <!-- ===================================================
+         ABOUT SECTION
+         =================================================== -->
+    <section class="content-section about-section" id="about">
+        <div class="about-inner">
+            <h2 class="section-title">The Way of the Phalanx</h2>
+            <p class="section-subtitle">Strength. Discipline. Accountability.</p>
+
+            <div class="about-grid">
+                <!-- Card 1: The Phalanx -->
+                <div class="about-card">
+                    <h3 class="about-card__title">The Phalanx</h3>
+                    <p class="about-card__text">
+                        We're building the pro-crypto army. Each week, trustworthy recruits submit their health attestation&mdash;a record of training, discipline, and progress. We feed it to the oracle and publish the top ten. Submit weekly or proceed weakly.
+                    </p>
+                </div>
+
+                <!-- Card 2: How It Works -->
+                <div class="about-card">
+                    <h3 class="about-card__title">How It Works</h3>
+                    <ol class="about-card__steps">
+                        <li>Join the ranks through Discord or our application form</li>
+                        <li>Submit your weekly attestation&mdash;training, diet, mindset</li>
+                        <li>The oracle reads your deeds and ranks the warriors</li>
+                        <li>Rankings published every Monday on Substack</li>
+                        <li>Glory accumulates on the all-time leaderboard</li>
+                    </ol>
+                </div>
+
+                <!-- Card 3: Join the Ranks -->
+                <div class="about-card">
+                    <h3 class="about-card__title">Join the Ranks</h3>
+                    <div class="about-links">
+                        <a href="https://discord.gg/2wQpAHme3R" target="_blank" rel="noopener noreferrer" class="about-link">
+                            <span class="about-link__icon">&#x1F5E1;</span> Discord
+                        </a>
+                        <a href="https://forms.gle/pwBvd15SmsjDPCfK7" target="_blank" rel="noopener noreferrer" class="about-link">
+                            <span class="about-link__icon">&#x1F4DC;</span> Apply to Join
+                        </a>
+                        <a href="https://strongasan0x.substack.com" target="_blank" rel="noopener noreferrer" class="about-link">
+                            <span class="about-link__icon">&#x1F4F0;</span> Substack
+                        </a>
+                        <a href="https://x.com/strongasan0x" target="_blank" rel="noopener noreferrer" class="about-link">
+                            <span class="about-link__icon">&#x1D54F;</span> X / Twitter
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================================================
+         TAB SWITCHING SCRIPT
+         =================================================== -->
+    <script>
+    (function() {
+        // Tab switching
+        var btns = document.querySelectorAll('.tab-btn');
+        var panels = document.querySelectorAll('.leaderboard-panel');
+        btns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var tab = this.getAttribute('data-tab');
+                btns.forEach(function(b) { b.classList.remove('active'); });
+                panels.forEach(function(p) { p.classList.remove('active'); });
+                this.classList.add('active');
+                document.getElementById('panel-' + tab).classList.add('active');
+            });
+        });
+
+        // Show All / Top 10 toggle
+        document.querySelectorAll('.show-all-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var panel = document.getElementById(this.getAttribute('data-panel'));
+                var rows = panel.querySelectorAll('.overflow-row');
+                var expanded = this.getAttribute('data-expanded') === 'true';
+                rows.forEach(function(row) {
+                    row.style.display = expanded ? 'none' : '';
+                });
+                this.setAttribute('data-expanded', expanded ? 'false' : 'true');
+                this.textContent = expanded ? this.textContent.replace('Top 10', 'Show All').replace(/Show All.*/, 'Show All ' + (rows.length + 10)) : 'Top 10';
+            });
+        });
+    })();
+    </script>
 
 </body>
 </html>
