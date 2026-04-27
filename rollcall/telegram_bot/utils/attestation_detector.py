@@ -80,9 +80,10 @@ def has_attestation_structure(text):
         return True
 
     # Check for day-prefixed lines (e.g., "Monday:", "Tuesday:", "Mon:", "Tue:")
-    if re.search(r'^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*:', text, re.MULTILINE | re.IGNORECASE):
+    # Also match bare day names on their own line (e.g., "Tuesday\nLegs\n...")
+    if re.search(r'^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*:?$', text, re.MULTILINE | re.IGNORECASE):
         return True
-    if re.search(r'^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*:', text, re.MULTILINE | re.IGNORECASE):
+    if re.search(r'^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*:?$', text, re.MULTILINE | re.IGNORECASE):
         return True
 
     # Check for markdown headers
@@ -115,6 +116,7 @@ def has_metrics(text):
         r'\d+k\s*(?:steps?)',  # e.g., "13k steps"
         r'\d+\.\d+\s*(?:miles?|km|hours?)',  # Decimal numbers
         r'\d+:\d+',  # Time format (e.g., "13:50")
+        r'\d{2,3}-\d{1,2}(?:,\s*\d{2,3}-\d{1,2})',  # Weight-reps notation (e.g., "225-3, 245-1")
     ]
     
     for pattern in metric_patterns:

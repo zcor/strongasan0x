@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.strongasan0x.telegram-bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/gerrithall/dev/ox/0xfitness/garmin_project/venv/bin/python</string>
+        <string>/Users/gerrithall/dev/ox/strongasan0x/manage.py</string>
+        <string>run_telegram_bot</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/gerrithall/dev/ox/strongasan0x</string>
+        <key>DJANGO_SETTINGS_MODULE</key>
+        <string>strongasan0x.settings</string>
+        <key>PATH</key>
+        <string>/Users/gerrithall/dev/ox/0xfitness/garmin_project/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/gerrithall/dev/ox/strongasan0x</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/telegram_bot.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/telegram_bot.log</string>
+</dict>
+</plist>

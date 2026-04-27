@@ -21,7 +21,19 @@ class RollCallTelegramBot:
         if not self.token:
             raise ValueError("TELEGRAM_BOT_TOKEN not set in settings")
         
-        self.application = Application.builder().token(self.token).build()
+        self.application = (
+            Application.builder()
+            .token(self.token)
+            .connect_timeout(15.0)
+            .read_timeout(30.0)
+            .write_timeout(30.0)
+            .pool_timeout(10.0)
+            .get_updates_connect_timeout(15.0)
+            .get_updates_read_timeout(40.0)
+            .get_updates_write_timeout(30.0)
+            .get_updates_pool_timeout(10.0)
+            .build()
+        )
         self._setup_handlers()
     
     def _setup_handlers(self):
@@ -70,7 +82,12 @@ class RollCallTelegramBot:
     
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle errors"""
-        logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+        from telegram.error import NetworkError, TimedOut, RetryAfter
+        err = context.error
+        if isinstance(err, (NetworkError, TimedOut, RetryAfter)):
+            logger.warning(f"Transient network error (will retry): {type(err).__name__}: {err}")
+            return
+        logger.error(f"Exception while handling an update: {err}", exc_info=err)
         if update and update.message:
             try:
                 await update.message.reply_text(
@@ -119,7 +136,10 @@ class RollCallTelegramBot:
         logger.info("Starting Telegram bot in polling mode...")
         self.application.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=drop_pending_updates
+            drop_pending_updates=drop_pending_updates,
+            poll_interval=1.0,
+            timeout=30,
+            bootstrap_retries=-1,
         )
     
     def start_webhook(self, webhook_url, webhook_secret=None):
