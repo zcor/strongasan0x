@@ -1,0 +1,115 @@
+{% extends "rollcall/warrior/base.html" %}
+
+{% block title %}Progress - Warrior Dashboard{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="warrior-card">
+    <h2>Progress Tracking{% if viewing_name %} — {{ viewing_name }}{% endif %}</h2>
+
+    {% if is_admin %}
+    <form method="get" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+        <input type="text" name="warrior" placeholder="Warrior name (e.g. Spencer420)"
+               value="{{ request.GET.warrior }}"
+               style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px 12px; color: #e0e0e0; flex: 1; max-width: 300px;">
+        <button type="submit" class="btn btn-secondary" style="padding: 8px 16px;">Preview</button>
+    </form>
+    {% endif %}
+
+    {% if not has_data %}
+    <p style="color: #87ceeb;">No progress data yet. Submit attestations to start tracking.</p>
+    {% else %}
+
+    <div id="charts-container"></div>
+
+    <script>
+    const charts = {{ charts|safe }};
+    const container = document.getElementById('charts-container');
+
+    function formatDate(iso) {
+        const d = new Date(iso + 'T00:00:00');
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    // Group charts by category for section headers
+    let currentCategory = '';
+
+    charts.forEach(chart => {
+        // Add category header if new
+        if (chart.category !== currentCategory) {
+            currentCategory = chart.category;
+            const header = document.createElement('h2');
+            header.style.color = '#ffd700';
+            header.style.margin = '30px 0 15px 0';
+            if (currentCategory === charts[0].category) header.style.marginTop = '0';
+            header.textContent = currentCategory;
+            container.appendChild(header);
+        }
+
+        const card = document.createElement('div');
+        card.className = 'warrior-card';
+        card.style.marginBottom = '15px';
+
+        const canvasWrap = document.createElement('div');
+        canvasWrap.style.position = 'relative';
+        canvasWrap.style.height = '220px';
+
+        const canvas = document.createElement('canvas');
+        canvasWrap.appendChild(canvas);
+        card.appendChild(canvasWrap);
+        container.appendChild(card);
+
+        const weeks = chart.data.map(d => d.week);
+        const values = chart.data.map(d => d.value);
+
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: weeks.map(formatDate),
+                datasets: [{
+                    label: chart.label,
+                    data: values,
+                    borderColor: chart.color,
+                    backgroundColor: chart.color + '33',
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    fill: true,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { color: '#e0e0e0', font: { size: 14 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(items) {
+                                return weeks[items[0].dataIndex];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#aaa' },
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                    },
+                    y: {
+                        ticks: { color: '#aaa' },
+                        grid: { color: 'rgba(255,255,255,0.08)' },
+                    }
+                }
+            }
+        });
+    });
+    </script>
+
+    {% endif %}
+</div>
+{% endblock %}

@@ -3,14 +3,18 @@ Warrior Dashboard views.
 Public-facing dashboard for warriors to view/edit their attestations.
 Uses Telegram bot deep linking for authentication (NOT Django auth).
 """
+import json
 import logging
+import threading
 from django.shortcuts import render, redirect
+from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponseBadRequest
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
 from django.utils import timezone
 
-from rollcall.models import TelegramUserMapping, Attestation, WebLoginToken
+from rollcall.models import TelegramUserMapping, Attestation, WebLoginToken, ExtractedMetrics
 from rollcall.utils.rollcalls import get_active_roll_call
 
 from .auth import (
@@ -222,6 +226,117 @@ def attestation_history(request):
     return render(request, 'rollcall/warrior/history.html', context)
 
 
+# Admin user IDs that can use ?warrior= to preview other warriors
+ADMIN_TELEGRAM_IDS = {1234982301}  # CurveCap / Gerrit
+
+# Metric display config: field -> (label, category, color)
+METRIC_CONFIG = {
+    'daily_steps': ('Daily Steps', 'Body', '#ffd700'),
+    'calories_burned': ('Calories Burned', 'Body', '#87ceeb'),
+    'resting_heart_rate': ('Resting HR (bpm)', 'Body', '#cd7f32'),
+    'vo2_max': ('VO2 Max', 'Body', '#ff6b6b'),
+    'sleep_hours': ('Sleep (hrs)', 'Body', '#51cf66'),
+    'body_weight': ('Weight (lbs)', 'Body', '#cc5de8'),
+    'body_fat_pct': ('Body Fat %', 'Body', '#ff922b'),
+    'strength_sessions': ('Strength Sessions', 'Training', '#ffd700'),
+    'cardio_sessions': ('Cardio Sessions', 'Training', '#87ceeb'),
+    'combat_sessions': ('Combat Sessions', 'Training', '#cd7f32'),
+    'total_training_sessions': ('Total Sessions', 'Training', '#ff6b6b'),
+    'protein_grams': ('Protein (g)', 'Nutrition', '#ffd700'),
+    'calories_consumed': ('Calories In', 'Nutrition', '#87ceeb'),
+    'bench_press': ('Bench Press (lbs)', 'Lifts', '#ffd700'),
+    'squat': ('Squat (lbs)', 'Lifts', '#87ceeb'),
+    'deadlift': ('Deadlift (lbs)', 'Lifts', '#cd7f32'),
+}
+
+
+@require_telegram_auth
+def warrior_progress(request):
+    """Progress-over-time charts from AI-extracted metrics.
+
+    Admin users can pass ?warrior=NAME to preview another warrior's progress.
+    """
+    telegram_user_id = request.session.get(SESSION_TELEGRAM_USER_ID)
+    viewing_name = None
+
+    # Admin preview: ?warrior=NAME
+    warrior_param = request.GET.get('warrior')
+    if warrior_param and telegram_user_id in ADMIN_TELEGRAM_IDS:
+        # Look up by linked_name (try both Discord and Telegram mappings)
+        from rollcall.models import DiscordUserMapping
+        att_filter = (
+            Q(telegram_user__linked_name__iexact=warrior_param) |
+            Q(discord_user__linked_name__iexact=warrior_param)
+        )
+        viewing_name = warrior_param
+    else:
+        mapping = TelegramUserMapping.objects.filter(telegram_user_id=telegram_user_id).first()
+        if mapping:
+            att_filter = Q(telegram_user=mapping)
+            viewing_name = mapping.linked_name or mapping.telegram_first_name
+        else:
+            att_filter = None
+
+    charts = []
+
+    if att_filter is not None:
+        attestations = Attestation.objects.filter(
+            att_filter,
+            parent_attestation__isnull=True,
+            is_hidden=False,
+        ).select_related('metrics', 'weekly_roll_call').order_by(
+            'weekly_roll_call__week_start_date'
+        )
+
+        # Build time series per metric
+        series = {field: [] for field in METRIC_CONFIG}
+
+        for att in attestations:
+            try:
+                metrics = att.metrics
+            except ExtractedMetrics.DoesNotExist:
+                continue
+
+            if metrics.extraction_error:
+                continue
+
+            week = att.weekly_roll_call.week_start_date.isoformat()
+            for field in METRIC_CONFIG:
+                val = getattr(metrics, field, None)
+                if val is not None:
+                    series[field].append({'week': week, 'value': float(val)})
+
+        # One chart per metric (own Y-axis), grouped by category, >= 2 points
+        for field, (label, category, color) in METRIC_CONFIG.items():
+            if len(series[field]) >= 2:
+                charts.append({
+                    'field': field,
+                    'label': label,
+                    'category': category,
+                    'color': color,
+                    'data': series[field],
+                })
+
+    context = {
+        'charts': json.dumps(charts),
+        'has_data': bool(charts),
+        'viewing_name': viewing_name,
+        'is_admin': telegram_user_id in ADMIN_TELEGRAM_IDS,
+        'telegram_first_name': request.session.get(SESSION_TELEGRAM_FIRST_NAME, ''),
+    }
+    return render(request, 'rollcall/warrior/progress.html', context)
+
+
+def _run_extraction(attestation_id):
+    """Background worker: fetch fresh from DB, extract metrics, save."""
+    from rollcall.services.metric_extraction import extract_and_save
+    try:
+        attestation = Attestation.objects.get(id=attestation_id)
+        extract_and_save(attestation)
+    except Exception:
+        logger.exception("Background metric extraction failed for attestation %s", attestation_id)
+
+
 @require_telegram_auth
 @require_http_methods(["GET", "POST"])
 def edit_attestation(request):
@@ -265,6 +380,12 @@ def edit_attestation(request):
                 posted_at=timezone.now(),
                 parsed_data={'submitted_via': 'warrior_dashboard'},
             )
+
+        # Trigger background metric extraction after DB commit
+        att_id = attestation.id
+        transaction.on_commit(lambda: threading.Thread(
+            target=_run_extraction, args=(att_id,), daemon=True
+        ).start())
 
         return redirect('warrior:dashboard')
 

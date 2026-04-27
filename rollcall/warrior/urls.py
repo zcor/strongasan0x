@@ -12,6 +12,7 @@ urlpatterns = [
     path('logout/', views.warrior_logout, name='logout'),
     path('dashboard/', views.warrior_dashboard, name='dashboard'),
     path('history/', views.attestation_history, name='history'),
+    path('progress/', views.warrior_progress, name='progress'),
     path('edit/', views.edit_attestation, name='edit'),
     # Strava integration
     path('strava/link/', views.link_strava, name='link_strava'),

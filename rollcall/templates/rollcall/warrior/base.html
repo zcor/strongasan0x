@@ -169,6 +169,7 @@
         <nav class="warrior-nav" style="margin-bottom: 20px;">
             <a href="{% url 'warrior:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">Dashboard</a>
             <a href="{% url 'warrior:history' %}" class="{% if request.resolver_match.url_name == 'history' %}active{% endif %}">History</a>
+            <a href="{% url 'warrior:progress' %}" class="{% if request.resolver_match.url_name == 'progress' %}active{% endif %}">Progress</a>
             <a href="{% url 'warrior:edit' %}" class="{% if request.resolver_match.url_name == 'edit' %}active{% endif %}">Edit Attestation</a>
         </nav>
         {% endif %}
