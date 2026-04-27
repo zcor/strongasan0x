@@ -156,6 +156,13 @@ ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY", default="")
 GROK_API_KEY = config("GROK_API_KEY", default="")
 DEEPSEEK_API_KEY = config("DEEPSEEK_API_KEY", default="")
 
+# X (Twitter) API Configuration
+X_CONSUMER_KEY = config("X_CONSUMER_KEY", default="")
+X_CONSUMER_SECRET = config("X_CONSUMER_SECRET", default="")
+X_ACCESS_TOKEN = config("X_ACCESS_TOKEN", default="")
+X_ACCESS_TOKEN_SECRET = config("X_ACCESS_TOKEN_SECRET", default="")
+X_BEARER_TOKEN = config("X_BEARER_TOKEN", default="")
+
 # Strava API Configuration
 STRAVA_CLIENT_ID = config("STRAVA_CLIENT_ID", default="")
 STRAVA_CLIENT_SECRET = config("STRAVA_CLIENT_SECRET", default="")

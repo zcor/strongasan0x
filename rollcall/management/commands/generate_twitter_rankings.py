@@ -32,6 +32,16 @@ class Command(BaseCommand):
             action='store_true',
             help='Output only rankings list (no date, prose, or links)',
         )
+        parser.add_argument(
+            '--output',
+            type=str,
+            help='Output file path (saves tweet text to file)',
+        )
+        parser.add_argument(
+            '--post',
+            action='store_true',
+            help='Post the tweet thread to X via the API',
+        )
 
     def handle(self, *args, **options):
         # Check for conflicting options
@@ -76,12 +86,16 @@ class Command(BaseCommand):
 
         # Add header (unless rankings-only)
         if not options['rankings_only']:
-            # Format date range: "Dec. 22 - 28, 2025"
+            # Format date range: "Dec. 22 - 28, 2025" or "Mar. 30 - Apr. 5, 2026"
             start_month = roll_call.week_start_date.strftime('%b.')
             start_day = roll_call.week_start_date.day
+            end_month = roll_call.week_end_date.strftime('%b.')
             end_day = roll_call.week_end_date.day
             year = roll_call.week_end_date.year
-            date_str = f"{start_month} {start_day} - {end_day}, {year}"
+            if start_month == end_month:
+                date_str = f"{start_month} {start_day} - {end_day}, {year}"
+            else:
+                date_str = f"{start_month} {start_day} - {end_month} {end_day}, {year}"
 
             lines.append("Are you Strong as an 0x?  🏋️🐂")
             lines.append("Ethereum's toughest warriors")
@@ -158,14 +172,18 @@ class Command(BaseCommand):
         
         # Add links section (unless disabled or rankings-only)
         if not options['rankings_only'] and not options['no_links']:
-            # Generate Substack link using publication date (Monday after week end)
-            from datetime import timedelta
-            pub_date = roll_call.week_end_date + timedelta(days=1)
-            month_name = pub_date.strftime('%B').lower()
-            day = pub_date.day
-            year = pub_date.year
-            substack_slug = f"roll-call-{month_name}-{day}-{year}"
-            substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
+            # Use the actual Substack URL from the roll call if available
+            if roll_call.substack_url:
+                substack_link = roll_call.substack_url
+            else:
+                # Fallback: generate slug from publication date (Monday after week end)
+                from datetime import timedelta
+                pub_date = roll_call.week_end_date + timedelta(days=1)
+                month_name = pub_date.strftime('%B').lower()
+                day = pub_date.day
+                year = pub_date.year
+                substack_slug = f"roll-call-{month_name}-{day}-{year}"
+                substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
 
             lines.append("")
             lines.append("Details & How to Join 👇")
@@ -217,7 +235,62 @@ class Command(BaseCommand):
                 )
 
         self.stdout.write("="*60 + "\n")
-    
+
+        # Save to file if requested
+        if options.get('output'):
+            with open(options['output'], 'w') as f:
+                f.write(full_post)
+            self.stdout.write(self.style.SUCCESS(f"Saved to: {options['output']}"))
+
+        # Post to X if requested
+        if options.get('post'):
+            self._post_to_x(full_post)
+
+    def _post_to_x(self, full_post):
+        """Post tweet thread to X via API."""
+        import tweepy
+        from django.conf import settings as django_settings
+
+        consumer_key = django_settings.X_CONSUMER_KEY
+        consumer_secret = django_settings.X_CONSUMER_SECRET
+        access_token = django_settings.X_ACCESS_TOKEN
+        access_token_secret = django_settings.X_ACCESS_TOKEN_SECRET
+
+        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+            self.stderr.write("X API credentials not configured in settings.")
+            return
+
+        client = tweepy.Client(
+            consumer_key=consumer_key,
+            consumer_secret=consumer_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret,
+        )
+
+        # Split into tweet 1 (rankings) and tweet 2 (details)
+        split_point = full_post.find("\nDetails & How to Join")
+        if split_point > 0:
+            tweet1_text = full_post[:split_point].rstrip()
+            tweet2_text = full_post[split_point:].strip()
+        else:
+            tweet1_text = full_post
+            tweet2_text = None
+
+        try:
+            # Post tweet 1
+            response1 = client.create_tweet(text=tweet1_text)
+            tweet1_id = response1.data['id']
+            self.stdout.write(self.style.SUCCESS(f"✅ Tweet 1 posted: https://x.com/i/status/{tweet1_id}"))
+
+            # Post tweet 2 as reply
+            if tweet2_text:
+                response2 = client.create_tweet(text=tweet2_text, in_reply_to_tweet_id=tweet1_id)
+                tweet2_id = response2.data['id']
+                self.stdout.write(self.style.SUCCESS(f"✅ Tweet 2 posted: https://x.com/i/status/{tweet2_id}"))
+
+        except tweepy.TweepyException as e:
+            self.stderr.write(f"Error posting to X: {e}")
+
     def _parse_date(self, date_str: str) -> date:
         """
         Parse date string in YYYY-MM-DD or MM-DD format.
