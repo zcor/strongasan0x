@@ -435,3 +435,52 @@ class StravaActivity(models.Model):
         if self.total_elevation_gain:
             return self.total_elevation_gain * 3.28084
         return None
+
+
+class ExtractedMetrics(models.Model):
+    """AI-extracted structured metrics from attestation freeform text."""
+    attestation = models.OneToOneField('Attestation', on_delete=models.CASCADE, related_name='metrics')
+    extracted_at = models.DateTimeField(auto_now_add=True)
+    model_used = models.CharField(max_length=100)
+    raw_response = models.JSONField(default=dict)
+
+    # Fitness (all nullable — only populated if mentioned in attestation)
+    daily_steps = models.IntegerField(null=True, blank=True)
+    calories_burned = models.IntegerField(null=True, blank=True)
+    resting_heart_rate = models.IntegerField(null=True, blank=True)
+    vo2_max = models.FloatField(null=True, blank=True)
+    sleep_hours = models.FloatField(null=True, blank=True)
+    body_weight = models.FloatField(null=True, blank=True)
+    body_fat_pct = models.FloatField(null=True, blank=True)
+
+    # Training counts
+    strength_sessions = models.IntegerField(null=True, blank=True)
+    cardio_sessions = models.IntegerField(null=True, blank=True)
+    combat_sessions = models.IntegerField(null=True, blank=True)
+    total_training_sessions = models.IntegerField(null=True, blank=True)
+
+    # Nutrition (daily avg)
+    protein_grams = models.IntegerField(null=True, blank=True)
+    calories_consumed = models.IntegerField(null=True, blank=True)
+
+    # Key lifts (working weight or 1RM as reported)
+    bench_press = models.FloatField(null=True, blank=True)
+    squat = models.FloatField(null=True, blank=True)
+    deadlift = models.FloatField(null=True, blank=True)
+
+    # Catch-all for warrior-specific metrics
+    extra_metrics = models.JSONField(default=dict, blank=True)
+
+    # Extraction status tracking
+    extraction_error = models.TextField(blank=True, default='')
+    last_extraction_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Extracted Metrics"
+        verbose_name_plural = "Extracted Metrics"
+        indexes = [
+            models.Index(fields=['attestation']),
+        ]
+
+    def __str__(self):
+        return f"Metrics for {self.attestation}"
