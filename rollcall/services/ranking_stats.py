@@ -73,7 +73,22 @@ def build_canonical_name_map(trials: List[RankingTrial]) -> Dict[str, str]:
         # Use the most common variant as canonical
         canonical_name = variant_counts.most_common(1)[0][0]
         canonical_map[normalized] = canonical_name
-    
+
+    # Second pass: merge name fragments into their longer forms.
+    # e.g. "devin" (1 trial) is a substring of "devin | gammaswap" (13 trials)
+    # → map "devin" to the canonical name of "devin | gammaswap"
+    normalized_keys = list(canonical_map.keys())
+    for short in normalized_keys:
+        for long in normalized_keys:
+            if short == long:
+                continue
+            if short in long:
+                short_count = len(name_variants[short])
+                long_count = len(name_variants[long])
+                # Only merge if the short form is clearly a fragment (fewer occurrences)
+                if short_count < long_count:
+                    canonical_map[short] = canonical_map[long]
+
     return canonical_map
 
 
@@ -256,18 +271,22 @@ def calculate_cumulative_stats(trials: List[RankingTrial]) -> Dict[str, Dict]:
                     stats[normalized]['rankings'].append(rank)
                     stats[normalized]['trial_count'] += 1
     
-    # Calculate statistics and map back to canonical names
-    result = {}
+    # Merge stats for normalized names that map to the same canonical name
+    merged_stats = defaultdict(lambda: {'rankings': [], 'trial_count': 0})
     for normalized_name, data in stats.items():
+        canonical_name = canonical_map.get(normalized_name, normalized_name)
+        merged_stats[canonical_name]['rankings'].extend(data['rankings'])
+        merged_stats[canonical_name]['trial_count'] += data['trial_count']
+
+    # Calculate statistics
+    result = {}
+    for canonical_name, data in merged_stats.items():
         rankings = data['rankings']
         if not rankings:
             continue
-        
-        # Get canonical name (most common variant)
-        canonical_name = canonical_map.get(normalized_name, normalized_name)
-        
+
         avg_rank = sum(rankings) / len(rankings)
-        
+
         # Calculate standard error
         if len(rankings) >= 2:
             mean = avg_rank
@@ -276,14 +295,14 @@ def calculate_cumulative_stats(trials: List[RankingTrial]) -> Dict[str, Dict]:
             std_error = std_dev / math.sqrt(len(rankings))
         else:
             std_error = 0.0
-        
+
         result[canonical_name] = {
             'average_rank': avg_rank,
             'std_error': std_error,
             'trial_count': len(rankings),
             'rankings': rankings
         }
-    
+
     return result
 
 
@@ -430,11 +449,11 @@ def format_rankings_display(stats: Dict[str, Dict]) -> str:
     sorted_stats = sorted(stats.items(), key=lambda x: x[1]['average_rank'])
     
     lines = []
-    lines.append("\n" + "=" * 80)
+    lines.append("\n" + "=" * 60)
     lines.append("CUMULATIVE RANKINGS")
-    lines.append("=" * 80)
+    lines.append("=" * 60)
     lines.append(f"{'Rank':<6} {'Name':<30} {'Avg Rank':<12} {'Std Error':<12} {'Trials':<8}")
-    lines.append("-" * 80)
+    lines.append("-" * 60)
     
     for rank, (name, data) in enumerate(sorted_stats, 1):
         avg_rank = data['average_rank']
@@ -449,6 +468,6 @@ def format_rankings_display(stats: Dict[str, Dict]) -> str:
         
         lines.append(f"{rank:<6} {display_name:<30} {error_str:<12} {trial_count:<8}")
     
-    lines.append("=" * 80)
-    
+    lines.append("=" * 60)
+
     return "\n".join(lines)

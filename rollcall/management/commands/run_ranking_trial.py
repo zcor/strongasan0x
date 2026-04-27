@@ -176,15 +176,15 @@ class Command(BaseCommand):
             # Check convergence
             convergence = check_convergence(all_trials, threshold=0.5)
             
-            self.stdout.write("\n" + "="*80)
+            self.stdout.write("\n" + "="*60)
             self.stdout.write("CONVERGENCE STATUS")
-            self.stdout.write("="*80)
+            self.stdout.write("="*60)
             self.stdout.write(f"Converged: {convergence['converged']}")
             self.stdout.write(f"Reason: {convergence['reason']}")
             self.stdout.write(f"Trials: {convergence['current_trials']}")
             if convergence['max_std_error'] is not None:
                 self.stdout.write(f"Max Std Error: {convergence['max_std_error']:.3f}")
-            self.stdout.write("="*80)
+            self.stdout.write("="*60)
             
             # If output file is specified, also write ranked attestations
             output_file = options.get('output_ranked_attestations')
@@ -313,7 +313,7 @@ class Command(BaseCommand):
                     raise CommandError('No available providers after exclusions')
                 provider = random.choice(available_providers)
             
-            self.stdout.write(f"\n{'='*80}")
+            self.stdout.write(f"\n{'='*60}")
             self.stdout.write(f"Running trial with {provider}...")
             
             # Make API call
@@ -358,15 +358,15 @@ class Command(BaseCommand):
             model_name, raw_response, cost_info = result
             
             # Display cost estimate
-            self.stdout.write("\n" + "-"*80)
+            self.stdout.write("\n" + "-"*60)
             self.stdout.write("COST ESTIMATE:")
-            self.stdout.write("-"*80)
+            self.stdout.write("-"*60)
             self.stdout.write(f"Input tokens: {cost_info['input_tokens']:,}")
             self.stdout.write(f"Output tokens: {cost_info['output_tokens']:,}")
             self.stdout.write(f"Input cost: ${cost_info['input_cost']:.4f}")
             self.stdout.write(f"Output cost: ${cost_info['output_cost']:.4f}")
             self.stdout.write(self.style.SUCCESS(f"Total cost: ${cost_info['total_cost']:.4f}"))
-            self.stdout.write("-"*80)
+            self.stdout.write("-"*60)
             
             # Parse JSON response
             parsed_rankings = parse_ranking_response(raw_response)
@@ -439,9 +439,9 @@ class Command(BaseCommand):
             self.stdout.write(f"Rankings: {len(parsed_rankings)} participants")
             
             # Display current trial results
-            self.stdout.write("\n" + "="*80)
+            self.stdout.write("\n" + "="*60)
             self.stdout.write("CURRENT TRIAL RANKINGS")
-            self.stdout.write("="*80)
+            self.stdout.write("="*60)
             for item in parsed_rankings:
                 rank = item.get('rank', 0)
                 name = item.get('name', '')
@@ -459,15 +459,15 @@ class Command(BaseCommand):
             # Check convergence
             convergence = check_convergence(all_trials, threshold=0.5)
             
-            self.stdout.write("\n" + "="*80)
+            self.stdout.write("\n" + "="*60)
             self.stdout.write("CONVERGENCE STATUS")
-            self.stdout.write("="*80)
+            self.stdout.write("="*60)
             self.stdout.write(f"Converged: {convergence['converged']}")
             self.stdout.write(f"Reason: {convergence['reason']}")
             self.stdout.write(f"Trials: {convergence['current_trials']}")
             if convergence['max_std_error'] is not None:
                 self.stdout.write(f"Max Std Error: {convergence['max_std_error']:.3f}")
-            self.stdout.write("="*80)
+            self.stdout.write("="*60)
             
             # Save raw response to file for debugging (optional)
             import os
@@ -513,15 +513,15 @@ class Command(BaseCommand):
         """
         Show what would be sent to AI providers without making API calls.
         """
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write(self.style.WARNING("DRY RUN MODE - No API calls will be made"))
         self.stdout.write(self.style.WARNING("⚠️  Note: Attestations and participants are randomized to avoid order bias"))
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
         
         # Show which attestations will be included
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write(f"ATTESTATIONS TO BE RANKED ({len(attestations_list)} total):")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         self.stdout.write(f"Week: {roll_call.week_start_date} to {roll_call.week_end_date}")
         self.stdout.write("")
         
@@ -543,7 +543,7 @@ class Command(BaseCommand):
             attachment_indicator = " 📎" if has_attachments else ""
             self.stdout.write(f"  {i:2d}. {name} ({part_text}, posted: {date_range}){attachment_indicator}")
         
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
         
         # Determine which provider would be used
         if options.get('provider'):
@@ -620,26 +620,26 @@ class Command(BaseCommand):
             cost_info = None
         
         if cost_info:
-            self.stdout.write("\n" + "-"*80)
+            self.stdout.write("\n" + "-"*60)
             self.stdout.write("ESTIMATED COST:")
-            self.stdout.write("-"*80)
+            self.stdout.write("-"*60)
             self.stdout.write(f"Input tokens (est): {cost_info['input_tokens']:,}")
             self.stdout.write(f"Output tokens (est): {cost_info['output_tokens']:,}")
             if thinking_mode:
                 self.stdout.write(self.style.WARNING("  (Higher output estimate due to thinking mode)"))
             self.stdout.write(f"Estimated total cost: ${cost_info['total_cost']:.4f}")
-            self.stdout.write("-"*80 + "\n")
+            self.stdout.write("-"*60 + "\n")
         
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         self.stdout.write("FULL PROMPT THAT WOULD BE SENT:")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         self.stdout.write(full_prompt)
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
         
         # Show provider-specific details
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         self.stdout.write(f"PROVIDER-SPECIFIC DETAILS ({provider.upper()}):")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         
         if provider == 'openai':
             # Estimate tokens to determine which model will be used
@@ -701,7 +701,7 @@ class Command(BaseCommand):
             if use_file_attachment:
                 self.stdout.write("File attachment: Yes (attestations as text file)")
         
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
         
         # Show attestations summary
         # Use the actual participant count from the grouped attestations
@@ -714,9 +714,9 @@ class Command(BaseCommand):
         self.stdout.write(f"  - Total characters: {len(attestations_text):,}")
         self.stdout.write(f"  - Total words: {len(attestations_text.split()):,}")
         
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write(self.style.SUCCESS("Dry run complete. Use without --dry-run to execute."))
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
     
     def _get_clean_name(self, attestation):
         """
@@ -818,9 +818,9 @@ class Command(BaseCommand):
         participant_list = list(participants)
         random.shuffle(participant_list)
         
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write(f"PARTICIPANTS TO BE RANKED ({len(participant_list)} total, randomized order):")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         
         # Create a mapping of names to attachment status
         name_to_attachments = {}
@@ -842,7 +842,7 @@ class Command(BaseCommand):
         if len(participant_list) > 10:
             self.stdout.write(f"  ... and {len(participant_list) - 10} more")
         
-        self.stdout.write("="*80 + "\n")
+        self.stdout.write("="*60 + "\n")
     
     def _format_attestations(self, attestations, thinking_mode: bool = False) -> str:
         """
@@ -896,9 +896,9 @@ class Command(BaseCommand):
                 # Special handling for DefiShaka's image
                 if name.lower() in ['defishaka', 'defi shaka', 'defishaka']:
                     lines.append("")
-                    lines.append("=" * 80)
+                    lines.append("=" * 60)
                     lines.append(f"IMAGE ATTACHMENT FOR {name.upper()}:")
-                    lines.append("=" * 80)
+                    lines.append("=" * 60)
                     lines.append("This participant (DefiShaka) has included an image attachment: 12-1-DefiShaka-Image.jpg")
                     lines.append("")
                     lines.append("IMAGE CONTENT DESCRIPTION:")
@@ -918,7 +918,7 @@ class Command(BaseCommand):
                     lines.append("This demonstrates significant performance improvement - faster completion times at the same")
                     lines.append("weights, indicating increased strength-endurance and battle-readiness. This visual evidence")
                     lines.append("should be weighted heavily when ranking, as it shows concrete, measurable progress.")
-                    lines.append("=" * 80)
+                    lines.append("=" * 60)
                     lines.append("")
                 else:
                     lines.append("")
@@ -966,14 +966,14 @@ class Command(BaseCommand):
         
         # Write to file
         lines = []
-        lines.append("=" * 80)
+        lines.append("=" * 60)
         lines.append(f"RANKED ATTESTATIONS - Week of {roll_call.week_start_date.strftime('%B %d, %Y')}")
-        lines.append("=" * 80)
+        lines.append("=" * 60)
         lines.append("")
         trial_count = len(RankingTrial.objects.filter(weekly_roll_call=roll_call))
         lines.append(f"Based on {trial_count} trial(s)")
         lines.append("")
-        lines.append("=" * 80)
+        lines.append("=" * 60)
         lines.append("")
         
         for rank, (canonical_name, data) in enumerate(sorted_stats, 1):
@@ -993,9 +993,9 @@ class Command(BaseCommand):
                     participant_attestations.extend(att_list)
             
             # Header
-            lines.append("=" * 80)
+            lines.append("=" * 60)
             lines.append(f"RANK {rank}: {display_name}")
-            lines.append("=" * 80)
+            lines.append("=" * 60)
             lines.append(f"Average Rank: {data['average_rank']:.2f}")
             if data['std_error'] > 0:
                 lines.append(f"Std Error: {data['std_error']:.2f}")
@@ -1173,9 +1173,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Rankings: {len(parsed_rankings)} participants")
         
         # Display current trial results
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write("IMPORTED TRIAL RANKINGS")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         for item in parsed_rankings:
             rank = item.get('rank', 0)
             name = item.get('name', '')
@@ -1193,12 +1193,12 @@ class Command(BaseCommand):
         # Check convergence
         convergence = check_convergence(all_trials, threshold=0.5)
         
-        self.stdout.write("\n" + "="*80)
+        self.stdout.write("\n" + "="*60)
         self.stdout.write("CONVERGENCE STATUS")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
         self.stdout.write(f"Converged: {convergence['converged']}")
         self.stdout.write(f"Reason: {convergence['reason']}")
         self.stdout.write(f"Trials: {convergence['current_trials']}")
         if convergence['max_std_error'] is not None:
             self.stdout.write(f"Max Std Error: {convergence['max_std_error']:.3f}")
-        self.stdout.write("="*80)
+        self.stdout.write("="*60)
