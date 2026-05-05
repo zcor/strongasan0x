@@ -47,7 +47,8 @@ async def store_attestation(
         if not roll_call:
             return None, "No roll call found for attestation"
         
-        # Check if already exists
+        # Check if already exists.
+        # Telegram message_id is unique only within a chat — must include chat_id.
         if source == 'discord':
             existing = Attestation.objects.filter(
                 source='discord',
@@ -56,9 +57,10 @@ async def store_attestation(
         else:
             existing = Attestation.objects.filter(
                 source='telegram',
+                telegram_chat_id=chat_id,
                 telegram_message_id=message_id
             ).first()
-        
+
         if existing:
             return existing, "Attestation already stored"
         
@@ -94,7 +96,7 @@ async def store_attestation(
         
         attestation = Attestation.objects.create(**attestation_data)
         
-        # Link to message log if it exists
+        # Link to message log if it exists (composite key for telegram)
         try:
             from rollcall.models import MessageLog
             if source == 'discord':
@@ -105,9 +107,10 @@ async def store_attestation(
             else:
                 message_log = MessageLog.objects.filter(
                     source='telegram',
+                    telegram_chat_id=chat_id,
                     telegram_message_id=message_id
                 ).first()
-            
+
             if message_log:
                 message_log.is_attestation = True
                 message_log.attestation = attestation

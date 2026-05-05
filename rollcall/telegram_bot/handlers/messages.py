@@ -172,13 +172,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             if success:
                 logger.info(f"✅ Logged message {message.message_id} from {chat_type} chat {chat_id}")
-                # Send a simple acknowledgment for DMs so user knows bot is working
-                # (Don't spam channels/groups)
-                if chat_type == 'private' and text.strip():
-                    try:
-                        await message.reply_text("✅ Message received and logged!")
-                    except Exception as e:
-                        logger.debug(f"Could not send acknowledgment: {e}")
             else:
                 logger.warning(f"❌ Failed to log message: {log_msg}")
         elif not user_obj:
@@ -302,9 +295,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return None, 1
     
-    parent_attestation, part_number = await sync_to_async(find_recent_attestation)()
-
-    # Build attachment_info for storage
+    # Build attachment_info for storage (no shared state — safe outside the lock)
     attestation_attachment_info = {}
     if message.photo:
         largest_photo = max(message.photo, key=lambda p: p.file_size or 0)
@@ -324,38 +315,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'file_size': message.document.file_size,
         }
 
-    # Store attestation
-    success, message_text, attestation_obj = await attest.store_attestation(
-        source='telegram',
-        user_mapping=user_mapping,
-        message_id=message.message_id,
-        chat_id=message.chat_id,
-        text=text,
-        posted_at=message_date,
-        has_attachments=bool(message.photo or message.document),
-        attachment_count=len(message.photo or []) + (1 if message.document else 0),
-        parent_attestation=parent_attestation,
-        part_number=part_number,
-        attachment_info=attestation_attachment_info if attestation_attachment_info else None,
-        image_extraction_info=extraction_usage
-    )
+    # Multi-part race fix: with concurrent_updates(True), two near-simultaneous
+    # attestation messages from the same warrior in the same chat would race —
+    # both compute "I'm part 1" before either writes, producing a torn part
+    # counter or duplicate-part-1 rows. Take a per-(chat, user) lock so the
+    # find-recent + store sequence is atomic. Per-pair keying keeps cross-warrior
+    # throughput intact.
+    attest_locks = context.bot_data.get('attest_locks')
+    lock_key = (message.chat_id, message.from_user.id) if message.from_user else (message.chat_id, None)
+    lock = attest_locks[lock_key] if attest_locks is not None else None
+
+    if lock is not None:
+        await lock.acquire()
+    try:
+        parent_attestation, part_number = await sync_to_async(find_recent_attestation)()
+
+        # Store attestation
+        success, message_text, attestation_obj = await attest.store_attestation(
+            source='telegram',
+            user_mapping=user_mapping,
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            text=text,
+            posted_at=message_date,
+            has_attachments=bool(message.photo or message.document),
+            attachment_count=len(message.photo or []) + (1 if message.document else 0),
+            parent_attestation=parent_attestation,
+            part_number=part_number,
+            attachment_info=attestation_attachment_info if attestation_attachment_info else None,
+            image_extraction_info=extraction_usage
+        )
+    finally:
+        if lock is not None:
+            lock.release()
 
     if success:
         # Politely confirm storage
+        from rollcall.telegram_bot.conversation.outbound import send_and_log, KIND_ATTESTATION_ACK
         if extracted_text:
             confirm_msg = "✨ Extracted fitness data from your image and stored your attestation!"
         elif part_number > 1:
             confirm_msg = f"✅ Stored as part {part_number} of your attestation."
         else:
             confirm_msg = "✅ Stored your attestation for this week."
-        
+
         # Show status
         try:
             status_message = await status.get_status_message()
             full_response = f"{confirm_msg}\n\n{status_message}"
-            await message.reply_text(full_response, parse_mode='Markdown')
+            await send_and_log(
+                context.bot, message.chat_id, full_response,
+                reply_to_message_id=message.message_id, parse_mode='Markdown',
+                kind=KIND_ATTESTATION_ACK,
+            )
         except Exception as e:
             logger.error(f"Error getting status: {e}")
-            await message.reply_text(confirm_msg)
+            await send_and_log(
+                context.bot, message.chat_id, confirm_msg,
+                reply_to_message_id=message.message_id,
+                kind=KIND_ATTESTATION_ACK,
+            )
     else:
         logger.warning(f"Failed to store attestation: {message_text}")

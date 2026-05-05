@@ -161,13 +161,17 @@ class Attestation(models.Model):
             models.Index(fields=['discord_user', 'posted_at']),
             models.Index(fields=['telegram_user', 'posted_at']),
             models.Index(fields=['source', 'discord_message_id']),
-            models.Index(fields=['source', 'telegram_message_id']),
+            models.Index(fields=['source', 'telegram_chat_id', 'telegram_message_id']),
             models.Index(fields=['parent_attestation', 'part_number']),
             models.Index(fields=['is_hidden']),
         ]
         constraints = [
             models.UniqueConstraint(fields=['source', 'discord_message_id'], condition=models.Q(source='discord', discord_message_id__isnull=False), name='unique_discord_message'),
-            models.UniqueConstraint(fields=['source', 'telegram_message_id'], condition=models.Q(source='telegram', telegram_message_id__isnull=False), name='unique_telegram_message'),
+            models.UniqueConstraint(
+                fields=['source', 'telegram_chat_id', 'telegram_message_id'],
+                condition=models.Q(source='telegram', telegram_message_id__isnull=False, telegram_chat_id__isnull=False),
+                name='unique_telegram_chat_message',
+            ),
         ]
 
     def __str__(self):
@@ -206,7 +210,7 @@ class MessageLog(models.Model):
 
     # Telegram fields (nullable for Discord messages)
     telegram_user = models.ForeignKey(TelegramUserMapping, on_delete=models.SET_NULL, null=True, blank=True, related_name='message_logs')
-    telegram_message_id = models.BigIntegerField(null=True, blank=True, unique=True, help_text="Telegram message ID")
+    telegram_message_id = models.BigIntegerField(null=True, blank=True, help_text="Telegram message ID (unique within a chat, not globally)")
     telegram_chat_id = models.BigIntegerField(null=True, blank=True, help_text="Telegram chat ID")
 
     # Content
@@ -219,6 +223,12 @@ class MessageLog(models.Model):
     # Metadata
     is_attestation = models.BooleanField(default=False, help_text="Whether this message was converted to an attestation")
     attestation = models.ForeignKey(Attestation, on_delete=models.SET_NULL, null=True, blank=True, related_name='source_messages', help_text="Attestation created from this message")
+
+    # Conversational bot upgrade (Phase 0)
+    is_bot_reply = models.BooleanField(default=False, db_index=True, help_text="True for messages the bot itself sent (vs warrior-authored)")
+    classifier_verdict = models.JSONField(null=True, blank=True, help_text="Sonnet classifier output (Phase A) — {is_attestation, should_reply, intent, ...}")
+    kind = models.CharField(max_length=32, default='warrior', help_text="Row purpose: 'warrior', 'reply', 'attestation_ack', 'command_reply', 'error', 'private_files_listing', etc.")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -231,13 +241,17 @@ class MessageLog(models.Model):
             models.Index(fields=['discord_user', 'posted_at']),
             models.Index(fields=['telegram_user', 'posted_at']),
             models.Index(fields=['source', 'discord_message_id']),
-            models.Index(fields=['source', 'telegram_message_id']),
+            models.Index(fields=['source', 'telegram_chat_id', 'telegram_message_id']),
             models.Index(fields=['is_attestation']),
             models.Index(fields=['posted_at']),
         ]
         constraints = [
             models.UniqueConstraint(fields=['source', 'discord_message_id'], condition=models.Q(source='discord', discord_message_id__isnull=False), name='unique_discord_message_log'),
-            models.UniqueConstraint(fields=['source', 'telegram_message_id'], condition=models.Q(source='telegram', telegram_message_id__isnull=False), name='unique_telegram_message_log'),
+            models.UniqueConstraint(
+                fields=['source', 'telegram_chat_id', 'telegram_message_id'],
+                condition=models.Q(source='telegram', telegram_message_id__isnull=False, telegram_chat_id__isnull=False),
+                name='unique_telegram_chat_message_log',
+            ),
         ]
 
     def __str__(self):
@@ -258,6 +272,39 @@ class MessageLog(models.Model):
     def message_id(self):
         """Get the appropriate message ID regardless of source"""
         return self.discord_message_id if self.source == 'discord' else self.telegram_message_id
+
+
+class ChatContextReset(models.Model):
+    """Marks a point in time before which messages in a chat are excluded from
+    the conversational bot's context window. /forget writes one of these rows;
+    no MessageLog rows are mutated or deleted. Single source of truth for
+    context cutoffs — see plan binary-juggling-locket.md."""
+    SOURCE_CHOICES = [
+        ('telegram', 'Telegram'),
+        ('discord', 'Discord'),
+    ]
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='telegram', help_text="Platform")
+    chat_id = models.BigIntegerField(help_text="Telegram chat ID or Discord channel ID")
+    cutoff_at = models.DateTimeField(help_text="Messages with posted_at <= cutoff_at are hidden from bot context")
+    requested_by = models.ForeignKey(TelegramUserMapping, on_delete=models.SET_NULL, null=True, blank=True, related_name='context_resets', help_text="User who issued /forget")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Chat Context Reset"
+        verbose_name_plural = "Chat Context Resets"
+        ordering = ['-cutoff_at']
+        indexes = [
+            models.Index(fields=['source', 'chat_id', '-cutoff_at']),
+        ]
+
+    def __str__(self):
+        return f"Reset {self.source}/{self.chat_id} @ {self.cutoff_at.isoformat()}"
+
+    @classmethod
+    def latest_reset_for(cls, chat_id, source='telegram'):
+        """Return the most recent cutoff datetime for a chat, or None if no reset exists."""
+        latest = cls.objects.filter(source=source, chat_id=chat_id).order_by('-cutoff_at').first()
+        return latest.cutoff_at if latest else None
 
 
 class WebLoginToken(models.Model):

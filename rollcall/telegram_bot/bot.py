@@ -3,7 +3,9 @@ Telegram bot for Roll Call
 Uses polling mode by default (recommended for local/desktop deployment)
 Webhook mode available for servers with public IP addresses
 """
+import asyncio
 import logging
+from collections import defaultdict
 from django.conf import settings
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -24,6 +26,7 @@ class RollCallTelegramBot:
         self.application = (
             Application.builder()
             .token(self.token)
+            .concurrent_updates(True)
             .connect_timeout(15.0)
             .read_timeout(30.0)
             .write_timeout(30.0)
@@ -40,6 +43,19 @@ class RollCallTelegramBot:
         """Set up command and message handlers"""
         # Store bot instance in application for handlers to access
         self.application.bot_data['bot_instance'] = self
+
+        # Per-(chat_id, telegram_user_id) lock for the multi-part attestation
+        # write path. Critical now that concurrent_updates(True) is on:
+        # without serialization, two near-simultaneous attestation messages
+        # from the same warrior can both compute "I'm part 1" before either
+        # writes, producing a torn part counter. The lock is taken inside
+        # handle_message() around the find_recent_attestation + store_attestation
+        # block. Per-pair keying preserves cross-warrior throughput.
+        self.application.bot_data['attest_locks'] = defaultdict(asyncio.Lock)
+
+        # Per-chat reply lock for the Phase B+ responder. Reserved here in
+        # Phase 0 so the structure is in place; not yet consumed.
+        self.application.bot_data['reply_locks'] = defaultdict(asyncio.Lock)
         
         # Debug: Log all updates to help troubleshoot
         async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,6 +99,7 @@ class RollCallTelegramBot:
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle errors"""
         from telegram.error import NetworkError, TimedOut, RetryAfter
+        from rollcall.telegram_bot.conversation.outbound import send_and_log, KIND_ERROR
         err = context.error
         if isinstance(err, (NetworkError, TimedOut, RetryAfter)):
             logger.warning(f"Transient network error (will retry): {type(err).__name__}: {err}")
@@ -90,8 +107,12 @@ class RollCallTelegramBot:
         logger.error(f"Exception while handling an update: {err}", exc_info=err)
         if update and update.message:
             try:
-                await update.message.reply_text(
-                    "Sorry, an error occurred. Please try again later."
+                await send_and_log(
+                    context.bot,
+                    update.message.chat_id,
+                    "Sorry, an error occurred. Please try again later.",
+                    reply_to_message_id=update.message.message_id,
+                    kind=KIND_ERROR,
                 )
             except Exception as e:
                 logger.error(f"Error sending error message: {e}")
