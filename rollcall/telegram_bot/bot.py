@@ -27,6 +27,7 @@ class RollCallTelegramBot:
             Application.builder()
             .token(self.token)
             .concurrent_updates(True)
+            .post_init(self._post_init)
             .connect_timeout(15.0)
             .read_timeout(30.0)
             .write_timeout(30.0)
@@ -38,6 +39,16 @@ class RollCallTelegramBot:
             .build()
         )
         self._setup_handlers()
+
+    async def _post_init(self, application):
+        """Cache bot username at startup so handlers can detect direct mentions."""
+        try:
+            me = await application.bot.get_me()
+            application.bot_data['bot_username'] = me.username or ''
+            logger.info("Bot username cached: @%s", me.username)
+        except Exception:
+            logger.exception("Failed to fetch bot username at startup")
+            application.bot_data['bot_username'] = ''
     
     def _setup_handlers(self):
         """Set up command and message handlers"""
@@ -98,11 +109,18 @@ class RollCallTelegramBot:
     
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle errors"""
-        from telegram.error import NetworkError, TimedOut, RetryAfter
+        from telegram.error import NetworkError, TimedOut, RetryAfter, Conflict
         from rollcall.telegram_bot.conversation.outbound import send_and_log, KIND_ERROR
         err = context.error
         if isinstance(err, (NetworkError, TimedOut, RetryAfter)):
             logger.warning(f"Transient network error (will retry): {type(err).__name__}: {err}")
+            return
+        if isinstance(err, Conflict):
+            # 409 Conflict happens when our previous getUpdates long-poll hasn't
+            # timed out on Telegram's side yet (e.g. after a launchd revival).
+            # Swallow it — the next poll cycle will succeed once the stale
+            # server-side connection ages out (~50s).
+            logger.warning(f"Conflict (stale long-poll, will retry): {err}")
             return
         logger.error(f"Exception while handling an update: {err}", exc_info=err)
         if update and update.message:

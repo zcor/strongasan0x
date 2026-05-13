@@ -81,6 +81,24 @@ DATABASES = {
     }
 }
 
+# Read-only DB alias for the conversational bot's bot_query verb dispatcher.
+# Backed by a Postgres role with SELECT-only grants on rollcall_* tables.
+# See plan binary-juggling-locket.md → Read-only enforcement.
+# Falls back to the default user when no separate password is configured —
+# in that case the router still routes here, but writes are not blocked at
+# the Postgres layer (the boundary collapses to the verb dispatcher only).
+BOT_READONLY_DB_USER = config("BOT_READONLY_DB_USER", default="")
+BOT_READONLY_DB_PASSWORD = config("BOT_READONLY_DB_PASSWORD", default="")
+DATABASES["readonly"] = {
+    **DATABASES["default"],
+    "USER": BOT_READONLY_DB_USER or DATABASES["default"]["USER"],
+    "PASSWORD": BOT_READONLY_DB_PASSWORD or DATABASES["default"]["PASSWORD"],
+}
+
+# Router engages only when BOT_QUERY_MODE=1 in env (set by bot_query mgmt cmd).
+# Otherwise it's a no-op — normal Django/web/management code is unaffected.
+DATABASE_ROUTERS = ["rollcall.db_routers.BotQueryRouter"]
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -149,6 +167,26 @@ TELEGRAM_ATTESTATION_CHANNEL_ID = config("TELEGRAM_ATTESTATION_CHANNEL_ID", defa
 ATTESTATION_MIN_LENGTH = config("ATTESTATION_MIN_LENGTH", default=100, cast=int)
 ATTESTATION_WEEKEND_START_HOUR = config("ATTESTATION_WEEKEND_START_HOUR", default=17, cast=int)
 ATTESTATION_MULTI_PART_WINDOW_MINUTES = config("ATTESTATION_MULTI_PART_WINDOW_MINUTES", default=15, cast=int)
+
+# Conversational bot upgrade (binary-juggling-locket plan)
+# Phase A — Sonnet classifier replaces heuristic detector. Verdicts always logged
+# to MessageLog.classifier_verdict; this flag controls whether they drive the
+# attestation pipeline. DRY_RUN_ATTESTATIONS shadow-tests without storing.
+CONVERSATION_CLASSIFIER_ENABLED = config("CONVERSATION_CLASSIFIER_ENABLED", default=False, cast=bool)
+CONVERSATION_DRY_RUN_ATTESTATIONS = config("CONVERSATION_DRY_RUN_ATTESTATIONS", default=False, cast=bool)
+CONVERSATION_CLASSIFIER_MODEL = config("CONVERSATION_CLASSIFIER_MODEL", default="claude-sonnet-4-6")
+CONVERSATION_CACHE_TTL = config("CONVERSATION_CACHE_TTL", default="1h")
+# Phase B — DM-only conversational replies via Claude CLI subprocess.
+CONVERSATION_REPLIES_ENABLED = config("CONVERSATION_REPLIES_ENABLED", default=False, cast=bool)
+CONVERSATION_REPLIES_DM_ONLY = config("CONVERSATION_REPLIES_DM_ONLY", default=True, cast=bool)
+CONVERSATION_CLAUDE_CLI_PATH = config("CONVERSATION_CLAUDE_CLI_PATH", default="claude")
+CONVERSATION_CODEX_CLI_PATH = config("CONVERSATION_CODEX_CLI_PATH", default="codex")
+CONVERSATION_CLAUDE_TIMEOUT_SEC = config("CONVERSATION_CLAUDE_TIMEOUT_SEC", default=90, cast=int)
+CONVERSATION_GLOBAL_CONCURRENCY = config("CONVERSATION_GLOBAL_CONCURRENCY", default=2, cast=int)
+CONVERSATION_PER_CHAT_COOLDOWN_SEC = config("CONVERSATION_PER_CHAT_COOLDOWN_SEC", default=8, cast=int)
+CONVERSATION_AMBIENT_PER_CHAT_PER_HOUR = config("CONVERSATION_AMBIENT_PER_CHAT_PER_HOUR", default=2, cast=int)
+CONVERSATION_CLAUDE_CIRCUIT_HOURS = config("CONVERSATION_CLAUDE_CIRCUIT_HOURS", default=6, cast=int)
+CONVERSATION_HISTORY_TURNS = config("CONVERSATION_HISTORY_TURNS", default=20, cast=int)
 
 # AI Provider API Keys
 OPENAI_API_KEY = config("OPENAI_API_KEY", default="")

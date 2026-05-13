@@ -19,7 +19,9 @@
         <key>DJANGO_SETTINGS_MODULE</key>
         <string>strongasan0x.settings</string>
         <key>PATH</key>
-        <string>/Users/gerrithall/dev/ox/0xfitness/garmin_project/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/Users/gerrithall/dev/ox/0xfitness/garmin_project/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 
     <key>WorkingDirectory</key>

@@ -204,55 +204,243 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Could not extract text from image, skipping")
             return
 
-    # Skip if message is too short or empty (for attestation detection)
-    # But allow through if we extracted text from an image
-    if len(text.strip()) < 50 and not extracted_text:
+    # Skip if message is too short or empty.
+    # Heuristic path needs ≥50 chars to score reliably. Classifier path is
+    # cheaper to run on short messages and short DMs ("you there?", "hi") are
+    # legitimate things Bull should respond to. So:
+    #   - DMs: classify everything ≥1 char
+    #   - Groups: keep the 50-char floor (classifier still skips emoji-spam)
+    classifier_on = getattr(settings, 'CONVERSATION_CLASSIFIER_ENABLED', False)
+    is_dm = chat_type == 'private'
+    if not text.strip() and not extracted_text:
         return
-
-    # Check for substance (structure or metrics)
-    has_structure = has_attestation_structure(text)
-    has_metric = has_metrics(text)
-    has_substance = has_structure or has_metric
-
-    # Calculate attestation score to check high-scoring messages even on non-weekend days
-    score = 0
-    if has_intent_markers(text):
-        score += 2
-    if has_structure:
-        score += 2
-    if has_metric:
-        score += 2  # INCREASED from 1 to 2
-    if has_attestation_keywords(text):
-        score += 1
-
-    # Conversational penalty: only apply if no substance
-    if has_conversational_markers(text) and not has_substance:
-        score -= 1
-
-    # Image-extracted attestations get a bonus score
-    if extracted_text:
-        score += 3
-
-    # Check if it's a weekend message OR if it has a very high score (4+)
-    # High-scoring messages are likely attestations even if posted on non-weekend days
-    is_weekend = is_weekend_message(message_date)
-    is_high_score = score >= 4
-
-    if not is_weekend and not is_high_score:
-        return
-
-    # Check if message looks like an attestation
-    # Skip this check for image-extracted text (we already validated it came from an image)
     if not extracted_text:
-        # For high-score messages, check without weekend requirement
-        if is_high_score and not is_weekend:
-            # Use relaxed check (no weekend requirement) for high-scoring messages
-            if not is_likely_attestation(text, message_date=None, min_length=50):
-                return
-        else:
-            # Normal check with weekend requirement
-            if not is_likely_attestation(text, message_date):
-                return
+        if classifier_on and is_dm:
+            pass  # any non-empty DM goes to classifier
+        elif len(text.strip()) < 50:
+            return
+
+    # ── Phase A: Sonnet classifier ────────────────────────────────────────
+    # Replaces the heuristic detector (kept below as a fallback when the
+    # classifier flag is off). When CONVERSATION_CLASSIFIER_ENABLED is True,
+    # the classifier verdict drives both the attestation path and (Phase B+)
+    # the conversational reply path. Verdict is persisted to MessageLog
+    # regardless, for offline tuning via replay_classifier mgmt cmd.
+    # Direct-mention / reply-to-bot detection. Computed once, used by both the
+    # classifier (as an input feature) and the reply gate (Phase D group path).
+    bot_username = (context.bot_data.get('bot_username') or '').lower()
+    is_mention_or_reply = False
+    if bot_username:
+        if message.text and (f'@{bot_username}' in message.text.lower()):
+            is_mention_or_reply = True
+        elif message.caption and (f'@{bot_username}' in message.caption.lower()):
+            is_mention_or_reply = True
+    if message.reply_to_message and message.reply_to_message.from_user:
+        try:
+            if message.reply_to_message.from_user.id == context.bot.id:
+                is_mention_or_reply = True
+        except Exception:
+            pass
+
+    classifier_verdict = None
+    classifier_is_attestation = None  # tri-state: None = no verdict, True/False = use it
+    if getattr(settings, 'CONVERSATION_CLASSIFIER_ENABLED', False):
+        from rollcall.telegram_bot.conversation.classifier import (
+            ClassifierInput,
+            classify_message,
+            pacific_now,
+        )
+
+        # Try to resolve the sender's linked warrior name (best effort).
+        sender_linked_warrior = None
+        try:
+            from rollcall.models import TelegramUserMapping
+            from asgiref.sync import sync_to_async as _sta
+            def _lookup():
+                from django.db import close_old_connections
+                close_old_connections()
+                m = TelegramUserMapping.objects.filter(telegram_user_id=message.from_user.id).first()
+                return m.linked_name if m and m.linked_name else None
+            sender_linked_warrior = await _sta(_lookup)()
+        except Exception:
+            pass
+
+        features = ClassifierInput(
+            text=text,
+            chat_type=chat_type,
+            is_mention_or_reply=is_mention_or_reply,
+            sender_display=user_name,
+            sender_linked_warrior=sender_linked_warrior,
+            pacific_now=pacific_now(),
+            is_weekend_window=is_weekend_message(message_date),
+            recent_history=[],  # Phase B will populate from MessageLog
+            has_image=bool(message.photo),
+            image_caption=message.caption,
+        )
+
+        try:
+            verdict = await classify_message(features)
+            classifier_verdict = verdict.to_dict()
+            classifier_is_attestation = verdict.is_attestation
+            logger.info(
+                "Classifier: is_att=%s conf=%.2f reply=%s intent=%s latency=%dms model=%s",
+                verdict.is_attestation, verdict.attestation_confidence,
+                verdict.should_reply, verdict.intent, verdict.latency_ms, verdict.model,
+            )
+
+            # Persist the verdict back onto the existing MessageLog row for this message.
+            try:
+                from rollcall.models import MessageLog
+                from asgiref.sync import sync_to_async as _sta
+                def _update_verdict():
+                    from django.db import close_old_connections
+                    close_old_connections()
+                    MessageLog.objects.filter(
+                        source='telegram',
+                        telegram_chat_id=message.chat_id,
+                        telegram_message_id=message.message_id,
+                    ).update(classifier_verdict=classifier_verdict)
+                await _sta(_update_verdict)()
+            except Exception:
+                logger.exception("Failed to persist classifier_verdict to MessageLog")
+        except Exception:
+            logger.exception("Classifier raised; falling back to heuristic")
+            classifier_is_attestation = None  # fall through to heuristic
+
+    # ── Heuristic detector (used when classifier disabled OR raised) ─────
+    if classifier_is_attestation is None:
+        # Check for substance (structure or metrics)
+        has_structure = has_attestation_structure(text)
+        has_metric = has_metrics(text)
+        has_substance = has_structure or has_metric
+
+        # Calculate attestation score to check high-scoring messages even on non-weekend days
+        score = 0
+        if has_intent_markers(text):
+            score += 2
+        if has_structure:
+            score += 2
+        if has_metric:
+            score += 2  # INCREASED from 1 to 2
+        if has_attestation_keywords(text):
+            score += 1
+
+        # Conversational penalty: only apply if no substance
+        if has_conversational_markers(text) and not has_substance:
+            score -= 1
+
+        # Image-extracted attestations get a bonus score
+        if extracted_text:
+            score += 3
+
+        # Check if it's a weekend message OR if it has a very high score (4+)
+        # High-scoring messages are likely attestations even if posted on non-weekend days
+        is_weekend = is_weekend_message(message_date)
+        is_high_score = score >= 4
+
+        if not is_weekend and not is_high_score:
+            return
+
+        # Check if message looks like an attestation
+        # Skip this check for image-extracted text (we already validated it came from an image)
+        if not extracted_text:
+            # For high-score messages, check without weekend requirement
+            if is_high_score and not is_weekend:
+                # Use relaxed check (no weekend requirement) for high-scoring messages
+                if not is_likely_attestation(text, message_date=None, min_length=50):
+                    return
+            else:
+                # Normal check with weekend requirement
+                if not is_likely_attestation(text, message_date):
+                    return
+    else:
+        # Classifier-driven branch.
+        # ── Phase B/D: conversational reply via Claude CLI ────────────────
+        # In groups: only reply on direct mention/reply (the strict guardrail) —
+        # the classifier may set should_reply=True for ambient group questions
+        # too, but we don't want Bull butting in. mention/reply is required.
+        # In DMs: classifier verdict alone is enough.
+        # CONVERSATION_REPLIES_DM_ONLY (legacy flag): if set, blocks ALL group
+        # replies even on mention. Default False now that group is unlocked.
+        if (
+            classifier_verdict
+            and classifier_verdict.get("should_reply")
+            and getattr(settings, 'CONVERSATION_REPLIES_ENABLED', False)
+        ):
+            dm_only = getattr(settings, 'CONVERSATION_REPLIES_DM_ONLY', False)
+            is_dm_chat = chat_type == 'private'
+            if dm_only and not is_dm_chat:
+                logger.info("Reply suppressed: DM_ONLY mode and chat is %s", chat_type)
+            elif not is_dm_chat and not is_mention_or_reply:
+                logger.info("Reply suppressed: group chat without mention/reply")
+            else:
+                from rollcall.telegram_bot.conversation.responder import (
+                    ReplyContext,
+                    generate_reply,
+                )
+                from rollcall.telegram_bot.conversation.outbound import send_and_log, KIND_REPLY
+
+                # Resolve linked warrior name (best effort, may already be cached above)
+                viewer_warrior = None
+                try:
+                    from rollcall.models import TelegramUserMapping
+                    from asgiref.sync import sync_to_async as _sta
+                    def _lookup_warrior():
+                        from django.db import close_old_connections
+                        close_old_connections()
+                        m = TelegramUserMapping.objects.filter(telegram_user_id=message.from_user.id).first()
+                        return m.linked_name if m and m.linked_name else None
+                    viewer_warrior = await _sta(_lookup_warrior)()
+                except Exception:
+                    pass
+
+                rctx = ReplyContext(
+                    user_text=text,
+                    chat_id=message.chat_id,
+                    chat_type=chat_type,
+                    viewer_telegram_id=message.from_user.id,
+                    viewer_display=user_name,
+                    viewer_warrior=viewer_warrior,
+                    intent=classifier_verdict.get("intent", "other"),
+                    target_warrior=classifier_verdict.get("target_warrior"),
+                    recent_history=[],  # populated in Phase D / future iteration
+                )
+
+                # Per-chat reply lock: serialize replies in the same chat so a
+                # follow-up message doesn't get a stale-context response.
+                reply_locks = context.bot_data.get('reply_locks')
+                lock = reply_locks[message.chat_id] if reply_locks is not None else None
+                if lock is not None:
+                    await lock.acquire()
+                try:
+                    # Show typing indicator immediately so warrior sees Bull is thinking
+                    try:
+                        await context.bot.send_chat_action(chat_id=message.chat_id, action='typing')
+                    except Exception:
+                        pass
+                    result = await generate_reply(rctx)
+                    if result.text:
+                        await send_and_log(
+                            context.bot, message.chat_id, result.text,
+                            reply_to_message_id=message.message_id,
+                            kind=KIND_REPLY,
+                        )
+                    else:
+                        logger.warning("responder returned no text: %s", result.error)
+                finally:
+                    if lock is not None:
+                        lock.release()
+
+        # If it's not an attestation, we're done (replies handled above).
+        if not classifier_is_attestation:
+            return
+        # If the classifier says yes, fall through to the multi-part + store path below.
+
+    # Phase A safety net: dry-run flag short-circuits the store path so we
+    # can shadow-test the classifier for a weekend without polluting attestations.
+    if getattr(settings, 'CONVERSATION_DRY_RUN_ATTESTATIONS', False):
+        logger.info("DRY RUN: classifier said attestation, but skipping store_attestation")
+        return
 
     # Get user mapping
     bot_instance = context.bot_data.get('bot_instance')

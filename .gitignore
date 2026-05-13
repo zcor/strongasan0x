@@ -11,6 +11,10 @@ db.sqlite3*
 logs/
 *.log
 
+# Personal health data (private, not for public repo)
+/body-comp/
+/health_log/
+
 # Personal data files (targeted paths, not blanket extensions)
 /attestations_*.txt
 /ranked_attestations.txt
