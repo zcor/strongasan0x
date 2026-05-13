@@ -204,30 +204,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Could not extract text from image, skipping")
             return
 
-    # Skip if message is too short or empty.
-    # Heuristic path needs ≥50 chars to score reliably. Classifier path is
-    # cheaper to run on short messages and short DMs ("you there?", "hi") are
-    # legitimate things Bull should respond to. So:
-    #   - DMs: classify everything ≥1 char
-    #   - Groups: keep the 50-char floor (classifier still skips emoji-spam)
-    classifier_on = getattr(settings, 'CONVERSATION_CLASSIFIER_ENABLED', False)
-    is_dm = chat_type == 'private'
-    if not text.strip() and not extracted_text:
-        return
-    if not extracted_text:
-        if classifier_on and is_dm:
-            pass  # any non-empty DM goes to classifier
-        elif len(text.strip()) < 50:
-            return
-
-    # ── Phase A: Sonnet classifier ────────────────────────────────────────
-    # Replaces the heuristic detector (kept below as a fallback when the
-    # classifier flag is off). When CONVERSATION_CLASSIFIER_ENABLED is True,
-    # the classifier verdict drives both the attestation path and (Phase B+)
-    # the conversational reply path. Verdict is persisted to MessageLog
-    # regardless, for offline tuning via replay_classifier mgmt cmd.
     # Direct-mention / reply-to-bot detection. Computed once, used by both the
-    # classifier (as an input feature) and the reply gate (Phase D group path).
+    # short-message gate below and the classifier (as an input feature).
     bot_username = (context.bot_data.get('bot_username') or '').lower()
     is_mention_or_reply = False
     if bot_username:
@@ -241,6 +219,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 is_mention_or_reply = True
         except Exception:
             pass
+
+    # Skip if message is too short or empty.
+    # Heuristic path needs ≥50 chars to score reliably. Classifier path is
+    # cheaper to run on short messages and short DMs ("you there?", "hi") are
+    # legitimate things Bull should respond to. So:
+    #   - DMs: classify everything ≥1 char
+    #   - Direct @-mentions or replies to the bot in groups: classify (short "no offense @Bot" should reach the classifier)
+    #   - Other groups: keep the 50-char floor (classifier still skips emoji-spam)
+    classifier_on = getattr(settings, 'CONVERSATION_CLASSIFIER_ENABLED', False)
+    is_dm = chat_type == 'private'
+    if not text.strip() and not extracted_text:
+        return
+    if not extracted_text:
+        if classifier_on and (is_dm or is_mention_or_reply):
+            pass  # non-empty DM, or direct mention/reply in a group, goes to classifier
+        elif len(text.strip()) < 50:
+            return
+
+    # ── Phase A: Sonnet classifier ────────────────────────────────────────
+    # Replaces the heuristic detector (kept below as a fallback when the
+    # classifier flag is off). When CONVERSATION_CLASSIFIER_ENABLED is True,
+    # the classifier verdict drives both the attestation path and (Phase B+)
+    # the conversational reply path. Verdict is persisted to MessageLog
+    # regardless, for offline tuning via replay_classifier mgmt cmd.
 
     classifier_verdict = None
     classifier_is_attestation = None  # tri-state: None = no verdict, True/False = use it
