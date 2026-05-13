@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 IMAGE_ONLY_TEXT_THRESHOLD = 50
 
 
+async def _sender_is_known_warrior(telegram_user_id) -> bool:
+    """Has this Telegram user submitted at least one attestation before?
+
+    Used to gate vision-API calls for image-only messages: regulars posting
+    a Strava/Garmin screenshot on any day are almost certainly attesting;
+    strangers posting an image probably aren't.
+    """
+    if not telegram_user_id:
+        return False
+    try:
+        from rollcall.models import TelegramUserMapping
+        def _check():
+            from django.db import close_old_connections
+            close_old_connections()
+            tm = TelegramUserMapping.objects.filter(telegram_user_id=telegram_user_id).first()
+            if not tm:
+                return False
+            return Attestation.objects.filter(telegram_user_id=tm.id, is_hidden=False).exists()
+        return await sync_to_async(_check)()
+    except Exception:
+        logger.exception("known-warrior check failed; defaulting to False")
+        return False
+
+
 async def extract_text_from_images(bot, message) -> tuple[str | None, dict | None]:
     """
     Extract attestation text from images in a message using Claude vision.
@@ -188,9 +212,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     extracted_text = None
     extraction_usage = None
 
-    # For image-only messages on weekends, try to extract text from the image
-    if is_image_only and is_weekend_message(message_date):
-        logger.info(f"📷 Image-only message detected from {user_name}, attempting extraction...")
+    # Decide whether to attempt image extraction.
+    # Original rule was weekend-only (Sunday roll-call window) to limit
+    # vision-API spend on random food/meme photos. Relaxed 2026-05-13: also
+    # extract any day when the sender is a known warrior (prior attestation
+    # history), since Strava/Garmin screenshots from regulars are reliably
+    # attestation-shaped — Corn's 209-mi cycling screenshot on a Tuesday
+    # would have been silently dropped under the old rule.
+    should_extract = is_image_only and (
+        is_weekend_message(message_date)
+        or await _sender_is_known_warrior(message.from_user.id if message.from_user else None)
+    )
+
+    if should_extract:
+        logger.info(f"📷 Image-only message from {user_name}, attempting extraction...")
         extracted_text, extraction_usage = await extract_text_from_images(context.bot, message)
 
         if extracted_text:
@@ -201,8 +236,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 text = f"[Extracted from image:]\n{extracted_text}"
         else:
-            logger.warning("Could not extract text from image, skipping")
-            return
+            # Extraction failed (vision model couldn't read it, or no fitness
+            # content). Fall through to normal handling rather than dropping
+            # the whole message — caption text or future classifier logic
+            # may still find something useful.
+            logger.info("Image extraction returned no text; continuing without it")
+            extracted_text = None
 
     # Direct-mention / reply-to-bot detection. Computed once, used by both the
     # short-message gate below and the classifier (as an input feature).
