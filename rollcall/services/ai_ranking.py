@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 # Ranking prompt template
 RANKING_PROMPT = """You are recruiting an army for a great battle. Your job is to read through health attestations they have provided and rank the participants. Do not overweight thorough accounting, volume of tracking or thorough logging, because all warriors presumably have a baseline of underreported routine daily activities in addition to explicitly noted accomplishments. Prioritize for battle-readiness and judge the quality and intensity underlying reported feats.
 
+Specifically:
+- A warrior who logs their activities with a watch (auto-generated step counts, HR zones, calorie estimates, per-minute breakdowns) is not more battle-ready than one who tersely lists harder lifts. Reward intensity and difficulty over data legibility.
+- Daily step counts above ~10K are mostly non-training daily movement (commuting, errands, walking around). Do not treat 100K+ weekly steps as 100K steps of effortful training.
+- Sauna sessions, walks, and stretching are recovery, not work. They count for consistency but not for intensity.
+- A long list of distinct activities is not the same as a hard week. Three brutal sessions beat seven half-efforts. Look at session duration, HR, weight loaded, and whether the warrior pushed to exhaustion.
+- A single-discipline week of extreme depth (e.g. a 200-mile cycling week, a multi-class combat-sports week) can rank above a broader-but-thinner week.
+
 IMPORTANT: Some participants may have included image attachments with their attestations. When you see notes like "[NOTE: This participant has included an image attachment...]", pay special attention to the visual evidence described, as it provides concrete performance data that should be factored into your ranking.
 
 Output just a ranked list in JSON format as an array of objects with "rank" (integer starting at 1) and "name" (string) fields.
