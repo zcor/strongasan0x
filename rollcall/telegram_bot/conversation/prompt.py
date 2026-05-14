@@ -157,6 +157,11 @@ Verdict: is_attestation=false, should_reply=false (no Bull mention), intent=ques
 Example 9 — Same meta question, in DM:
 Message: "When does this week's roll close again?"
 Verdict: is_attestation=false, should_reply=true, intent=question_general
+
+Example 10 — Direct coaching ask in group with mention:
+Message: "@StrongAsAn0x I missed the gym today due to a work call — what should I do at home instead?"
+Verdict: is_attestation=false, should_reply=true, intent=question_self
+(Bull should answer with a concrete suggestion, not deflect. The warrior is asking for help, not chatter.)
 """
 
 
