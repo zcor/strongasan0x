@@ -15,6 +15,9 @@ logs/
 /body-comp/
 /health_log/
 
+# Bizdev / customer-development notes (private prospect info)
+**/BIZDEV_NOTES.md
+
 # Personal data files (targeted paths, not blanket extensions)
 /attestations_*.txt
 /ranked_attestations.txt

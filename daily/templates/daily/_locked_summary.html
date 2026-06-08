@@ -1,0 +1,17 @@
+{# Compact today's-check-in summary: 5 dots, optional comment, edit link. #}
+<div class="locked-summary">
+    <div class="locked-label">Today's check-in</div>
+    <div class="dot-row" role="list" aria-label="Today's results">
+        {% for q in questions %}
+            <span
+                class="big-dot {% if q.checked %}done{% else %}miss{% endif %}"
+                role="listitem"
+                title="{{ q.label }}{% if q.checked %} — done{% else %} — missed{% endif %}"
+            ></span>
+        {% endfor %}
+    </div>
+    {% if existing.comment %}
+        <div class="locked-comment">"{{ existing.comment }}"</div>
+    {% endif %}
+    <a class="locked-edit" href="?edit=1{% if debug_as_of %}&as_of={{ debug_as_of }}{% endif %}">Edit today</a>
+</div>

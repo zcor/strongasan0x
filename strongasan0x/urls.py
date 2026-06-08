@@ -28,6 +28,7 @@ def handler404(request, exception):
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("daily/", include("daily.urls")),
     path("", include("rollcall.urls")),
 ]
 

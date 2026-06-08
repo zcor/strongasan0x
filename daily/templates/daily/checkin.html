@@ -1,0 +1,425 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Daily Check-In · {{ participant.display_name }}{% endblock %}
+
+{% block content %}
+    <h1>Hi, {{ participant.display_name }}.</h1>
+    <div class="date">{{ today|date:"l, F j" }}</div>
+
+    {% if todays_note and not locked %}
+        <div class="suggestion">
+            <div class="suggestion-label">Today's note</div>
+            <div class="suggestion-text">{{ todays_note.suggestion_text }}</div>
+        </div>
+    {% endif %}
+
+    <div id="checkin-region">
+        {% if locked %}
+            <div id="locked-region">
+                {% include "daily/_locked_summary.html" %}
+            </div>
+
+            <div class="tomorrow-header">
+                <h2>Tomorrow · {{ tomorrow|date:"l, F j" }}</h2>
+            </div>
+
+            <div id="tomorrow-card" data-ready="{% if tomorrow_preview %}1{% else %}0{% endif %}">
+                {% include "daily/_tomorrow_card.html" with tomorrow_preview=tomorrow_preview %}
+            </div>
+
+        {% else %}
+            <form method="post" id="checkin-form">
+                {% csrf_token %}
+                {% for q in questions %}
+                    <div class="question">
+                        <input
+                            type="checkbox"
+                            id="{{ q.key }}"
+                            name="{{ q.key }}"
+                            {% if q.checked %}checked{% endif %}
+                        >
+                        <label for="{{ q.key }}">
+                            <span class="check-icon">✓</span>
+                            <span>{{ q.label }}</span>
+                        </label>
+                    </div>
+                {% endfor %}
+
+                <label class="comment-label" for="comment">Anything to add? (optional)</label>
+                <textarea id="comment" name="comment" placeholder="e.g. 'Hurt my shoulder, skipping bench tomorrow'">{% if existing %}{{ existing.comment }}{% endif %}</textarea>
+
+                <button type="submit" class="submit" id="submit-btn">
+                    <span class="submit-label">{% if existing %}Update today{% else %}Submit{% endif %}</span>
+                    <span class="submit-check" aria-hidden="true">✓</span>
+                </button>
+            </form>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        Signed in as <span class="name">{{ participant.display_name }}</span>
+        {% if not is_baseline %}
+            <br>
+            <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" style="background:none;border:none;color:#6c7483;text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:4px 0;margin-top:4px;">
+                    Reset to original 5 questions
+                </button>
+            </form>
+        {% endif %}
+    </div>
+
+    {% if debug_as_of is not None %}
+        <div class="dev-bar">
+            <span class="dev-label">DEV · {{ today|date:"Y-m-d" }}</span>
+            <div class="dev-nav">
+                <a href="/daily/checkin/{{ yesterday_qs }}">← prev</a>
+                <a href="/daily/checkin/{{ tomorrow_qs }}">next →</a>
+                <a href="/daily/checkin/">today</a>
+            </div>
+        </div>
+    {% endif %}
+
+    <style>
+        /* Locked summary — compact dots */
+        .locked-summary {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 22px;
+        }
+        .locked-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #9aa3b2;
+            margin-bottom: 10px;
+        }
+        .dot-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .big-dot {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: help;
+        }
+        .big-dot.done { background: #78c878; box-shadow: 0 0 12px rgba(120, 200, 120, 0.3); }
+        .big-dot.miss { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.18); }
+        .locked-comment {
+            margin-top: 12px;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            color: #b8c1d0;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+        .locked-edit {
+            display: inline-block;
+            margin-top: 10px;
+            color: #87ceeb;
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+        .locked-edit:hover { text-decoration: underline; }
+
+        /* Tomorrow header */
+        .tomorrow-header h2 {
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #ffd97a;
+            margin: 0 0 14px;
+            font-weight: 600;
+        }
+
+        /* Preview pending */
+        .preview-pending {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            border-radius: 14px;
+            padding: 22px;
+            text-align: center;
+            color: #9aa3b2;
+            font-size: 0.95rem;
+        }
+        .preview-pending .dots::after {
+            display: inline-block;
+            animation: dots 1.4s steps(4, end) infinite;
+            content: "";
+            width: 1.2em;
+            text-align: left;
+        }
+        @keyframes dots {
+            0%, 20% { content: ""; }
+            40% { content: "."; }
+            60% { content: ".."; }
+            80%, 100% { content: "..."; }
+        }
+
+        /* Preview note + actions */
+        .preview-note {
+            background: rgba(255, 217, 122, 0.06);
+            border: 1px solid rgba(255, 217, 122, 0.18);
+            border-radius: 12px;
+            padding: 14px 16px 12px;
+            margin-bottom: 18px;
+            color: #f4e0a4;
+            font-size: 0.95rem;
+            line-height: 1.45;
+        }
+        .preview-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .preview-action {
+            background: rgba(255, 217, 122, 0.18);
+            border: 1px solid rgba(255, 217, 122, 0.4);
+            color: #ffd97a;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .preview-action.reject {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: #9aa3b2;
+        }
+
+        /* Modify form (collapsed) */
+        .modify-form { display: none; margin-top: 12px; }
+        .modify-form.open { display: block; }
+        .modify-form textarea {
+            min-height: 60px;
+            margin: 0 0 8px;
+            background: rgba(0, 0, 0, 0.25);
+        }
+        .modify-form-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .modify-form-actions button {
+            flex: 1;
+            background: rgba(255, 217, 122, 0.25);
+            border: 1px solid rgba(255, 217, 122, 0.5);
+            color: #ffd97a;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .modify-form-actions button.cancel {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.12);
+            color: #9aa3b2;
+        }
+
+        /* Preview header chip + label list */
+        .preview-header { margin-bottom: 8px; }
+        .preview-chip {
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            color: #ffd97a;
+            background: rgba(255, 217, 122, 0.12);
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .preview-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 12px;
+        }
+        .preview-list li {
+            font-size: 1.05rem;
+            padding: 12px 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: #c8d2e0;
+        }
+        .preview-list li:last-child { border-bottom: none; }
+
+        /* Submit button: check + confetti */
+        .submit { position: relative; overflow: visible; }
+        .submit-check {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            color: #1a1a2e;
+            opacity: 0;
+            transform: scale(0.5);
+            transition: opacity 0.15s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+        }
+        .submit.submitting .submit-label { opacity: 0; transition: opacity 0.1s; }
+        .submit.submitting .submit-check { opacity: 1; transform: scale(1); }
+        .confetti-piece {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            top: 50%;
+            left: 50%;
+            opacity: 0;
+            pointer-events: none;
+            border-radius: 2px;
+            z-index: 5;
+        }
+        .submit.submitting .confetti-piece {
+            animation: confetti-fly 0.9s cubic-bezier(0.16, 0.84, 0.34, 1) forwards;
+        }
+        @keyframes confetti-fly {
+            0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+            10%  { opacity: 1; }
+            100% { opacity: 0; transform: var(--end-transform) scale(1); }
+        }
+
+        /* Dev bar */
+        .dev-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: rgba(255, 100, 100, 0.95);
+            color: #1a1a2e;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            font-family: ui-monospace, monospace;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .dev-nav { display: flex; gap: 12px; align-items: center; }
+        .dev-nav a { color: #1a1a2e; text-decoration: underline; }
+        .dev-label { font-weight: 700; letter-spacing: 0.05em; }
+    </style>
+
+    <script>
+        (function() {
+            "use strict";
+
+            var CONFETTI_COLORS = ["#78c878", "#ffd97a", "#87ceeb", "#f5b942", "#ffffff"];
+
+            function fireConfetti(button) {
+                for (var i = 0; i < 18; i++) {
+                    var p = document.createElement("span");
+                    p.className = "confetti-piece";
+                    p.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+                    var angle = (Math.PI * 2 * i / 18) + (Math.random() * 0.3);
+                    var dist = 80 + Math.random() * 60;
+                    var dx = Math.cos(angle) * dist;
+                    var dy = Math.sin(angle) * dist + 30; // bias downward a touch
+                    p.style.setProperty("--end-transform", "translate(" + (dx - 4) + "px, " + (dy - 4) + "px) rotate(" + (Math.random() * 360) + "deg)");
+                    p.style.animationDelay = (Math.random() * 0.05) + "s";
+                    button.appendChild(p);
+                    // Cleanup after animation
+                    setTimeout((function(piece) {
+                        return function() {
+                            if (piece.parentNode) piece.parentNode.removeChild(piece);
+                        };
+                    })(p), 1000);
+                }
+            }
+
+            var asOf = {% if debug_as_of %}"{{ debug_as_of }}"{% else %}null{% endif %};
+            var qs = asOf ? "?as_of=" + encodeURIComponent(asOf) : "";
+
+            // Submit handler: fetch POST + DOM swap + confetti
+            var form = document.getElementById("checkin-form");
+            if (form) {
+                form.addEventListener("submit", function(e) {
+                    var btn = document.getElementById("submit-btn");
+                    if (!btn) return; // graceful: full submit
+                    e.preventDefault();
+                    btn.classList.add("submitting");
+                    btn.disabled = true;
+                    fireConfetti(btn);
+
+                    var fd = new FormData(form);
+                    fetch(form.action || window.location.pathname + qs, {
+                        method: "POST",
+                        body: fd,
+                        headers: {"Accept": "application/json"},
+                        credentials: "same-origin",
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data || !data.ok) {
+                            window.location.reload();
+                            return;
+                        }
+                        // Swap the form region for a freshly-built locked layout.
+                        var region = document.getElementById("checkin-region");
+                        region.innerHTML =
+                            '<div id="locked-region">' + data.locked_html + '</div>' +
+                            '<div class="tomorrow-header"><h2>Tomorrow · ' + data.tomorrow_date_human + '</h2></div>' +
+                            '<div id="tomorrow-card" data-ready="0">' +
+                                '<div class="preview-pending">Preparing your tomorrow<span class="dots"></span></div>' +
+                            '</div>';
+                        startTomorrowPoll();
+                    })
+                    .catch(function() {
+                        window.location.reload();
+                    });
+                });
+            }
+
+            // Poll for tomorrow preview readiness, swap card in-place.
+            function startTomorrowPoll() {
+                var card = document.getElementById("tomorrow-card");
+                if (!card || card.dataset.ready === "1") return;
+                var url = "/daily/tomorrow/preview.json" + qs;
+                var deadline = Date.now() + 30000;
+                var pollMs = 2000;
+                function poll() {
+                    if (Date.now() > deadline) return;
+                    fetch(url, {headers: {"Accept": "application/json"}, credentials: "same-origin"})
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data && data.ready && data.has_mutation && data.html) {
+                                card.innerHTML = data.html;
+                                card.dataset.ready = "1";
+                            } else {
+                                setTimeout(poll, pollMs);
+                            }
+                        })
+                        .catch(function() { setTimeout(poll, pollMs); });
+                }
+                setTimeout(poll, pollMs);
+            }
+
+            // Event delegation: modify-toggle + cancel work on any
+            // server-rendered OR poll-injected tomorrow card.
+            document.addEventListener("click", function(e) {
+                var t = e.target;
+                if (t.classList && t.classList.contains("modify-toggle")) {
+                    var note = t.closest(".preview-note");
+                    if (note) {
+                        var f = note.querySelector(".modify-form");
+                        if (f) {
+                            f.classList.add("open");
+                            var ta = f.querySelector("textarea");
+                            if (ta) ta.focus();
+                        }
+                    }
+                }
+                if (t.classList && t.classList.contains("modify-cancel")) {
+                    e.preventDefault();
+                    var f2 = t.closest(".modify-form");
+                    if (f2) f2.classList.remove("open");
+                }
+            });
+
+            // Kick off poll if we landed on a locked page with no preview yet.
+            startTomorrowPoll();
+        })();
+    </script>
+{% endblock %}

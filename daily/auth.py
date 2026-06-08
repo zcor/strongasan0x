@@ -1,0 +1,144 @@
+"""
+Daily app auth — the ONE seam that bridges to rollcall.
+
+Two paths converge on a DailyParticipant:
+
+1. Warrior path — the request already has a rollcall Telegram session
+   (set by rollcall.warrior.auth.set_telegram_session). We look up the
+   TelegramUserMapping by id and resolve (or lazily create) the
+   DailyParticipant that bridges to it.
+
+2. Token path — the request URL contains a DailyAccessToken UUID. We
+   resolve the token, set a SEPARATE daily session key on the request,
+   and return the participant. We never touch rollcall's
+   SESSION_TELEGRAM_* keys, so warrior sessions remain independent.
+
+The @require_daily_actor decorator unifies both paths.
+
+Separability rule: this file is the ONLY one in daily/ that imports
+from rollcall. Views, services, templates, and models.py stay clean.
+"""
+from functools import wraps
+from typing import Optional
+
+from django.http import HttpResponseForbidden
+from django.shortcuts import redirect
+from django.utils import timezone
+
+from rollcall.models import TelegramUserMapping
+from rollcall.warrior.auth import (
+    SESSION_TELEGRAM_FIRST_NAME,
+    SESSION_TELEGRAM_USER_ID,
+    SESSION_TELEGRAM_USERNAME,
+    get_telegram_user_from_session,
+)
+
+from .models import DailyAccessToken, DailyParticipant
+
+SESSION_DAILY_PARTICIPANT_ID = "daily_participant_id"
+
+
+def _get_or_create_warrior_participant(mapping: TelegramUserMapping) -> DailyParticipant:
+    display_name = (
+        mapping.linked_name
+        or mapping.telegram_first_name
+        or mapping.telegram_username
+        or f"warrior_{mapping.telegram_user_id}"
+    )
+    participant, created = DailyParticipant.objects.get_or_create(
+        telegram_mapping=mapping,
+        defaults={
+            "display_name": display_name,
+            "kind": DailyParticipant.KIND_WARRIOR,
+        },
+    )
+    if not created and participant.display_name != display_name and mapping.linked_name:
+        # Keep display_name in sync if the warrior gets linked to a name later.
+        participant.display_name = display_name
+        participant.save(update_fields=["display_name", "updated_at"])
+    return participant
+
+
+def get_participant_for_warrior(request) -> Optional[DailyParticipant]:
+    """Resolve a DailyParticipant from an existing rollcall Telegram session."""
+    telegram_user_id = get_telegram_user_from_session(request)
+    if not telegram_user_id:
+        return None
+    try:
+        mapping = TelegramUserMapping.objects.get(telegram_user_id=telegram_user_id)
+    except TelegramUserMapping.DoesNotExist:
+        return None
+    return _get_or_create_warrior_participant(mapping)
+
+
+def get_participant_for_token_session(request) -> Optional[DailyParticipant]:
+    """Resolve a DailyParticipant from a previously-set daily session key."""
+    participant_id = request.session.get(SESSION_DAILY_PARTICIPANT_ID)
+    if not participant_id:
+        return None
+    try:
+        return DailyParticipant.objects.get(id=participant_id, is_active=True)
+    except DailyParticipant.DoesNotExist:
+        return None
+
+
+def get_current_participant(request) -> Optional[DailyParticipant]:
+    """Try warrior path first, then token-session path."""
+    return get_participant_for_warrior(request) or get_participant_for_token_session(request)
+
+
+def login_with_token(request, token_uuid) -> Optional[DailyParticipant]:
+    """Validate a UUID token, set the daily session, return the participant.
+
+    Returns None if the token is unknown or revoked. Does NOT touch the
+    rollcall warrior session keys.
+    """
+    try:
+        token = DailyAccessToken.objects.select_related("participant").get(token=token_uuid)
+    except DailyAccessToken.DoesNotExist:
+        return None
+    if token.revoked_at is not None:
+        return None
+    if not token.participant.is_active:
+        return None
+
+    request.session[SESSION_DAILY_PARTICIPANT_ID] = token.participant.id
+    token.last_used_at = timezone.now()
+    token.save(update_fields=["last_used_at"])
+    return token.participant
+
+
+def warrior_session_keys_set(request) -> bool:
+    """True if the request carries a rollcall warrior session.
+
+    Used by views to refuse token-path access when a warrior is logged in
+    (per resolved decision in plan greedy-sprouting-puppy.md).
+    """
+    return bool(request.session.get(SESSION_TELEGRAM_USER_ID))
+
+
+def clear_daily_session(request):
+    request.session.pop(SESSION_DAILY_PARTICIPANT_ID, None)
+
+
+def require_daily_actor(view_func):
+    """Decorator: 403 if no participant can be resolved from the session.
+
+    Views that need authentication for arbitrary participants (e.g. the
+    check-in page) use this. Pages that themselves establish a session
+    (token_login) do not.
+    """
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        participant = get_current_participant(request)
+        if participant is None:
+            # Warriors should bounce through their existing login flow;
+            # external participants need a fresh token URL.
+            if warrior_session_keys_set(request):
+                # Edge case: session has telegram id but no mapping row.
+                return HttpResponseForbidden("No participant linked to this session.")
+            return redirect("warrior:login")
+        request.daily_participant = participant
+        return view_func(request, *args, **kwargs)
+
+    return wrapper

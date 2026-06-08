@@ -1,0 +1,17 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Already signed in{% endblock %}
+
+{% block content %}
+    <h1>You're already signed in</h1>
+    <p>
+        This check-in link belongs to a different account, and you're
+        currently signed in to the warrior dashboard
+        {% if telegram_username %} as <strong>{{ telegram_username }}</strong>{% endif %}.
+    </p>
+    <p>
+        To use this link, open it in a private window, or
+        <a href="/warrior/logout/" style="color: #ffd97a;">log out</a>
+        of the warrior dashboard first.
+    </p>
+{% endblock %}

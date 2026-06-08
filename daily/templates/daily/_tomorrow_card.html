@@ -1,0 +1,36 @@
+{% if tomorrow_preview %}
+    <div class="preview-note">
+        {{ tomorrow_preview.note }}
+        <div class="preview-actions">
+            <button type="button" class="preview-action modify-toggle">Modify</button>
+            <form method="post" action="{% url 'daily:reject_tomorrow' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="preview-action reject">Reject</button>
+            </form>
+        </div>
+        <form method="post" action="{% url 'daily:modify_tomorrow' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="modify-form">
+            {% csrf_token %}
+            <textarea
+                name="refinement"
+                placeholder="Tell the coach what to change. e.g. 'swap nutrition for 180g protein', 'make exercise 60 min', 'add a stretching win'"
+            ></textarea>
+            <div class="modify-form-actions">
+                <button type="submit">Ask the coach</button>
+                <button type="button" class="cancel modify-cancel">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="preview-header">
+        <span class="preview-chip">PREVIEW</span>
+    </div>
+    <ul class="preview-list">
+        {% for q in tomorrow_preview.questions %}
+            <li>{{ q.label }}</li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <div class="preview-pending">
+        Preparing your tomorrow<span class="dots"></span>
+    </div>
+{% endif %}
