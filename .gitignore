@@ -17,6 +17,8 @@ logs/
 
 # Bizdev / customer-development notes (private prospect info)
 **/BIZDEV_NOTES.md
+# One-off demo seeders (hardcoded prospect names / private)
+daily/seed_demo.py
 
 # Personal data files (targeted paths, not blanket extensions)
 /attestations_*.txt

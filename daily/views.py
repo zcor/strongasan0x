@@ -157,12 +157,12 @@ def checkin(request):
                 for q in current_version.questions
             ])
 
-        check_in_id = check_in.id
-        transaction.on_commit(
-            lambda: threading.Thread(
-                target=_run_coach, args=(check_in_id,), daemon=True
-            ).start()
-        )
+        # Run the coach synchronously. A background daemon thread does NOT
+        # survive reliably under Apache mod_wsgi (the worker finishes the
+        # response and the thread can be killed before it writes the
+        # suggestion). Synchronous is slower (~3-5s) but always works; the
+        # client-side confetti animation covers the wait.
+        _run_coach(check_in.id)
 
         # JS path: return JSON with the rendered locked-summary HTML so the
         # client can swap it in-place instead of triggering a full reload.
@@ -336,13 +336,9 @@ def modify_tomorrow(request):
         responded_at=timezone.now(),
     )
 
-    ci_id = ci.id
-    transaction.on_commit(
-        lambda: threading.Thread(
-            target=_run_coach, args=(ci_id, refinement), daemon=True
-        ).start()
-    )
-    messages.success(request, "Asking the coach to rework tomorrow…")
+    # Synchronous (mod_wsgi-safe — see checkin() for why).
+    _run_coach(ci.id, refinement)
+    messages.success(request, "Coach reworked tomorrow's plan.")
     return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 

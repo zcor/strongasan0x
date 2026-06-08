@@ -117,6 +117,105 @@ change things.
 Never invent facts not in the data."""
 
 
+STRETCH_PROMPT = """You are Coach Jamie. You're choosing ONE personalized
+"stretch" habit to add to someone's daily checklist — the single
+highest-leverage thing that would most IMPROVE their health, based on
+what their own data shows is MISSING or under-invested.
+
+You are given two sources:
+1. Their recent training/attestation logs.
+2. Any free-text comments they've typed into this checklist app before.
+
+Find the genuine gap. Examples of good reasoning (do NOT just copy these):
+- Someone with huge training volume but no logged sleep/mobility →
+  recovery is the gap. Suggest a mobility or sleep item.
+- Someone with tons of cardio/steps but light strength stimulus →
+  suggest a protein or strength item.
+- Someone who repeatedly comments about an injury → suggest a
+  prehab/rehab item for that area.
+
+Rules:
+- Output ONE habit as a single JSON object: {"key": "...", "label": "..."}
+- key: short lowercase_with_underscores.
+- label: a concise past-tense daily checkable phrase, max 60 chars
+  (e.g. "Did 10 minutes of mobility", "Hit 150g protein", "Slept 7+ hours").
+- It must be a DAILY yes/no habit, not a one-time task.
+- Ground it in their actual data. Do not invent activities they never do.
+- Output ONLY the JSON object. No prose, no code fence, no explanation."""
+
+
+def derive_stretch_item(
+    participant_name: str,
+    attestation_text: str,
+    prior_comments: Optional[List[str]] = None,
+    existing_items: Optional[List[dict]] = None,
+) -> Optional[dict]:
+    """Pick ONE personalized stretch habit ({"key","label"}) grounded in the
+    user's attestation logs + their prior in-app comments, that does NOT
+    overlap with `existing_items` already on the checklist. Returns None on
+    any failure (caller should fall back to a sensible default item).
+    """
+    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
+    if not api_key:
+        return None
+    try:
+        import openai
+    except ImportError:
+        return None
+
+    comments_block = ""
+    if prior_comments:
+        joined = "\n".join(f"- {c}" for c in prior_comments if c)
+        if joined:
+            comments_block = f"\n\nTheir prior comments in this app:\n{joined}"
+
+    existing_block = ""
+    if existing_items:
+        joined = "\n".join(f"- {q.get('label', '')}" for q in existing_items)
+        if joined:
+            existing_block = (
+                f"\n\nThe checklist ALREADY contains these items — your "
+                f"stretch item MUST cover a DIFFERENT area (do not duplicate "
+                f"sleep if sleep is here, recovery if recovery is here, etc.):\n{joined}"
+            )
+
+    user_msg = (
+        f"Participant: {participant_name}\n\n"
+        f"Their recent training logs:\n{attestation_text[:4000]}"
+        f"{comments_block}"
+        f"{existing_block}"
+    )
+    try:
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": STRETCH_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=120,
+            temperature=0.4,
+        )
+    except Exception as exc:
+        logger.exception("daily.ai_coach.derive_stretch_item failed: %s", exc)
+        return None
+
+    raw = (resp.choices[0].message.content or "").strip()
+    # Strip a code fence if the model added one anyway.
+    m = re.search(r"\{[\s\S]*?\}", raw)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    key = str(obj.get("key", "")).strip()
+    label = str(obj.get("label", "")).strip()
+    if not key or not label or len(label) > 60 or len(key) > 40:
+        return None
+    return {"key": key, "label": label}
+
+
 def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     def _label_map(version):
         return {q["key"]: q["label"] for q in version.questions}
