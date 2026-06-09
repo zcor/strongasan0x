@@ -338,7 +338,14 @@
                     var prev = row.dataset.state;
                     var next = prev === "skip" ? "pending" : "skip";
                     setRowState(row, next);
-                    postItem(key, next);
+                    // Skipping a BONUS = "not this one, deal me another" → refill.
+                    var mayRefill = isBonus && next === "skip";
+                    if (mayRefill) showSpinner(true);
+                    postItem(key, next, function(data) {
+                        showSpinner(false);
+                        handleResponse(row, data);
+                    });
+                    if (mayRefill) setTimeout(function() { showSpinner(false); }, 12000);
                 });
             }
 

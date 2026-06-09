@@ -276,6 +276,7 @@ def generate_one_bonus(
     existing_items: List[dict],
     today_done_labels: Optional[List[str]] = None,
     today_comment: str = "",
+    rejected_labels: Optional[List[str]] = None,
 ) -> Optional[dict]:
     """Generate ONE fresh bonus item ({"key","label"}), live, grounded in
     the user's data + today's momentum, distinct from everything already
@@ -298,11 +299,19 @@ def generate_one_bonus(
     if today_done_labels:
         done_block = f"\n\nDone so far today: {', '.join(today_done_labels)}"
     comment_block = f"\n\nToday's comment: {today_comment}" if today_comment else ""
+    rejected_block = ""
+    if rejected_labels:
+        rejected_block = (
+            "\n\nThe user REJECTED these bonus suggestions today — they're "
+            "not interested. Do NOT suggest these again or anything closely "
+            "similar in theme; pick a clearly different direction:\n"
+            + "\n".join(f"- {lbl}" for lbl in rejected_labels)
+        )
 
     user_msg = (
         f"Participant: {participant_name}\n\n"
         f"Their recent training logs:\n{attestation_text[:3000]}"
-        f"{existing_block}{done_block}{comment_block}"
+        f"{existing_block}{done_block}{comment_block}{rejected_block}"
     )
     try:
         client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")

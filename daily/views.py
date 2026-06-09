@@ -257,17 +257,21 @@ def set_item_state(request):
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
 
     # Live bonus drip: generate a fresh bonus item when the user
-    #  (a) just completed a BONUS item (refill the pile), or
-    #  (b) just reached the core threshold and has no bonus yet (first one).
+    #  (a) just completed a BONUS item (refill the pile),
+    #  (b) just SKIPPED a bonus (rejection = "deal me another"; the
+    #      rejected one feeds the prompt as a negative example), or
+    #  (c) just reached the core threshold with no bonus yet (first one).
     new_bonus = None
-    just_completed_bonus = is_bonus and state == DailyCheckInAnswer.STATE_DONE
+    bonus_resolved = is_bonus and state in (
+        DailyCheckInAnswer.STATE_DONE, DailyCheckInAnswer.STATE_SKIP
+    )
     crossed_threshold = (
         not is_bonus
         and state == DailyCheckInAnswer.STATE_DONE
         and done_count >= BONUS_REVEAL_AT
         and not version.bonus_questions
     )
-    if just_completed_bonus or crossed_threshold:
+    if bonus_resolved or crossed_threshold:
         new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
 
     version.refresh_from_db()
@@ -287,6 +291,11 @@ def _generate_and_append_bonus(participant, version, check_in, states):
     existing = list(version.questions) + list(version.bonus_questions or [])
     label_by_key = {q["key"]: q["label"] for q in existing}
     done_labels = [label_by_key[k] for k, s in states.items() if s == "done" and k in label_by_key]
+    bonus_keys = {q["key"] for q in (version.bonus_questions or [])}
+    rejected_labels = [
+        label_by_key[k] for k, s in states.items()
+        if s == "skip" and k in bonus_keys
+    ]
 
     att_text = ""
     if version.participant.telegram_mapping_id:
@@ -302,6 +311,7 @@ def _generate_and_append_bonus(participant, version, check_in, states):
         existing_items=existing,
         today_done_labels=done_labels,
         today_comment=check_in.comment or "",
+        rejected_labels=rejected_labels,
     )
     if item is None:
         return None
