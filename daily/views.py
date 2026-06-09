@@ -1,20 +1,19 @@
 """
-Daily checklist views.
+Daily checklist views — continuous-day model.
 
-Endpoints:
-  - token_login: /daily/c/<uuid>/ → set session, redirect to checkin
-  - checkin: GET / POST. After submit, today is locked and tomorrow's
-             preview is shown using the same checkbox UI (disabled).
-             Reopen-for-edit via ?edit=1.
-  - tomorrow_preview_json: poll target for the live tomorrow preview
-  - modify_tomorrow: free-text refine of the proposed tomorrow checklist
-  - respond_to_suggestion: dismiss / undo
-  - reset_to_baseline_view: escape hatch
+There is no submit. The day is always live:
+  - checkin (GET): the one screen. Lazily coaches the most recent prior
+    day on first visit of a new day, auto-applies pending mutations,
+    renders core + bonus items with their states.
+  - set_item_state (POST /daily/item/): tap=done / skip / back to pending.
+  - save_comment (POST /daily/comment/): autosave the day's comment.
+  - respond_to_suggestion: Undo an applied mutation from the morning note.
+  - token_login / reset_to_baseline: unchanged.
 
 Dev-only (DEBUG=True): ?as_of=YYYY-MM-DD overrides "today".
 """
+import json
 import logging
-import threading
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
@@ -22,8 +21,8 @@ from django.contrib import messages
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.template.loader import render_to_string
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from .auth import (
@@ -46,6 +45,7 @@ from .services.checklist import apply_pending_mutations, revert_to_baseline
 logger = logging.getLogger(__name__)
 
 RECENT_DAYS = 7
+BONUS_REVEAL_AT = 3  # bonus section appears once this many core items are done
 
 
 def _resolve_today(request) -> date:
@@ -61,15 +61,12 @@ def _resolve_today(request) -> date:
         return real_today
 
 
-def _as_of_query(request, extra=None) -> str:
-    parts = []
+def _as_of_query(request) -> str:
     if settings.DEBUG:
         val = request.GET.get("as_of")
         if val:
-            parts.append(f"as_of={val}")
-    if extra:
-        parts.append(extra)
-    return ("?" + "&".join(parts)) if parts else ""
+            return f"?as_of={val}"
+    return ""
 
 
 def token_login(request, token):
@@ -88,28 +85,27 @@ def token_login(request, token):
     return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 
-def _latest_suggestion_for_day(participant: DailyParticipant, day: date):
-    """Suggestion attached to the check-in for `day` (if any). Used to
-    render tomorrow's preview when we're sitting on a check-in for the
-    day BEFORE.
+def ensure_prior_day_coached(participant: DailyParticipant, today: date) -> bool:
+    """If the most recent check-in BEFORE today has no coach suggestion,
+    run the coach for it synchronously (once). Only the most recent —
+    we don't burn API calls coaching a backlog of missed days.
+
+    Returns True if a coach run happened (caller may want to log).
     """
-    ci = DailyCheckIn.objects.filter(participant=participant, date=day).first()
-    if not ci:
-        return None
-    return (
-        ci.suggestions
-        .exclude(status=CoachSuggestion.STATUS_DISMISSED)
-        .order_by("-created_at")
+    prior = (
+        DailyCheckIn.objects
+        .filter(participant=participant, date__lt=today)
+        .order_by("-date")
         .first()
     )
+    if prior is None or prior.suggestions.exists():
+        return False
+    _run_coach(prior.id)
+    return True
 
 
-def _shown_suggestion_for_today(participant: DailyParticipant, today: date):
-    """The 'today's note' banner: most recent non-dismissed suggestion
-    from yesterday's check-in. (Renamed conceptually from "yesterday's
-    note" to "today's note" — the suggestion was written by the AI to
-    be read on the day it auto-applies.)
-    """
+def _morning_note(participant: DailyParticipant, today: date):
+    """Most recent non-dismissed suggestion from a prior day."""
     return (
         CoachSuggestion.objects.filter(
             check_in__participant=participant,
@@ -121,122 +117,71 @@ def _shown_suggestion_for_today(participant: DailyParticipant, today: date):
     )
 
 
+def _get_or_create_today(participant: DailyParticipant, today: date, version: ChecklistVersion) -> DailyCheckIn:
+    check_in, _ = DailyCheckIn.objects.get_or_create(
+        participant=participant,
+        date=today,
+        defaults={"checklist_version": version, "source": DailyCheckIn.SOURCE_WEB},
+    )
+    return check_in
+
+
+@ensure_csrf_cookie  # page is AJAX-driven; force the csrftoken cookie even with no rendered form
 @require_daily_actor
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET"])
 def checkin(request):
     participant: DailyParticipant = request.daily_participant
     today = _resolve_today(request)
 
-    # Auto-apply any pending mutations BEFORE resolving the active version,
-    # so today's render reflects what the AI proposed last night.
+    # 1. Coach the most recent prior day if it hasn't been (sync, ~3-5s,
+    #    at most once — afterwards suggestions exist and this no-ops).
+    coached = ensure_prior_day_coached(participant, today)
+    if coached:
+        logger.info("daily.checkin: lazily coached prior day for %s", participant)
+
+    # 2. Apply any pending mutations so today reflects the coach's plan.
     applied = apply_pending_mutations(participant, as_of=today)
     if applied:
         logger.info("daily.checkin: applied %d pending mutations for %s", applied, participant)
 
     current_version = participant.get_or_create_current_checklist()
     existing = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    states = existing.answers_by_key() if existing else {}
 
-    if request.method == "POST":
-        with transaction.atomic():
-            check_in, created = DailyCheckIn.objects.update_or_create(
-                participant=participant,
-                date=today,
-                defaults={
-                    "checklist_version": current_version,
-                    "comment": request.POST.get("comment", "").strip(),
-                    "source": DailyCheckIn.SOURCE_WEB,
-                },
-            )
-            check_in.answers.all().delete()
-            DailyCheckInAnswer.objects.bulk_create([
-                DailyCheckInAnswer(
-                    check_in=check_in,
-                    question_key=q["key"],
-                    value=_checkbox(request, q["key"]),
-                )
-                for q in current_version.questions
-            ])
+    note = _morning_note(participant, today)
+    if note and note.status == CoachSuggestion.STATUS_PENDING:
+        note.status = CoachSuggestion.STATUS_SHOWN
+        note.save(update_fields=["status"])
 
-        # Run the coach synchronously. A background daemon thread does NOT
-        # survive reliably under Apache mod_wsgi (the worker finishes the
-        # response and the thread can be killed before it writes the
-        # suggestion). Synchronous is slower (~3-5s) but always works; the
-        # client-side confetti animation covers the wait.
-        _run_coach(check_in.id)
-
-        # JS path: return JSON with the rendered locked-summary HTML so the
-        # client can swap it in-place instead of triggering a full reload.
-        if "application/json" in request.headers.get("Accept", ""):
-            today_questions_rendered = [
-                {
-                    "key": q["key"],
-                    "label": q["label"],
-                    "checked": _checkbox(request, q["key"]),
-                }
-                for q in current_version.questions
-            ]
-            locked_html = render_to_string(
-                "daily/_locked_summary.html",
-                {
-                    "questions": today_questions_rendered,
-                    "existing": check_in,
-                    "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
-                },
-                request=request,
-            )
-            return JsonResponse({
-                "ok": True,
-                "locked_html": locked_html,
-                "tomorrow_date_human": (today + timedelta(days=1)).strftime("%A, %B ") + str((today + timedelta(days=1)).day),
-            })
-
-        # No-JS path: classic redirect.
-        return redirect(f"/daily/checkin/{_as_of_query(request)}")
-
-    edit_mode = request.GET.get("edit") == "1"
-    locked = existing is not None and not edit_mode
-
-    todays_note = _shown_suggestion_for_today(participant, today)
-    if todays_note and todays_note.status == CoachSuggestion.STATUS_PENDING:
-        todays_note.status = CoachSuggestion.STATUS_SHOWN
-        todays_note.save(update_fields=["status"])
-
-    today_questions = [
-        {"key": q["key"], "label": q["label"], "checked": False}
+    core_items = [
+        {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
         for q in current_version.questions
     ]
-    if existing:
-        answers_map = existing.answers_by_key()
-        for q in today_questions:
-            q["checked"] = answers_map.get(q["key"], False)
+    done_count = sum(1 for i in core_items if i["state"] == "done")
 
-    tomorrow_preview = None
-    if locked:
-        tomorrow_suggestion = _latest_suggestion_for_day(participant, today)
-        if tomorrow_suggestion and tomorrow_suggestion.proposed_questions:
-            tomorrow_preview = {
-                "questions": tomorrow_suggestion.proposed_questions,
-                "note": tomorrow_suggestion.suggestion_text,
-                "suggestion_id": tomorrow_suggestion.id,
-            }
+    bonus_items = [
+        {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
+        for q in (current_version.bonus_questions or [])
+    ]
+    bonus_done = any(i["state"] != "pending" for i in bonus_items)
 
     context = {
         "participant": participant,
         "today": today,
-        "tomorrow": today + timedelta(days=1),
-        "existing": existing,
-        "locked": locked,
-        "edit_mode": edit_mode,
-        "todays_note": todays_note,
-        "questions": today_questions,
-        "tomorrow_preview": tomorrow_preview,
-        "version": current_version,
+        "note": note,
+        "note_was_applied": note is not None and note.status == CoachSuggestion.STATUS_APPLIED,
+        "core_items": core_items,
+        "bonus_items": bonus_items,
+        # Reveal bonus once threshold hit — or keep visible if any bonus
+        # already has a state (don't hide items the user interacted with).
+        "bonus_revealed": bool(bonus_items) and (done_count >= BONUS_REVEAL_AT or bonus_done),
+        "bonus_reveal_at": BONUS_REVEAL_AT,
+        "done_count": done_count,
+        "comment": existing.comment if existing else "",
         "is_baseline": _is_baseline_questions(current_version.questions),
         "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
-        "tomorrow_qs": _as_of_query_for_date(today + timedelta(days=1)) if settings.DEBUG else "",
-        "yesterday_qs": _as_of_query_for_date(today - timedelta(days=1)) if settings.DEBUG else "",
-        "today_qs": "",
-        "today_iso": today.isoformat(),
+        "tomorrow_qs": f"?as_of={(today + timedelta(days=1)).isoformat()}" if settings.DEBUG else "",
+        "yesterday_qs": f"?as_of={(today - timedelta(days=1)).isoformat()}" if settings.DEBUG else "",
     }
     return render(request, "daily/checkin.html", context)
 
@@ -250,116 +195,90 @@ def _is_baseline_questions(qs):
     )
 
 
-def _as_of_query_for_date(d: date) -> str:
-    return f"?as_of={d.isoformat()}"
-
-
-def _checkbox(request, name):
-    return request.POST.get(name) in ("on", "true", "1", "yes")
-
-
 @require_daily_actor
-@require_http_methods(["GET"])
-def tomorrow_preview_json(request):
-    """Poll target: returns tomorrow's checklist preview as JSON if ready,
-    including a pre-rendered HTML fragment for in-place DOM swap.
-    """
+@require_http_methods(["POST"])
+def set_item_state(request):
+    """Tap/skip an item. Body (form or JSON): key, state."""
     participant = request.daily_participant
     today = _resolve_today(request)
-    suggestion = _latest_suggestion_for_day(participant, today)
-    if not suggestion:
-        return JsonResponse({"ready": False, "reason": "no_suggestion_yet"})
-    tomorrow_preview = {
-        "questions": suggestion.proposed_questions or [],
-        "note": suggestion.suggestion_text,
-        "suggestion_id": suggestion.id,
-    } if suggestion.proposed_questions else None
-    html = render_to_string(
-        "daily/_tomorrow_card.html",
-        {
-            "tomorrow_preview": tomorrow_preview,
-            "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
-        },
-        request=request,
-    )
+
+    if request.content_type == "application/json":
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+        key = str(body.get("key", "")).strip()
+        state = str(body.get("state", "")).strip()
+    else:
+        key = request.POST.get("key", "").strip()
+        state = request.POST.get("state", "").strip()
+
+    valid_states = {s for s, _ in DailyCheckInAnswer.STATE_CHOICES}
+    if state not in valid_states:
+        return JsonResponse({"ok": False, "error": "bad_state"}, status=400)
+
+    version = request.daily_participant.get_or_create_current_checklist()
+    valid_keys = set(version.question_keys()) | {
+        q["key"] for q in (version.bonus_questions or [])
+    }
+    if key not in valid_keys:
+        return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+
+    with transaction.atomic():
+        check_in = _get_or_create_today(participant, today, version)
+        DailyCheckInAnswer.objects.update_or_create(
+            check_in=check_in,
+            question_key=key,
+            defaults={"state": state},
+        )
+
+    check_in.refresh_from_db()
+    states = check_in.answers_by_key()
+    core_keys = version.question_keys()
+    done_count = sum(1 for k in core_keys if states.get(k) == "done")
     return JsonResponse({
-        "ready": True,
-        "suggestion_id": suggestion.id,
-        "note": suggestion.suggestion_text,
-        "questions": suggestion.proposed_questions or [],
-        "has_mutation": suggestion.proposed_questions is not None,
-        "html": html,
+        "ok": True,
+        "done_count": done_count,
+        "bonus_revealed": bool(version.bonus_questions) and done_count >= BONUS_REVEAL_AT,
     })
 
 
 @require_daily_actor
 @require_http_methods(["POST"])
-def reject_tomorrow(request):
-    """Discard the proposed mutation: tomorrow inherits today's checklist
-    instead of the AI's proposal. Implemented by marking the suggestion
-    DISMISSED, which the auto-apply path already excludes.
-    """
+def save_comment(request):
     participant = request.daily_participant
     today = _resolve_today(request)
-    ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
-    if not ci:
-        return redirect(f"/daily/checkin/{_as_of_query(request)}")
-    count = ci.suggestions.exclude(status=CoachSuggestion.STATUS_DISMISSED).update(
-        status=CoachSuggestion.STATUS_DISMISSED,
-        responded_at=timezone.now(),
-    )
-    if count:
-        messages.success(request, "Tomorrow stays as it is today.")
-    return redirect(f"/daily/checkin/{_as_of_query(request)}")
+    comment = request.POST.get("comment", "")
+    if request.content_type == "application/json":
+        try:
+            comment = json.loads(request.body).get("comment", "")
+        except json.JSONDecodeError:
+            return JsonResponse({"ok": False}, status=400)
 
-
-@require_daily_actor
-@require_http_methods(["POST"])
-def modify_tomorrow(request):
-    """Free-text refinement: re-run the coach with the user's tweak."""
-    participant = request.daily_participant
-    today = _resolve_today(request)
-    refinement = request.POST.get("refinement", "").strip()
-    if not refinement:
-        messages.error(request, "Tell the coach what you'd like to change.")
-        return redirect(f"/daily/checkin/{_as_of_query(request)}")
-
-    ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
-    if not ci:
-        messages.error(request, "Submit today's check-in first.")
-        return redirect(f"/daily/checkin/{_as_of_query(request)}")
-
-    # Mark current pending suggestion superseded so the new one becomes
-    # the active proposal.
-    ci.suggestions.exclude(status=CoachSuggestion.STATUS_DISMISSED).update(
-        status=CoachSuggestion.STATUS_DISMISSED,
-        responded_at=timezone.now(),
-    )
-
-    # Synchronous (mod_wsgi-safe — see checkin() for why).
-    _run_coach(ci.id, refinement)
-    messages.success(request, "Coach reworked tomorrow's plan.")
-    return redirect(f"/daily/checkin/{_as_of_query(request)}")
+    version = participant.get_or_create_current_checklist()
+    check_in = _get_or_create_today(participant, today, version)
+    check_in.comment = comment.strip()
+    check_in.save(update_fields=["comment", "updated_at"])
+    return JsonResponse({"ok": True})
 
 
 @require_daily_actor
 @require_http_methods(["POST"])
 def respond_to_suggestion(request, suggestion_id):
+    """Undo an applied mutation from the morning note."""
     participant = request.daily_participant
     suggestion = get_object_or_404(
         CoachSuggestion,
         id=suggestion_id,
         check_in__participant=participant,
     )
-    response = request.POST.get("response", "")
-    if response == "dismissed":
+    if request.POST.get("response") == "dismissed":
         if suggestion.status == CoachSuggestion.STATUS_APPLIED and suggestion.applied_version:
             _revert_applied_suggestion(participant, suggestion)
         suggestion.status = CoachSuggestion.STATUS_DISMISSED
-    else:
-        return redirect(f"/daily/checkin/{_as_of_query(request)}")
-    suggestion.responded_at = timezone.now()
-    suggestion.save(update_fields=["status", "responded_at"])
+        suggestion.responded_at = timezone.now()
+        suggestion.save(update_fields=["status", "responded_at"])
+        messages.success(request, "Change undone — back to the previous checklist.")
     return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 
@@ -387,6 +306,7 @@ def reset_to_baseline_view(request):
 
 
 def _run_coach(check_in_id: int, refinement: str = ""):
+    """Synchronous coach run (mod_wsgi-safe — daemon threads are not)."""
     try:
         check_in = DailyCheckIn.objects.select_related(
             "participant", "checklist_version"
@@ -409,12 +329,13 @@ def _run_coach(check_in_id: int, refinement: str = ""):
     result = generate_suggestion(context, refinement=refinement or None)
     if result is None:
         return
-    suggestion_text, proposed_questions, model_name, cost_usd = result
+    suggestion_text, proposed_questions, proposed_bonus, model_name, cost_usd = result
 
     CoachSuggestion.objects.create(
         check_in=check_in,
         suggestion_text=suggestion_text,
         proposed_questions=proposed_questions,
+        proposed_bonus=proposed_bonus,
         rationale=f"refinement: {refinement}" if refinement else "",
         status=CoachSuggestion.STATUS_PENDING,
         model_name=model_name,

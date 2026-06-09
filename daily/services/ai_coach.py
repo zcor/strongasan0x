@@ -42,9 +42,19 @@ class CoachContext(TypedDict):
 
 
 SYSTEM_PROMPT = """You are a brief, encouraging daily fitness coach.
-The user just submitted today's checklist (5 yes/no items) and you are
-preparing TOMORROW'S checklist + a note they will read tomorrow morning
-when they sit down to check in.
+The user's day has ended and you are preparing TOMORROW'S checklist +
+a note they will read tomorrow morning when they open the app.
+
+# Item states (important)
+
+Each of yesterday's 5 items ended in one of three states:
+- done — they did it.
+- skip — they DELIBERATELY opted out (tapped skip). This is a signal:
+  repeated skips of the same item mean it's a candidate for
+  substitution. One skip is just life.
+- untouched — they never marked it. This is mere drift, NOT a
+  deliberate choice. Do not treat untouched like a refusal, and do
+  not lecture about it.
 
 # Tense
 
@@ -103,6 +113,17 @@ so I bumped a few of the quantitative targets"). If you kept it the
 same, just give a short encouraging line — don't fake a reason to
 change things.
 
+# Bonus items (optional, extra credit)
+
+After the core 5, you MAY offer 0-3 BONUS items for tomorrow — small
+optional extras revealed only after the user has done several core
+items. Rules:
+- Bonus items are extra credit: small, low-friction, grounded in their
+  data (same no-invention rule).
+- They must NOT duplicate or overlap any core item.
+- 0 bonus items is a fine answer. Don't pad.
+- Same label rules (past-tense, max 60 chars), keys prefixed "bonus_".
+
 # Output format
 
 <note prose here>
@@ -111,6 +132,13 @@ change things.
 [
   {"key": "...", "label": "..."},
   ...exactly 5 items total...
+]
+```
+
+```json
+[
+  {"key": "bonus_...", "label": "..."},
+  ...0 to 3 bonus items; emit an empty array [] if none...
 ]
 ```
 
@@ -218,15 +246,23 @@ def derive_stretch_item(
 
 def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     def _label_map(version):
-        return {q["key"]: q["label"] for q in version.questions}
+        labels = {q["key"]: q["label"] for q in version.questions}
+        for q in (version.bonus_questions or []):
+            labels[q["key"]] = q["label"] + " (bonus)"
+        return labels
 
     def _summarize(ci) -> CheckInSummary:
         labels = _label_map(ci.checklist_version)
+        states = {a.question_key: a.state for a in ci.answers.all()}
         return {
             "date": ci.date.isoformat() if isinstance(ci.date, date_cls) else str(ci.date),
+            # {label: "done"|"skip"|"untouched"} — every question gets an
+            # entry even with no answer row (untouched = drift, not refusal).
             "answers": {
-                labels.get(a.question_key, a.question_key): bool(a.value)
-                for a in ci.answers.all()
+                labels.get(key, key): (
+                    states[key] if states.get(key) in ("done", "skip") else "untouched"
+                )
+                for key in labels
             },
             "comment": ci.comment or "",
         }
@@ -245,26 +281,30 @@ def _format_user_prompt(context: CoachContext, refinement: Optional[str] = None)
     for q in context["current_questions"]:
         lines.append(f"  - {q['key']}: {q['label']}")
     today = context["today"]
+    state_marks = {"done": "✓ done", "skip": "✕ SKIPPED (deliberate)", "untouched": "· untouched"}
     lines.append("")
-    lines.append(f"Today's answers ({today['date']}):")
-    for label, value in today["answers"].items():
-        lines.append(f"  {'✓' if value else '✗'} {label}")
+    lines.append(f"Yesterday's final states ({today['date']}):")
+    for label, state in today["answers"].items():
+        lines.append(f"  {state_marks.get(state, state)} — {label}")
     if today["comment"]:
         lines.append(f"Comment: {today['comment']}")
     if context["recent"]:
         lines.append("")
         lines.append(f"Last {len(context['recent'])} days (most recent first):")
         for r in context["recent"]:
-            score = sum(1 for v in r["answers"].values() if v)
+            done = sum(1 for v in r["answers"].values() if v == "done")
+            skipped = [lbl for lbl, v in r["answers"].items() if v == "skip"]
             total = len(r["answers"])
-            lines.append(f"  {r['date']}: {score}/{total}" + (f' — "{r["comment"]}"' if r["comment"] else ""))
+            extra = f" — skipped: {', '.join(skipped)}" if skipped else ""
+            extra += f' — "{r["comment"]}"' if r["comment"] else ""
+            lines.append(f"  {r['date']}: {done}/{total} done{extra}")
     if refinement:
         lines.append("")
         lines.append("THE USER HAS REFINED THEIR REQUEST FOR TOMORROW:")
         lines.append(f"  {refinement}")
         lines.append("Apply this refinement to tomorrow's checklist.")
     lines.append("")
-    lines.append("Now respond with the note + tomorrow's JSON checklist.")
+    lines.append("Now respond with the note + tomorrow's core JSON checklist + bonus JSON array.")
     return "\n".join(lines)
 
 
@@ -276,62 +316,77 @@ _FENCED_JSON_RE = re.compile(r"```json\s*(\[[\s\S]*?\])\s*```", re.MULTILINE)
 _BARE_JSON_RE = re.compile(r"(\[\s*\{[\s\S]*?\}\s*\])")
 
 
-def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]]]:
-    """Split raw response into (prose, parsed_questions_or_None).
-
-    Strategy: find a JSON list in the response (preferring fenced
-    ```json block), validate it loosely, return the prose part with the
-    JSON stripped.
-    """
-    match = _FENCED_JSON_RE.search(raw)
-    if match:
-        json_text = match.group(1)
-        prose = raw[: match.start()].rstrip()
-    else:
-        match = _BARE_JSON_RE.search(raw)
-        if match:
-            json_text = match.group(1)
-            prose = (raw[: match.start()] + raw[match.end():]).strip()
-        else:
-            return raw.strip(), None
-
-    try:
-        parsed = json.loads(json_text)
-    except json.JSONDecodeError as exc:
-        logger.warning("daily.ai_coach: JSON parse failed: %s", exc)
-        return raw.strip(), None
-
-    if not isinstance(parsed, list):
-        return prose, None
-    if len(parsed) != CHECKLIST_SIZE:
-        logger.info(
-            "daily.ai_coach: question count %d != %d, rejecting mutation",
-            len(parsed), CHECKLIST_SIZE,
-        )
-        return prose, None
-
+def _clean_items(parsed, max_items, seen_keys=None) -> Optional[List[dict]]:
+    """Validate a parsed JSON list of {key,label} items. Returns None on
+    any structural problem."""
+    if not isinstance(parsed, list) or len(parsed) > max_items:
+        return None
     cleaned: List[dict] = []
-    seen_keys = set()
+    seen = set(seen_keys or ())
     for item in parsed:
         if not isinstance(item, dict):
-            return prose, None
+            return None
         key = str(item.get("key", "")).strip()
         label = str(item.get("label", "")).strip()
-        if not key or not label or key in seen_keys:
-            return prose, None
+        if not key or not label or key in seen:
+            return None
         if len(label) > 60 or len(key) > 40:
-            return prose, None
-        seen_keys.add(key)
+            return None
+        seen.add(key)
         cleaned.append({"key": key, "label": label})
+    return cleaned
 
-    return prose, cleaned
+
+def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]], Optional[List[dict]]]:
+    """Split raw response into (prose, core_questions|None, bonus|None).
+
+    First fenced ```json array = tomorrow's core 5; second (optional)
+    = bonus items (0-3). Bonus is best-effort: any doubt → None.
+    """
+    matches = list(_FENCED_JSON_RE.finditer(raw))
+    if not matches:
+        match = _BARE_JSON_RE.search(raw)
+        if not match:
+            return raw.strip(), None, None
+        matches = [match]
+
+    prose = raw[: matches[0].start()].rstrip()
+
+    try:
+        core_parsed = json.loads(matches[0].group(1))
+    except json.JSONDecodeError as exc:
+        logger.warning("daily.ai_coach: core JSON parse failed: %s", exc)
+        return raw.strip(), None, None
+
+    if not isinstance(core_parsed, list) or len(core_parsed) != CHECKLIST_SIZE:
+        logger.info(
+            "daily.ai_coach: core count %s != %d, rejecting mutation",
+            len(core_parsed) if isinstance(core_parsed, list) else "?", CHECKLIST_SIZE,
+        )
+        return prose, None, None
+    core = _clean_items(core_parsed, CHECKLIST_SIZE)
+    if core is None:
+        return prose, None, None
+
+    bonus = None
+    if len(matches) > 1:
+        try:
+            bonus_parsed = json.loads(matches[1].group(1))
+            bonus = _clean_items(bonus_parsed, 3, seen_keys=[q["key"] for q in core])
+            if bonus == []:
+                bonus = None  # empty array → no bonus
+        except json.JSONDecodeError:
+            bonus = None
+
+    return prose, core, bonus
 
 
 def generate_suggestion(
     context: CoachContext,
     refinement: Optional[str] = None,
-) -> Optional[Tuple[str, Optional[List[dict]], str, Decimal]]:
-    """Returns (suggestion_text, proposed_questions_or_None, model_name, cost_usd) or None.
+) -> Optional[Tuple[str, Optional[List[dict]], Optional[List[dict]], str, Decimal]]:
+    """Returns (suggestion_text, proposed_questions|None, proposed_bonus|None,
+    model_name, cost_usd) or None on failure.
 
     If `refinement` is provided, it is added to the prompt as the user's
     follow-up tweak for tomorrow ("swap exercise for stretching", etc.).
@@ -369,9 +424,9 @@ def generate_suggestion(
     if not raw:
         return None
 
-    suggestion_text, proposed_questions = _parse_response(raw)
+    suggestion_text, proposed_questions, proposed_bonus = _parse_response(raw)
     if not suggestion_text:
-        suggestion_text = "Great work today. Keep going."
+        suggestion_text = "Great work yesterday. Keep going."
 
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "prompt_tokens", None) if usage else _estimate_tokens(SYSTEM_PROMPT + user_prompt)
@@ -381,4 +436,4 @@ def generate_suggestion(
         + (output_tokens / 1_000_000) * DEEPSEEK_OUTPUT_USD_PER_1M
     )).quantize(Decimal("0.000001"))
 
-    return suggestion_text, proposed_questions, model, cost
+    return suggestion_text, proposed_questions, proposed_bonus, model, cost

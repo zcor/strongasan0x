@@ -17,6 +17,7 @@ logs/
 
 # Bizdev / customer-development notes (private prospect info)
 **/BIZDEV_NOTES.md
+daily/docs/bizdev/
 # One-off demo seeders (hardcoded prospect names / private)
 daily/seed_demo.py
 

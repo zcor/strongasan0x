@@ -6,55 +6,51 @@
     <h1>Hi, {{ participant.display_name }}.</h1>
     <div class="date">{{ today|date:"l, F j" }}</div>
 
-    {% if todays_note and not locked %}
+    {% if note %}
         <div class="suggestion">
-            <div class="suggestion-label">Today's note</div>
-            <div class="suggestion-text">{{ todays_note.suggestion_text }}</div>
+            <div class="suggestion-label">
+                {% if note_was_applied %}Coach's note · checklist updated{% else %}Coach's note{% endif %}
+            </div>
+            <div class="suggestion-text">{{ note.suggestion_text }}</div>
+            {% if note_was_applied %}
+                <form method="post" action="{% url 'daily:respond_to_suggestion' note.id %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="suggestion-actions">
+                    {% csrf_token %}
+                    <button type="submit" name="response" value="dismissed">Undo change</button>
+                </form>
+            {% endif %}
         </div>
     {% endif %}
 
-    <div id="checkin-region">
-        {% if locked %}
-            <div id="locked-region">
-                {% include "daily/_locked_summary.html" %}
+    <div id="items">
+        {% for q in core_items %}
+            <div class="question live {{ q.state }}" data-key="{{ q.key }}" data-state="{{ q.state }}" data-core="1">
+                <div class="row-main" role="button" tabindex="0">
+                    <span class="check-icon">✓</span>
+                    <span class="row-label">{{ q.label }}</span>
+                </div>
+                <button class="skip-btn" title="Skip today" aria-label="Skip {{ q.label }} today">✕</button>
             </div>
-
-            <div class="tomorrow-header">
-                <h2>Tomorrow · {{ tomorrow|date:"l, F j" }}</h2>
-            </div>
-
-            <div id="tomorrow-card" data-ready="{% if tomorrow_preview %}1{% else %}0{% endif %}">
-                {% include "daily/_tomorrow_card.html" with tomorrow_preview=tomorrow_preview %}
-            </div>
-
-        {% else %}
-            <form method="post" id="checkin-form">
-                {% csrf_token %}
-                {% for q in questions %}
-                    <div class="question">
-                        <input
-                            type="checkbox"
-                            id="{{ q.key }}"
-                            name="{{ q.key }}"
-                            {% if q.checked %}checked{% endif %}
-                        >
-                        <label for="{{ q.key }}">
-                            <span class="check-icon">✓</span>
-                            <span>{{ q.label }}</span>
-                        </label>
-                    </div>
-                {% endfor %}
-
-                <label class="comment-label" for="comment">Anything to add? (optional)</label>
-                <textarea id="comment" name="comment" placeholder="e.g. 'Hurt my shoulder, skipping bench tomorrow'">{% if existing %}{{ existing.comment }}{% endif %}</textarea>
-
-                <button type="submit" class="submit" id="submit-btn">
-                    <span class="submit-label">{% if existing %}Update today{% else %}Submit{% endif %}</span>
-                    <span class="submit-check" aria-hidden="true">✓</span>
-                </button>
-            </form>
-        {% endif %}
+        {% endfor %}
     </div>
+
+    {% if bonus_items %}
+        <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
+            <div class="bonus-header">BONUS · optional</div>
+            {% for q in bonus_items %}
+                <div class="question live bonus {{ q.state }}" data-key="{{ q.key }}" data-state="{{ q.state }}" data-core="0">
+                    <div class="row-main" role="button" tabindex="0">
+                        <span class="check-icon">✓</span>
+                        <span class="row-label">{{ q.label }}</span>
+                    </div>
+                    <button class="skip-btn" title="Skip today" aria-label="Skip {{ q.label }} today">✕</button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <label class="comment-label" for="comment">Anything to add? (optional — saves automatically)</label>
+    <textarea id="comment" name="comment" placeholder="e.g. 'Hurt my shoulder, going easy tomorrow' or today's grip numbers">{{ comment }}</textarea>
+    <div id="comment-saved" class="comment-saved" aria-live="polite"></div>
 
     <div class="footer">
         Signed in as <span class="name">{{ participant.display_name }}</span>
@@ -81,205 +77,99 @@
     {% endif %}
 
     <style>
-        /* Locked summary — compact dots */
-        .locked-summary {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 22px;
-        }
-        .locked-label {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #9aa3b2;
-            margin-bottom: 10px;
-        }
-        .dot-row {
+        /* Live rows */
+        .question { position: relative; }
+        .question .row-main {
             display: flex;
-            gap: 12px;
             align-items: center;
-        }
-        .big-dot {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            cursor: help;
-        }
-        .big-dot.done { background: #78c878; box-shadow: 0 0 12px rgba(120, 200, 120, 0.3); }
-        .big-dot.miss { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.18); }
-        .locked-comment {
-            margin-top: 12px;
-            padding: 8px 10px;
-            background: rgba(255, 255, 255, 0.04);
-            border-radius: 8px;
-            color: #b8c1d0;
-            font-size: 0.9rem;
-            font-style: italic;
-        }
-        .locked-edit {
-            display: inline-block;
-            margin-top: 10px;
-            color: #87ceeb;
-            font-size: 0.85rem;
-            text-decoration: none;
-        }
-        .locked-edit:hover { text-decoration: underline; }
-
-        /* Tomorrow header */
-        .tomorrow-header h2 {
-            font-size: 1rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #ffd97a;
-            margin: 0 0 14px;
-            font-weight: 600;
-        }
-
-        /* Preview pending */
-        .preview-pending {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px dashed rgba(255, 255, 255, 0.18);
+            gap: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
             border-radius: 14px;
-            padding: 22px;
-            text-align: center;
-            color: #9aa3b2;
-            font-size: 0.95rem;
-        }
-        .preview-pending .dots::after {
-            display: inline-block;
-            animation: dots 1.4s steps(4, end) infinite;
-            content: "";
-            width: 1.2em;
-            text-align: left;
-        }
-        @keyframes dots {
-            0%, 20% { content: ""; }
-            40% { content: "."; }
-            60% { content: ".."; }
-            80%, 100% { content: "..."; }
-        }
-
-        /* Preview note + actions */
-        .preview-note {
-            background: rgba(255, 217, 122, 0.06);
-            border: 1px solid rgba(255, 217, 122, 0.18);
-            border-radius: 12px;
-            padding: 14px 16px 12px;
-            margin-bottom: 18px;
-            color: #f4e0a4;
-            font-size: 0.95rem;
-            line-height: 1.45;
-        }
-        .preview-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 12px;
-        }
-        .preview-action {
-            background: rgba(255, 217, 122, 0.18);
-            border: 1px solid rgba(255, 217, 122, 0.4);
-            color: #ffd97a;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 600;
+            padding: 18px 52px 18px 18px;
+            font-size: 1.05rem;
             cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
         }
-        .preview-action.reject {
-            background: rgba(255, 255, 255, 0.04);
-            border-color: rgba(255, 255, 255, 0.18);
-            color: #9aa3b2;
+        .question .row-main:active { transform: scale(0.98); }
+        .question.done .row-main {
+            background: rgba(120, 200, 120, 0.18);
+            border-color: rgba(120, 200, 120, 0.55);
+            color: #c8f0c8;
         }
-
-        /* Modify form (collapsed) */
-        .modify-form { display: none; margin-top: 12px; }
-        .modify-form.open { display: block; }
-        .modify-form textarea {
-            min-height: 60px;
-            margin: 0 0 8px;
-            background: rgba(0, 0, 0, 0.25);
+        .question.skip .row-main {
+            opacity: 0.45;
         }
-        .modify-form-actions {
-            display: flex;
-            gap: 8px;
+        .question.skip .row-label { text-decoration: line-through; }
+        .question.done .check-icon {
+            background: #78c878;
+            border-color: #78c878;
+            color: #14391a;
         }
-        .modify-form-actions button {
-            flex: 1;
-            background: rgba(255, 217, 122, 0.25);
-            border: 1px solid rgba(255, 217, 122, 0.5);
-            color: #ffd97a;
+        .skip-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.25);
+            font-size: 1rem;
             padding: 10px;
-            border-radius: 8px;
-            font-size: 0.9rem;
             cursor: pointer;
+            border-radius: 8px;
         }
-        .modify-form-actions button.cancel {
-            background: rgba(255, 255, 255, 0.04);
-            border-color: rgba(255, 255, 255, 0.12);
-            color: #9aa3b2;
-        }
+        .skip-btn:hover { color: rgba(255, 255, 255, 0.6); }
+        .question.skip .skip-btn { color: #d08770; }
 
-        /* Preview header chip + label list */
-        .preview-header { margin-bottom: 8px; }
-        .preview-chip {
-            display: inline-block;
-            font-size: 0.65rem;
+        /* Bonus */
+        #bonus-section { margin-top: 22px; }
+        #bonus-section.hidden { display: none; }
+        #bonus-section.revealing { animation: bonus-in 0.45s ease; }
+        @keyframes bonus-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .bonus-header {
+            font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.12em;
             color: #ffd97a;
-            background: rgba(255, 217, 122, 0.12);
-            padding: 3px 8px;
-            border-radius: 4px;
+            margin-bottom: 10px;
         }
-        .preview-list {
-            list-style: none;
-            padding: 0;
-            margin: 0 0 12px;
+        .question.bonus .row-main {
+            border-style: dashed;
+            background: rgba(255, 217, 122, 0.05);
         }
-        .preview-list li {
-            font-size: 1.05rem;
-            padding: 12px 4px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            color: #c8d2e0;
+        .question.bonus.done .row-main {
+            background: rgba(120, 200, 120, 0.18);
+            border-style: solid;
         }
-        .preview-list li:last-child { border-bottom: none; }
 
-        /* Submit button: check + confetti */
-        .submit { position: relative; overflow: visible; }
-        .submit-check {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.6rem;
-            color: #1a1a2e;
+        /* Comment autosave */
+        .comment-saved {
+            color: #78c878;
+            font-size: 0.8rem;
+            height: 1.1em;
+            margin-top: 4px;
             opacity: 0;
-            transform: scale(0.5);
-            transition: opacity 0.15s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-            pointer-events: none;
+            transition: opacity 0.3s;
         }
-        .submit.submitting .submit-label { opacity: 0; transition: opacity 0.1s; }
-        .submit.submitting .submit-check { opacity: 1; transform: scale(1); }
+        .comment-saved.visible { opacity: 1; }
+
+        /* Confetti (fires on 5th core done) */
         .confetti-piece {
-            position: absolute;
-            width: 8px;
-            height: 8px;
-            top: 50%;
-            left: 50%;
+            position: fixed;
+            width: 9px; height: 9px;
             opacity: 0;
             pointer-events: none;
             border-radius: 2px;
-            z-index: 5;
-        }
-        .submit.submitting .confetti-piece {
-            animation: confetti-fly 0.9s cubic-bezier(0.16, 0.84, 0.34, 1) forwards;
+            z-index: 50;
+            animation: confetti-fly 1s cubic-bezier(0.16, 0.84, 0.34, 1) forwards;
         }
         @keyframes confetti-fly {
-            0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+            0%   { opacity: 0; transform: translate(0, 0) scale(0.4); }
             10%  { opacity: 1; }
             100% { opacity: 0; transform: var(--end-transform) scale(1); }
         }
@@ -306,120 +196,118 @@
         (function() {
             "use strict";
 
+            var qs = {% if debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
+            var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
             var CONFETTI_COLORS = ["#78c878", "#ffd97a", "#87ceeb", "#f5b942", "#ffffff"];
 
-            function fireConfetti(button) {
-                for (var i = 0; i < 18; i++) {
+            function postItem(key, state, onOk) {
+                fetch("/daily/item/" + qs, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": CSRF,
+                    },
+                    body: JSON.stringify({key: key, state: state}),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.ok && onOk) onOk(data);
+                })
+                .catch(function() { /* optimistic UI stays; next reload reconciles */ });
+            }
+
+            function fireConfetti(originEl) {
+                var rect = originEl.getBoundingClientRect();
+                var cx = rect.left + rect.width / 2;
+                var cy = rect.top + rect.height / 2;
+                for (var i = 0; i < 22; i++) {
                     var p = document.createElement("span");
                     p.className = "confetti-piece";
                     p.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
-                    var angle = (Math.PI * 2 * i / 18) + (Math.random() * 0.3);
-                    var dist = 80 + Math.random() * 60;
+                    p.style.left = cx + "px";
+                    p.style.top = cy + "px";
+                    var angle = (Math.PI * 2 * i / 22) + (Math.random() * 0.3);
+                    var dist = 90 + Math.random() * 80;
                     var dx = Math.cos(angle) * dist;
-                    var dy = Math.sin(angle) * dist + 30; // bias downward a touch
-                    p.style.setProperty("--end-transform", "translate(" + (dx - 4) + "px, " + (dy - 4) + "px) rotate(" + (Math.random() * 360) + "deg)");
-                    p.style.animationDelay = (Math.random() * 0.05) + "s";
-                    button.appendChild(p);
-                    // Cleanup after animation
+                    var dy = Math.sin(angle) * dist - 20;
+                    p.style.setProperty("--end-transform", "translate(" + dx + "px, " + dy + "px) rotate(" + (Math.random() * 360) + "deg)");
+                    document.body.appendChild(p);
                     setTimeout((function(piece) {
-                        return function() {
-                            if (piece.parentNode) piece.parentNode.removeChild(piece);
-                        };
-                    })(p), 1000);
+                        return function() { if (piece.parentNode) piece.parentNode.removeChild(piece); };
+                    })(p), 1100);
                 }
             }
 
-            var asOf = {% if debug_as_of %}"{{ debug_as_of }}"{% else %}null{% endif %};
-            var qs = asOf ? "?as_of=" + encodeURIComponent(asOf) : "";
-
-            // Submit handler: fetch POST + DOM swap + confetti
-            var form = document.getElementById("checkin-form");
-            if (form) {
-                form.addEventListener("submit", function(e) {
-                    var btn = document.getElementById("submit-btn");
-                    if (!btn) return; // graceful: full submit
-                    e.preventDefault();
-                    btn.classList.add("submitting");
-                    btn.disabled = true;
-                    fireConfetti(btn);
-
-                    var fd = new FormData(form);
-                    fetch(form.action || window.location.pathname + qs, {
-                        method: "POST",
-                        body: fd,
-                        headers: {"Accept": "application/json"},
-                        credentials: "same-origin",
-                    })
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (!data || !data.ok) {
-                            window.location.reload();
-                            return;
-                        }
-                        // Swap the form region for a freshly-built locked layout.
-                        var region = document.getElementById("checkin-region");
-                        region.innerHTML =
-                            '<div id="locked-region">' + data.locked_html + '</div>' +
-                            '<div class="tomorrow-header"><h2>Tomorrow · ' + data.tomorrow_date_human + '</h2></div>' +
-                            '<div id="tomorrow-card" data-ready="0">' +
-                                '<div class="preview-pending">Preparing your tomorrow<span class="dots"></span></div>' +
-                            '</div>';
-                        startTomorrowPoll();
-                    })
-                    .catch(function() {
-                        window.location.reload();
-                    });
-                });
+            function setRowState(row, state) {
+                row.classList.remove("pending", "done", "skip");
+                row.classList.add(state);
+                row.dataset.state = state;
             }
 
-            // Poll for tomorrow preview readiness, swap card in-place.
-            function startTomorrowPoll() {
-                var card = document.getElementById("tomorrow-card");
-                if (!card || card.dataset.ready === "1") return;
-                var url = "/daily/tomorrow/preview.json" + qs;
-                var deadline = Date.now() + 30000;
-                var pollMs = 2000;
-                function poll() {
-                    if (Date.now() > deadline) return;
-                    fetch(url, {headers: {"Accept": "application/json"}, credentials: "same-origin"})
-                        .then(function(r) { return r.json(); })
-                        .then(function(data) {
-                            if (data && data.ready && data.has_mutation && data.html) {
-                                card.innerHTML = data.html;
-                                card.dataset.ready = "1";
-                            } else {
-                                setTimeout(poll, pollMs);
-                            }
-                        })
-                        .catch(function() { setTimeout(poll, pollMs); });
+            function coreDoneCount() {
+                return document.querySelectorAll('.question[data-core="1"].done').length;
+            }
+
+            function maybeRevealBonus() {
+                var section = document.getElementById("bonus-section");
+                if (section && section.classList.contains("hidden") && coreDoneCount() >= {{ bonus_reveal_at }}) {
+                    section.classList.remove("hidden");
+                    section.classList.add("revealing");
                 }
-                setTimeout(poll, pollMs);
             }
 
-            // Event delegation: modify-toggle + cancel work on any
-            // server-rendered OR poll-injected tomorrow card.
-            document.addEventListener("click", function(e) {
-                var t = e.target;
-                if (t.classList && t.classList.contains("modify-toggle")) {
-                    var note = t.closest(".preview-note");
-                    if (note) {
-                        var f = note.querySelector(".modify-form");
-                        if (f) {
-                            f.classList.add("open");
-                            var ta = f.querySelector("textarea");
-                            if (ta) ta.focus();
-                        }
+            document.querySelectorAll(".question.live").forEach(function(row) {
+                var key = row.dataset.key;
+
+                row.querySelector(".row-main").addEventListener("click", function() {
+                    var prev = row.dataset.state;
+                    var next = prev === "done" ? "pending" : "done";
+                    setRowState(row, next);
+                    postItem(key, next);
+                    if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
+                        fireConfetti(row);
                     }
-                }
-                if (t.classList && t.classList.contains("modify-cancel")) {
-                    e.preventDefault();
-                    var f2 = t.closest(".modify-form");
-                    if (f2) f2.classList.remove("open");
-                }
+                    maybeRevealBonus();
+                });
+
+                row.querySelector(".skip-btn").addEventListener("click", function(e) {
+                    e.stopPropagation();
+                    var prev = row.dataset.state;
+                    var next = prev === "skip" ? "pending" : "skip";
+                    setRowState(row, next);
+                    postItem(key, next);
+                });
             });
 
-            // Kick off poll if we landed on a locked page with no preview yet.
-            startTomorrowPoll();
+            // Comment autosave on blur + debounce while typing
+            var commentEl = document.getElementById("comment");
+            var savedEl = document.getElementById("comment-saved");
+            var saveTimer = null;
+            function saveComment() {
+                fetch("/daily/comment/" + qs, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": CSRF,
+                    },
+                    body: JSON.stringify({comment: commentEl.value}),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.ok) {
+                        savedEl.textContent = "Saved";
+                        savedEl.classList.add("visible");
+                        setTimeout(function() { savedEl.classList.remove("visible"); }, 1500);
+                    }
+                });
+            }
+            commentEl.addEventListener("blur", saveComment);
+            commentEl.addEventListener("input", function() {
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(saveComment, 2000);
+            });
         })();
     </script>
 {% endblock %}

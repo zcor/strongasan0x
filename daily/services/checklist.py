@@ -46,9 +46,15 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
             suggestion.save(update_fields=["status", "responded_at"])
             continue
 
+        proposed_bonus = suggestion.proposed_bonus or None
+
         current = participant.checklist_versions.filter(is_current=True).first()
-        if current and _questions_equal(current.questions, proposed):
-            # No-op mutation — don't churn versions, but still flip the suggestion.
+        if (
+            current
+            and _questions_equal(current.questions, proposed)
+            and _questions_equal(current.bonus_questions or [], proposed_bonus or [])
+        ):
+            # True no-op (core AND bonus unchanged) — don't churn versions.
             suggestion.status = CoachSuggestion.STATUS_APPLIED
             suggestion.applied_at = timezone.now()
             suggestion.applied_version = current
@@ -62,6 +68,7 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
             new_version = ChecklistVersion.objects.create(
                 participant=participant,
                 questions=proposed,
+                bonus_questions=proposed_bonus,
                 source=ChecklistVersion.SOURCE_AI_MUTATION,
                 derived_from=current,
                 is_current=True,

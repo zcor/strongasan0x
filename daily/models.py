@@ -113,6 +113,11 @@ class ChecklistVersion(models.Model):
     questions = models.JSONField(
         help_text='List of {"key": str, "label": str} dicts'
     )
+    bonus_questions = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Optional extra-credit items for the day; never counted in score',
+    )
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     derived_from = models.ForeignKey(
         "self",
@@ -184,17 +189,35 @@ class DailyCheckIn(models.Model):
         return f"{self.participant.display_name} {self.date.isoformat()}"
 
     def answers_by_key(self):
-        return {a.question_key: a.value for a in self.answers.all()}
+        return {a.question_key: a.state for a in self.answers.all()}
 
     @property
     def score(self):
-        return sum(1 for a in self.answers.all() if a.value)
+        """Count of DONE among the day's CORE questions (bonus excluded)."""
+        core_keys = set(self.checklist_version.question_keys())
+        return sum(
+            1 for a in self.answers.all()
+            if a.state == DailyCheckInAnswer.STATE_DONE and a.question_key in core_keys
+        )
 
 
 class DailyCheckInAnswer(models.Model):
-    """One bool per (check_in, question_key). The label lives on
-    check_in.checklist_version.questions and is resolved at render time.
+    """One state per (check_in, question_key). The label lives on
+    check_in.checklist_version.questions (or bonus_questions) and is
+    resolved at render time.
+
+    States: pending (untouched — mere drift), done, skip (deliberate
+    opt-out — a signal the coach treats differently from drift).
     """
+
+    STATE_PENDING = "pending"
+    STATE_DONE = "done"
+    STATE_SKIP = "skip"
+    STATE_CHOICES = [
+        (STATE_PENDING, "Pending"),
+        (STATE_DONE, "Done"),
+        (STATE_SKIP, "Skipped"),
+    ]
 
     check_in = models.ForeignKey(
         DailyCheckIn,
@@ -202,7 +225,7 @@ class DailyCheckInAnswer(models.Model):
         related_name="answers",
     )
     question_key = models.CharField(max_length=40)
-    value = models.BooleanField(default=False)
+    state = models.CharField(max_length=10, choices=STATE_CHOICES, default=STATE_PENDING)
 
     class Meta:
         unique_together = [("check_in", "question_key")]
@@ -238,6 +261,11 @@ class CoachSuggestion(models.Model):
         null=True,
         blank=True,
         help_text='Optional new question list to auto-apply tomorrow',
+    )
+    proposed_bonus = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Optional extra-credit items for tomorrow (0-3)',
     )
     rationale = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
