@@ -282,10 +282,12 @@ def generate_one_bonus(
     on the list. Returns None on failure (caller leaves the pile as-is)."""
     api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
     if not api_key:
+        logger.warning("daily.ai_coach.generate_one_bonus: DEEPSEEK_API_KEY not configured")
         return None
     try:
         import openai
     except ImportError:
+        logger.error("daily.ai_coach.generate_one_bonus: openai SDK not installed")
         return None
 
     existing_block = ""
