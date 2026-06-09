@@ -33,8 +33,7 @@
         {% endfor %}
     </div>
 
-    {# Bonus zone always present (may start empty) so live-generated items
-       can slide in. Hidden until revealed (≥3 core done or any bonus exists). #}
+    {% comment %}Bonus zone always present (may start empty) so live-generated items can slide in. Hidden until revealed (>=3 core done or any bonus exists).{% endcomment %}
     <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
         <div class="bonus-header">BONUS · optional, keep going as long as you like</div>
         <div id="bonus-items">
@@ -344,6 +343,29 @@
             }
 
             document.querySelectorAll(".question.live").forEach(bindRow);
+
+            // Bootstrap: if the user already crossed the threshold (e.g.
+            // loaded the page at 5/5) and has no open bonus, fetch one now.
+            function openBonusCount() {
+                return document.querySelectorAll('.question.bonus.pending, .question.bonus[data-state="pending"]').length;
+            }
+            if (coreDoneCount() >= {{ bonus_reveal_at }} && openBonusCount() === 0) {
+                var section = document.getElementById("bonus-section");
+                if (section) section.classList.remove("hidden");
+                showSpinner(true);
+                fetch("/daily/bonus/next/" + qs, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
+                    body: "{}",
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    showSpinner(false);
+                    if (data && data.new_bonus) makeBonusRow(data.new_bonus);
+                })
+                .catch(function() { showSpinner(false); });
+            }
 
             // Comment autosave on blur + debounce while typing
             var commentEl = document.getElementById("comment");

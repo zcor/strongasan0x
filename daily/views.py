@@ -318,6 +318,40 @@ def _generate_and_append_bonus(participant, version, check_in, states):
 
 @require_daily_actor
 @require_http_methods(["POST"])
+def next_bonus(request):
+    """Bootstrap/refill endpoint: generate one bonus if the user has
+    earned it (>=BONUS_REVEAL_AT core done today) and has no pending
+    (uncompleted) bonus item. Used by the page on load for users who
+    crossed the threshold before the live-drip feature existed, and as
+    a safety net if a refill call was lost."""
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    version = participant.get_or_create_current_checklist()
+    check_in = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    if check_in is None:
+        return JsonResponse({"ok": True, "new_bonus": None})
+
+    states = check_in.answers_by_key()
+    core_done = sum(1 for k in version.question_keys() if states.get(k) == "done")
+    if core_done < BONUS_REVEAL_AT:
+        return JsonResponse({"ok": True, "new_bonus": None})
+
+    # Only top up if every existing bonus is resolved (done/skip) — keep
+    # exactly one open bonus at a time so the pile grows by completion,
+    # not by polling.
+    open_bonus = [
+        q for q in (version.bonus_questions or [])
+        if states.get(q["key"], "pending") == "pending"
+    ]
+    if open_bonus:
+        return JsonResponse({"ok": True, "new_bonus": None})
+
+    item = _generate_and_append_bonus(participant, version, check_in, states)
+    return JsonResponse({"ok": True, "new_bonus": item})
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
 def save_comment(request):
     participant = request.daily_participant
     today = _resolve_today(request)
