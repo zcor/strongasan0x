@@ -32,7 +32,11 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
         CoachSuggestion.objects
         .filter(check_in__participant=participant, check_in__date__lt=as_of)
         .filter(proposed_questions__isnull=False)
-        .exclude(status__in=[CoachSuggestion.STATUS_DISMISSED, CoachSuggestion.STATUS_APPLIED])
+        .exclude(status__in=[
+            CoachSuggestion.STATUS_DISMISSED,
+            CoachSuggestion.STATUS_APPLIED,
+            CoachSuggestion.STATUS_SHOWN,  # no-op already evaluated; don't re-process
+        ])
         .select_related("check_in")
         .order_by("check_in__date", "created_at")
     )
@@ -54,11 +58,11 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
             and _questions_equal(current.questions, proposed)
             and _questions_equal(current.bonus_questions or [], proposed_bonus or [])
         ):
-            # True no-op (core AND bonus unchanged) — don't churn versions.
-            suggestion.status = CoachSuggestion.STATUS_APPLIED
-            suggestion.applied_at = timezone.now()
-            suggestion.applied_version = current
-            suggestion.save(update_fields=["status", "applied_at", "applied_version"])
+            # True no-op (core AND bonus unchanged) — don't churn versions,
+            # and DON'T mark APPLIED. There's nothing to undo, so the note
+            # should render as a plain coach note, not "checklist updated".
+            suggestion.status = CoachSuggestion.STATUS_SHOWN
+            suggestion.save(update_fields=["status"])
             continue
 
         with transaction.atomic():

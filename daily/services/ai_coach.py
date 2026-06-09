@@ -115,13 +115,20 @@ change things.
 
 # Bonus items (optional, extra credit)
 
-After the core 5, you MAY offer 0-3 BONUS items for tomorrow — small
-optional extras revealed only after the user has done several core
-items. Rules:
+After the core 5, offer BONUS items for tomorrow — small optional extras
+revealed in the app only after the user has done several core items. They
+keep an engaged user discovering new challenges without bloating the
+core 5. Rules:
+- If the user completed most/all of their core items recently (a sign
+  they have capacity for more), offer 1-2 bonus items. If they're
+  struggling to finish the core 5, offer 0 — don't pile on.
 - Bonus items are extra credit: small, low-friction, grounded in their
-  data (same no-invention rule).
+  data (same no-invention rule). Each should be a genuine, fresh nudge
+  toward improvement — NOT a restatement of a core item.
 - They must NOT duplicate or overlap any core item.
-- 0 bonus items is a fine answer. Don't pad.
+- Vary them over time as the user engages; this is the "keeps feeding me
+  new things" mechanic. But quality over quantity — 1 great bonus beats
+  3 filler ones. Never exceed 3.
 - Same label rules (past-tense, max 60 chars), keys prefixed "bonus_".
 
 # Output format
