@@ -33,9 +33,11 @@
         {% endfor %}
     </div>
 
-    {% if bonus_items %}
-        <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
-            <div class="bonus-header">BONUS · optional</div>
+    {# Bonus zone always present (may start empty) so live-generated items
+       can slide in. Hidden until revealed (≥3 core done or any bonus exists). #}
+    <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
+        <div class="bonus-header">BONUS · optional, keep going as long as you like</div>
+        <div id="bonus-items">
             {% for q in bonus_items %}
                 <div class="question live bonus {{ q.state }}" data-key="{{ q.key }}" data-state="{{ q.state }}" data-core="0">
                     <div class="row-main" role="button" tabindex="0">
@@ -46,7 +48,8 @@
                 </div>
             {% endfor %}
         </div>
-    {% endif %}
+        <div id="bonus-spinner" class="bonus-spinner hidden">Coach is finding your next one…</div>
+    </div>
 
     <label class="comment-label" for="comment">Anything to add? (optional — saves automatically)</label>
     <textarea id="comment" name="comment" placeholder="e.g. 'Hurt my shoulder, going easy tomorrow' or today's grip numbers">{{ comment }}</textarea>
@@ -146,6 +149,26 @@
             background: rgba(120, 200, 120, 0.18);
             border-style: solid;
         }
+        /* New bonus slide-in */
+        .question.new-bonus {
+            opacity: 0;
+            transform: translateY(-8px);
+        }
+        .question.bonus {
+            transition: opacity 0.35s ease, transform 0.35s ease;
+            opacity: 1;
+            transform: translateY(0);
+            margin-top: 12px;
+        }
+        .bonus-spinner {
+            margin-top: 12px;
+            padding: 14px;
+            text-align: center;
+            color: #9aa3b2;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+        .bonus-spinner.hidden { display: none; }
 
         /* Comment autosave */
         .comment-saved {
@@ -257,18 +280,58 @@
                 }
             }
 
-            document.querySelectorAll(".question.live").forEach(function(row) {
+            var spinner = document.getElementById("bonus-spinner");
+            function showSpinner(on) {
+                if (spinner) spinner.classList.toggle("hidden", !on);
+            }
+
+            function makeBonusRow(item) {
+                var row = document.createElement("div");
+                row.className = "question live bonus pending new-bonus";
+                row.dataset.key = item.key;
+                row.dataset.state = "pending";
+                row.dataset.core = "0";
+                row.innerHTML =
+                    '<div class="row-main" role="button" tabindex="0">' +
+                        '<span class="check-icon">✓</span>' +
+                        '<span class="row-label"></span>' +
+                    '</div>' +
+                    '<button class="skip-btn" title="Skip today">✕</button>';
+                row.querySelector(".row-label").textContent = item.label;
+                document.getElementById("bonus-items").appendChild(row);
+                bindRow(row);
+                // trigger slide-in next frame
+                requestAnimationFrame(function() { row.classList.remove("new-bonus"); });
+            }
+
+            function handleResponse(row, data) {
+                if (!data) return;
+                if (data.new_bonus) {
+                    makeBonusRow(data.new_bonus);
+                }
+            }
+
+            function bindRow(row) {
                 var key = row.dataset.key;
+                var isBonus = row.dataset.core === "0";
 
                 row.querySelector(".row-main").addEventListener("click", function() {
                     var prev = row.dataset.state;
                     var next = prev === "done" ? "pending" : "done";
                     setRowState(row, next);
-                    postItem(key, next);
                     if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
                         fireConfetti(row);
                     }
                     maybeRevealBonus();
+                    // A done that may spawn a fresh bonus → show spinner.
+                    var mayRefill = next === "done" && (isBonus || (row.dataset.core === "1" && coreDoneCount() >= {{ bonus_reveal_at }}));
+                    if (mayRefill) showSpinner(true);
+                    postItem(key, next, function(data) {
+                        showSpinner(false);
+                        handleResponse(row, data);
+                    });
+                    // Safety: hide spinner even if the call fails silently.
+                    if (mayRefill) setTimeout(function() { showSpinner(false); }, 12000);
                 });
 
                 row.querySelector(".skip-btn").addEventListener("click", function(e) {
@@ -278,7 +341,9 @@
                     setRowState(row, next);
                     postItem(key, next);
                 });
-            });
+            }
+
+            document.querySelectorAll(".question.live").forEach(bindRow);
 
             // Comment autosave on blur + debounce while typing
             var commentEl = document.getElementById("comment");

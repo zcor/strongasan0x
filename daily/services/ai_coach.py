@@ -251,6 +251,94 @@ def derive_stretch_item(
     return {"key": key, "label": label}
 
 
+ONE_BONUS_PROMPT = """You are Coach Jamie. The user has been knocking out
+their daily checklist and wants MORE — an extra-credit bonus challenge for
+today. Generate ONE fresh bonus habit.
+
+Rules:
+- It's EXTRA CREDIT: small, low-friction, doable TODAY, genuinely useful.
+- Grounded in their real data / today's progress. Never invent an
+  activity they don't do.
+- It must be DIFFERENT from every item already on their list today
+  (core AND existing bonus) — give them something NEW each time, vary
+  the theme (mobility, hydration, a mental/recovery win, a small skill
+  rep, etc.). Don't just rephrase an existing item.
+- A daily yes/no habit, not a multi-day project.
+- Output ONE JSON object only: {"key": "bonus_...", "label": "..."}
+  key starts with "bonus_", lowercase_with_underscores.
+  label: concise past-tense phrase, max 60 chars.
+- Output ONLY the JSON object. No prose, no fence."""
+
+
+def generate_one_bonus(
+    participant_name: str,
+    attestation_text: str,
+    existing_items: List[dict],
+    today_done_labels: Optional[List[str]] = None,
+    today_comment: str = "",
+) -> Optional[dict]:
+    """Generate ONE fresh bonus item ({"key","label"}), live, grounded in
+    the user's data + today's momentum, distinct from everything already
+    on the list. Returns None on failure (caller leaves the pile as-is)."""
+    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
+    if not api_key:
+        return None
+    try:
+        import openai
+    except ImportError:
+        return None
+
+    existing_block = ""
+    if existing_items:
+        joined = "\n".join(f"- {q.get('label', '')}" for q in existing_items)
+        existing_block = f"\n\nAlready on today's list (do NOT duplicate any of these):\n{joined}"
+    done_block = ""
+    if today_done_labels:
+        done_block = f"\n\nDone so far today: {', '.join(today_done_labels)}"
+    comment_block = f"\n\nToday's comment: {today_comment}" if today_comment else ""
+
+    user_msg = (
+        f"Participant: {participant_name}\n\n"
+        f"Their recent training logs:\n{attestation_text[:3000]}"
+        f"{existing_block}{done_block}{comment_block}"
+    )
+    try:
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": ONE_BONUS_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=100,
+            temperature=0.7,  # higher temp for variety across refills
+        )
+    except Exception as exc:
+        logger.exception("daily.ai_coach.generate_one_bonus failed: %s", exc)
+        return None
+
+    raw = (resp.choices[0].message.content or "").strip()
+    m = re.search(r"\{[\s\S]*?\}", raw)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    key = str(obj.get("key", "")).strip()
+    label = str(obj.get("label", "")).strip()
+    if not key or not label or len(label) > 60 or len(key) > 40:
+        return None
+    if not key.startswith("bonus_"):
+        key = "bonus_" + key
+    # Ensure uniqueness vs existing keys (append a short suffix if needed).
+    existing_keys = {q.get("key") for q in existing_items}
+    if key in existing_keys:
+        import hashlib
+        key = key[:34] + "_" + hashlib.md5(label.encode()).hexdigest()[:5]
+    return {"key": key, "label": label}
+
+
 def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     def _label_map(version):
         labels = {q["key"]: q["label"] for q in version.questions}

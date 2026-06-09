@@ -105,16 +105,32 @@ def ensure_prior_day_coached(participant: DailyParticipant, today: date) -> bool
 
 
 def _morning_note(participant: DailyParticipant, today: date):
-    """Most recent non-dismissed suggestion from a prior day."""
-    return (
+    """Most recent non-dismissed suggestion from a prior day.
+
+    The seeded welcome note (rationale='seed_welcome') is one-time: once
+    the participant has any genuine coach suggestion OR has completed any
+    item, the welcome retires so it doesn't greet them as "first time"
+    every day.
+    """
+    qs = (
         CoachSuggestion.objects.filter(
             check_in__participant=participant,
             check_in__date__lt=today,
         )
         .exclude(status=CoachSuggestion.STATUS_DISMISSED)
         .order_by("-created_at")
-        .first()
     )
+    note = qs.first()
+    if note is not None and note.rationale == "seed_welcome":
+        has_real_note = qs.exclude(rationale="seed_welcome").exists()
+        has_activity = DailyCheckInAnswer.objects.filter(
+            check_in__participant=participant, state="done"
+        ).exists()
+        if has_real_note or has_activity:
+            # Welcome has served its purpose — show a real note if one
+            # exists, otherwise nothing.
+            return qs.exclude(rationale="seed_welcome").first()
+    return note
 
 
 def _get_or_create_today(participant: DailyParticipant, today: date, version: ChecklistVersion) -> DailyCheckIn:
@@ -224,6 +240,9 @@ def set_item_state(request):
     if key not in valid_keys:
         return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
 
+    bonus_keys = {q["key"] for q in (version.bonus_questions or [])}
+    is_bonus = key in bonus_keys
+
     with transaction.atomic():
         check_in = _get_or_create_today(participant, today, version)
         DailyCheckInAnswer.objects.update_or_create(
@@ -236,11 +255,65 @@ def set_item_state(request):
     states = check_in.answers_by_key()
     core_keys = version.question_keys()
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
+
+    # Live bonus drip: generate a fresh bonus item when the user
+    #  (a) just completed a BONUS item (refill the pile), or
+    #  (b) just reached the core threshold and has no bonus yet (first one).
+    new_bonus = None
+    just_completed_bonus = is_bonus and state == DailyCheckInAnswer.STATE_DONE
+    crossed_threshold = (
+        not is_bonus
+        and state == DailyCheckInAnswer.STATE_DONE
+        and done_count >= BONUS_REVEAL_AT
+        and not version.bonus_questions
+    )
+    if just_completed_bonus or crossed_threshold:
+        new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
+
+    version.refresh_from_db()
     return JsonResponse({
         "ok": True,
         "done_count": done_count,
         "bonus_revealed": bool(version.bonus_questions) and done_count >= BONUS_REVEAL_AT,
+        "new_bonus": new_bonus,  # {key,label} to slide in, or null
     })
+
+
+def _generate_and_append_bonus(participant, version, check_in, states):
+    """Generate one fresh bonus item (live AI), append to the current
+    version's bonus_questions, return {key,label} or None."""
+    from rollcall.models import Attestation
+
+    existing = list(version.questions) + list(version.bonus_questions or [])
+    label_by_key = {q["key"]: q["label"] for q in existing}
+    done_labels = [label_by_key[k] for k, s in states.items() if s == "done" and k in label_by_key]
+
+    att_text = ""
+    if version.participant.telegram_mapping_id:
+        atts = Attestation.objects.filter(
+            telegram_user_id=version.participant.telegram_mapping_id
+        ).order_by("-posted_at")[:3]
+        att_text = "\n\n".join(a.raw_text for a in atts)
+
+    from .services.ai_coach import generate_one_bonus
+    item = generate_one_bonus(
+        participant_name=participant.display_name,
+        attestation_text=att_text,
+        existing_items=existing,
+        today_done_labels=done_labels,
+        today_comment=check_in.comment or "",
+    )
+    if item is None:
+        return None
+    with transaction.atomic():
+        v = ChecklistVersion.objects.select_for_update().get(id=version.id)
+        bonus = list(v.bonus_questions or [])
+        if any(b["key"] == item["key"] for b in bonus):
+            return None  # collision guard
+        bonus.append(item)
+        v.bonus_questions = bonus
+        v.save(update_fields=["bonus_questions"])
+    return item
 
 
 @require_daily_actor
