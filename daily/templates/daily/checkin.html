@@ -6,6 +6,16 @@
     <h1>Hi, {{ participant.display_name }}.</h1>
     <div class="date">{{ today|date:"l, F j" }}</div>
 
+    <div class="ring-wrap">
+        <svg id="ring" width="116" height="116" viewBox="0 0 116 116" aria-label="Daily progress">
+            <circle class="ring-track" cx="58" cy="58" r="48" fill="none" stroke-width="9"/>
+            <circle id="ring-arc" class="ring-arc" cx="58" cy="58" r="48" fill="none" stroke-width="9"
+                    stroke-linecap="round" transform="rotate(-90 58 58)"/>
+            <text id="ring-text" class="ring-text" x="58" y="58" text-anchor="middle" dominant-baseline="central"></text>
+        </svg>
+        <div id="ring-caption" class="ring-caption">saves as you tap</div>
+    </div>
+
     {% if note %}
         <div class="suggestion">
             <div class="suggestion-label">
@@ -33,7 +43,6 @@
         {% endfor %}
     </div>
 
-    <div id="status-strip" class="status-strip" aria-live="polite"></div>
 
     {% comment %}Bonus zone always present (may start empty) so live-generated items can slide in. Hidden until revealed (>=3 core done or any bonus exists).{% endcomment %}
     <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
@@ -171,24 +180,43 @@
         }
         .bonus-spinner.hidden { display: none; }
 
-        /* Status strip — the "do I submit?" answer */
-        .status-strip {
-            margin: 16px 4px 4px;
-            padding: 12px 14px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            color: #9aa3b2;
-            font-size: 0.92rem;
-            text-align: center;
-            transition: all 0.3s ease;
+        /* Progress ring — the CTA. The ring IS "do I submit?" answered. */
+        .ring-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 6px 0 22px;
         }
-        .status-strip.complete {
-            background: rgba(120, 200, 120, 0.12);
-            border-color: rgba(120, 200, 120, 0.4);
-            color: #c8f0c8;
+        .ring-track { stroke: rgba(255, 255, 255, 0.08); }
+        .ring-arc {
+            stroke: #78c878;
+            stroke-dasharray: 301.6;   /* 2πr, r=48 */
+            stroke-dashoffset: 301.6;  /* starts empty */
+            transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s, filter 0.4s;
         }
-        .status-strip .tick { color: #78c878; font-weight: 700; }
+        #ring.full .ring-arc {
+            stroke: #8fe08f;
+            filter: drop-shadow(0 0 8px rgba(120, 200, 120, 0.55));
+        }
+        .ring-text {
+            fill: #e8eaed;
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: inherit;
+        }
+        #ring.full .ring-text { fill: #8fe08f; }
+        .ring-caption {
+            margin-top: 8px;
+            color: #6c7483;
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+            transition: color 0.4s;
+        }
+        .ring-caption.done-today {
+            color: #8fe08f;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
 
         /* Comment autosave */
         .comment-saved {
@@ -292,21 +320,26 @@
                 return document.querySelectorAll('.question[data-core="1"].done').length;
             }
 
-            var statusEl = document.getElementById("status-strip");
-            function updateStatus(justSaved) {
-                if (!statusEl) return;
+            var RING_C = 301.6; // 2πr, r=48
+            var ringEl = document.getElementById("ring");
+            var ringArc = document.getElementById("ring-arc");
+            var ringText = document.getElementById("ring-text");
+            var ringCaption = document.getElementById("ring-caption");
+            function updateStatus() {
+                if (!ringArc) return;
                 var n = coreDoneCount();
-                var total = document.querySelectorAll('.question[data-core="1"]').length;
-                var saved = justSaved ? '<span class="tick">✓ Saved.</span> ' : '';
-                if (n === 0) {
-                    statusEl.innerHTML = "Tap anything you've done today — it saves by itself. No submit button needed.";
-                    statusEl.classList.remove("complete");
-                } else if (n < total) {
-                    statusEl.innerHTML = saved + n + " of " + total + " done. Everything saves automatically — come back anytime today to tap more.";
-                    statusEl.classList.remove("complete");
+                var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                ringArc.style.strokeDashoffset = String(RING_C * (1 - n / total));
+                if (n >= total) {
+                    ringEl.classList.add("full");
+                    ringText.textContent = "✓";
+                    ringCaption.textContent = "Done for today.";
+                    ringCaption.classList.add("done-today");
                 } else {
-                    statusEl.innerHTML = '<span class="tick">✓</span> All ' + total + " done — you're finished, nothing to submit. See you tomorrow (or grab a bonus below).";
-                    statusEl.classList.add("complete");
+                    ringEl.classList.remove("full");
+                    ringText.textContent = n + "/" + total;
+                    ringCaption.textContent = "saves as you tap";
+                    ringCaption.classList.remove("done-today");
                 }
             }
 
@@ -357,7 +390,7 @@
                     var prev = row.dataset.state;
                     var next = prev === "done" ? "pending" : "done";
                     setRowState(row, next);
-                    updateStatus(true);
+                    updateStatus();
                     if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
                         fireConfetti(row);
                     }
@@ -378,7 +411,7 @@
                     var prev = row.dataset.state;
                     var next = prev === "skip" ? "pending" : "skip";
                     setRowState(row, next);
-                    updateStatus(true);
+                    updateStatus();
                     // Skipping a BONUS = "not this one, deal me another" → refill.
                     var mayRefill = isBonus && next === "skip";
                     if (mayRefill) showSpinner(true);
@@ -393,7 +426,7 @@
             document.querySelectorAll(".question.live").forEach(bindRow);
 
             // Initial status (no "saved" tick — nothing was just tapped).
-            updateStatus(false);
+            updateStatus();
 
             // Bootstrap: if the user already crossed the threshold (e.g.
             // loaded the page at 5/5) and has no open bonus, fetch one now.
