@@ -33,6 +33,8 @@
         {% endfor %}
     </div>
 
+    <div id="status-strip" class="status-strip" aria-live="polite"></div>
+
     {% comment %}Bonus zone always present (may start empty) so live-generated items can slide in. Hidden until revealed (>=3 core done or any bonus exists).{% endcomment %}
     <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
         <div class="bonus-header">BONUS · optional, keep going as long as you like</div>
@@ -169,6 +171,25 @@
         }
         .bonus-spinner.hidden { display: none; }
 
+        /* Status strip — the "do I submit?" answer */
+        .status-strip {
+            margin: 16px 4px 4px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #9aa3b2;
+            font-size: 0.92rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .status-strip.complete {
+            background: rgba(120, 200, 120, 0.12);
+            border-color: rgba(120, 200, 120, 0.4);
+            color: #c8f0c8;
+        }
+        .status-strip .tick { color: #78c878; font-weight: 700; }
+
         /* Comment autosave */
         .comment-saved {
             color: #78c878;
@@ -271,6 +292,24 @@
                 return document.querySelectorAll('.question[data-core="1"].done').length;
             }
 
+            var statusEl = document.getElementById("status-strip");
+            function updateStatus(justSaved) {
+                if (!statusEl) return;
+                var n = coreDoneCount();
+                var total = document.querySelectorAll('.question[data-core="1"]').length;
+                var saved = justSaved ? '<span class="tick">✓ Saved.</span> ' : '';
+                if (n === 0) {
+                    statusEl.innerHTML = "Tap anything you've done today — it saves by itself. No submit button needed.";
+                    statusEl.classList.remove("complete");
+                } else if (n < total) {
+                    statusEl.innerHTML = saved + n + " of " + total + " done. Everything saves automatically — come back anytime today to tap more.";
+                    statusEl.classList.remove("complete");
+                } else {
+                    statusEl.innerHTML = '<span class="tick">✓</span> All ' + total + " done — you're finished, nothing to submit. See you tomorrow (or grab a bonus below).";
+                    statusEl.classList.add("complete");
+                }
+            }
+
             function maybeRevealBonus() {
                 var section = document.getElementById("bonus-section");
                 if (section && section.classList.contains("hidden") && coreDoneCount() >= {{ bonus_reveal_at }}) {
@@ -318,6 +357,7 @@
                     var prev = row.dataset.state;
                     var next = prev === "done" ? "pending" : "done";
                     setRowState(row, next);
+                    updateStatus(true);
                     if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
                         fireConfetti(row);
                     }
@@ -338,6 +378,7 @@
                     var prev = row.dataset.state;
                     var next = prev === "skip" ? "pending" : "skip";
                     setRowState(row, next);
+                    updateStatus(true);
                     // Skipping a BONUS = "not this one, deal me another" → refill.
                     var mayRefill = isBonus && next === "skip";
                     if (mayRefill) showSpinner(true);
@@ -350,6 +391,9 @@
             }
 
             document.querySelectorAll(".question.live").forEach(bindRow);
+
+            // Initial status (no "saved" tick — nothing was just tapped).
+            updateStatus(false);
 
             // Bootstrap: if the user already crossed the threshold (e.g.
             // loaded the page at 5/5) and has no open bonus, fetch one now.
