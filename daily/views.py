@@ -181,9 +181,34 @@ def checkin(request):
     ]
     bonus_done = any(i["state"] != "pending" for i in bonus_items)
 
+    # Last 7 days (oldest → today) for the week strip. Each day scored
+    # against the checklist version that was active THAT day.
+    week = []
+    by_date = {
+        ci.date: ci for ci in DailyCheckIn.objects.filter(
+            participant=participant,
+            date__gte=today - timedelta(days=6),
+            date__lte=today,
+        ).select_related("checklist_version").prefetch_related("answers")
+    }
+    MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        ci = by_date.get(d)
+        total = len(ci.checklist_version.questions) if ci else 5
+        done = ci.score if ci else 0
+        week.append({
+            "label": d.strftime("%a")[0],
+            "done": done,
+            "total": total,
+            "offset": round(MINI_C * (1 - done / total), 1) if total else MINI_C,
+            "is_today": d == today,
+        })
+
     context = {
         "participant": participant,
         "today": today,
+        "week": week,
         "note": note,
         "note_was_applied": note is not None and note.status == CoachSuggestion.STATUS_APPLIED,
         "core_items": core_items,

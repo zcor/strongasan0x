@@ -14,6 +14,20 @@
             <text id="ring-text" class="ring-text" x="58" y="58" text-anchor="middle" dominant-baseline="central"></text>
         </svg>
         <div id="ring-caption" class="ring-caption">saves as you tap</div>
+
+        <div class="week-strip" aria-label="Last 7 days">
+            {% for d in week %}
+                <div class="week-day{% if d.is_today %} today{% endif %}">
+                    <svg width="26" height="26" viewBox="0 0 26 26" {% if d.is_today %}id="mini-today"{% endif %}>
+                        <circle class="mini-track" cx="13" cy="13" r="10" fill="none" stroke-width="3.5"/>
+                        <circle class="mini-arc{% if d.done >= d.total %} mini-full{% endif %}" cx="13" cy="13" r="10" fill="none"
+                                stroke-width="3.5" stroke-linecap="round" transform="rotate(-90 13 13)"
+                                stroke-dasharray="62.8" stroke-dashoffset="{{ d.offset }}"/>
+                    </svg>
+                    <div class="week-label">{{ d.label }}</div>
+                </div>
+            {% endfor %}
+        </div>
     </div>
 
     {% if note %}
@@ -218,6 +232,36 @@
             font-weight: 600;
         }
 
+        /* Week strip — progress over time at a glance */
+        .week-strip {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .week-day {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            opacity: 0.85;
+        }
+        .week-day.today { opacity: 1; }
+        .week-day.today .week-label { color: #e8eaed; font-weight: 700; }
+        .mini-track { stroke: rgba(255, 255, 255, 0.08); }
+        .mini-arc {
+            stroke: #78c878;
+            transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .mini-arc.mini-full {
+            stroke: #8fe08f;
+            filter: drop-shadow(0 0 3px rgba(120, 200, 120, 0.6));
+        }
+        .week-label {
+            color: #6c7483;
+            font-size: 0.62rem;
+            letter-spacing: 0.04em;
+        }
+
         /* Comment autosave */
         .comment-saved {
             color: #78c878;
@@ -340,6 +384,12 @@
                     ringText.textContent = n + "/" + total;
                     ringCaption.textContent = "saves as you tap";
                     ringCaption.classList.remove("done-today");
+                }
+                // Keep today's mini-ring in the week strip in sync.
+                var mini = document.querySelector("#mini-today .mini-arc");
+                if (mini) {
+                    mini.style.strokeDashoffset = String(62.8 * (1 - n / total));
+                    mini.classList.toggle("mini-full", n >= total);
                 }
             }
 
