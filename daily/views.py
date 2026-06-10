@@ -50,6 +50,18 @@ BONUS_REVEAL_AT = 3  # bonus section appears once this many core items are done
 
 def _resolve_today(request) -> date:
     real_today = timezone.localdate()
+    # Prod-safe backfill: ?day=YYYY-MM-DD views/edits a PAST day (max 7
+    # back, never future). Lets users log evening items (screens-off,
+    # magnesium) the next morning via the week strip.
+    day_raw = request.GET.get("day")
+    if day_raw:
+        try:
+            d = datetime.strptime(day_raw, "%Y-%m-%d").date()
+            if real_today - timedelta(days=7) <= d <= real_today:
+                return d
+        except ValueError:
+            pass
+        return real_today
     if not settings.DEBUG:
         return real_today
     as_of_raw = request.GET.get("as_of")
@@ -61,7 +73,15 @@ def _resolve_today(request) -> date:
         return real_today
 
 
+def _is_backfill(request) -> bool:
+    """True when viewing a past day via ?day= (no coaching/bonus there)."""
+    return _resolve_today(request) < timezone.localdate() and bool(request.GET.get("day"))
+
+
 def _as_of_query(request) -> str:
+    day = request.GET.get("day")
+    if day and _is_backfill(request):
+        return f"?day={day}"
     if settings.DEBUG:
         val = request.GET.get("as_of")
         if val:
@@ -148,38 +168,56 @@ def _get_or_create_today(participant: DailyParticipant, today: date, version: Ch
 def checkin(request):
     participant: DailyParticipant = request.daily_participant
     today = _resolve_today(request)
+    backfill = _is_backfill(request)
 
-    # 1. Coach the most recent prior day if it hasn't been (sync, ~3-5s,
-    #    at most once — afterwards suggestions exist and this no-ops).
-    coached = ensure_prior_day_coached(participant, today)
-    if coached:
-        logger.info("daily.checkin: lazily coached prior day for %s", participant)
+    if not backfill:
+        # 1. Coach the most recent prior day if it hasn't been (sync,
+        #    ~3-5s, at most once — afterwards suggestions exist, no-op).
+        coached = ensure_prior_day_coached(participant, today)
+        if coached:
+            logger.info("daily.checkin: lazily coached prior day for %s", participant)
 
-    # 2. Apply any pending mutations so today reflects the coach's plan.
-    applied = apply_pending_mutations(participant, as_of=today)
-    if applied:
-        logger.info("daily.checkin: applied %d pending mutations for %s", applied, participant)
+        # 2. Apply pending mutations so today reflects the coach's plan.
+        applied = apply_pending_mutations(participant, as_of=today)
+        if applied:
+            logger.info("daily.checkin: applied %d pending mutations for %s", applied, participant)
 
     current_version = participant.get_or_create_current_checklist()
     existing = DailyCheckIn.objects.filter(participant=participant, date=today).first()
     states = existing.answers_by_key() if existing else {}
 
-    note = _morning_note(participant, today)
-    if note and note.status == CoachSuggestion.STATUS_PENDING:
-        note.status = CoachSuggestion.STATUS_SHOWN
-        note.save(update_fields=["status"])
+    # A past day renders with the checklist it actually had that day.
+    render_version = existing.checklist_version if (backfill and existing) else current_version
+
+    note = None
+    note_core_changed = False
+    if not backfill:
+        note = _morning_note(participant, today)
+        if note and note.status == CoachSuggestion.STATUS_PENDING:
+            note.status = CoachSuggestion.STATUS_SHOWN
+            note.save(update_fields=["status"])
+        # "checklist updated" + Undo only when the CORE 5 actually changed
+        # (bonus-only version churn reads as a plain note).
+        if note and note.status == CoachSuggestion.STATUS_APPLIED and note.applied_version_id:
+            parent = note.applied_version.derived_from
+            note_core_changed = parent is None or parent.questions != note.applied_version.questions
 
     core_items = [
         {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
-        for q in current_version.questions
+        for q in render_version.questions
     ]
     done_count = sum(1 for i in core_items if i["state"] == "done")
 
     bonus_items = [
         {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
-        for q in (current_version.bonus_questions or [])
+        for q in (render_version.bonus_questions or [])
     ]
     bonus_done = any(i["state"] != "pending" for i in bonus_items)
+
+    # First-run intro: shown until the participant has marked anything, ever.
+    first_visit = not DailyCheckInAnswer.objects.filter(
+        check_in__participant=participant
+    ).exclude(state=DailyCheckInAnswer.STATE_PENDING).exists()
 
     # Last 7 days (oldest → today) for the week strip. Each day scored
     # against the checklist version that was active THAT day.
@@ -192,6 +230,7 @@ def checkin(request):
         ).select_related("checklist_version").prefetch_related("answers")
     }
     MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
+    real_today = timezone.localdate()
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         ci = by_date.get(d)
@@ -203,14 +242,18 @@ def checkin(request):
             "total": total,
             "offset": round(MINI_C * (1 - done / total), 1) if total else MINI_C,
             "is_today": d == today,
+            # Tap a past day to backfill it; today links back to the plain page.
+            "href": "/daily/checkin/" if d == real_today else f"/daily/checkin/?day={d.isoformat()}",
         })
 
     context = {
         "participant": participant,
         "today": today,
+        "backfill": backfill,
+        "first_visit": first_visit and not backfill,
         "week": week,
         "note": note,
-        "note_was_applied": note is not None and note.status == CoachSuggestion.STATUS_APPLIED,
+        "note_was_applied": note_core_changed,
         "core_items": core_items,
         "bonus_items": bonus_items,
         # Reveal bonus once threshold hit — or keep visible if any bonus
@@ -258,7 +301,13 @@ def set_item_state(request):
     if state not in valid_states:
         return JsonResponse({"ok": False, "error": "bad_state"}, status=400)
 
-    version = request.daily_participant.get_or_create_current_checklist()
+    backfill = _is_backfill(request)
+    existing_ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    if backfill and existing_ci:
+        # Past days validate against the checklist they actually had.
+        version = existing_ci.checklist_version
+    else:
+        version = request.daily_participant.get_or_create_current_checklist()
     valid_keys = set(version.question_keys()) | {
         q["key"] for q in (version.bonus_questions or [])
     }
@@ -296,7 +345,7 @@ def set_item_state(request):
         and done_count >= BONUS_REVEAL_AT
         and not version.bonus_questions
     )
-    if bonus_resolved or crossed_threshold:
+    if (bonus_resolved or crossed_threshold) and not backfill:
         new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
 
     version.refresh_from_db()
@@ -361,6 +410,8 @@ def next_bonus(request):
     a safety net if a refill call was lost."""
     participant = request.daily_participant
     today = _resolve_today(request)
+    if _is_backfill(request):
+        return JsonResponse({"ok": True, "new_bonus": None})
     version = participant.get_or_create_current_checklist()
     check_in = DailyCheckIn.objects.filter(participant=participant, date=today).first()
     if check_in is None:

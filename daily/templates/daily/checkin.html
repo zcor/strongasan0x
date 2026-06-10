@@ -15,9 +15,9 @@
         </svg>
         <div id="ring-caption" class="ring-caption">saves as you tap</div>
 
-        <div class="week-strip" aria-label="Last 7 days">
+        <div class="week-strip" aria-label="Last 7 days — tap a day to view or fill it in">
             {% for d in week %}
-                <div class="week-day{% if d.is_today %} today{% endif %}">
+                <a class="week-day{% if d.is_today %} today{% endif %}" href="{{ d.href }}">
                     <svg width="26" height="26" viewBox="0 0 26 26" {% if d.is_today %}id="mini-today"{% endif %}>
                         <circle class="mini-track" cx="13" cy="13" r="10" fill="none" stroke-width="3.5"/>
                         <circle class="mini-arc{% if d.done >= d.total %} mini-full{% endif %}" cx="13" cy="13" r="10" fill="none"
@@ -25,10 +25,30 @@
                                 stroke-dasharray="62.8" stroke-dashoffset="{{ d.offset }}"/>
                     </svg>
                     <div class="week-label">{{ d.label }}</div>
-                </div>
+                </a>
             {% endfor %}
         </div>
     </div>
+
+    {% if backfill %}
+        <div class="backfill-banner">
+            Filling in <strong>{{ today|date:"l" }}</strong> — tap anything you did that day.
+            <a href="/daily/checkin/">Back to today</a>
+        </div>
+    {% endif %}
+
+    {% if first_visit %}
+        <div class="intro-card" id="intro-card">
+            <div class="intro-title">How this works</div>
+            <ol>
+                <li>These five daily habits were picked <em>for you</em>, from your own training data.</li>
+                <li>Keep this page handy all day — <strong>tap each one when you've done it.</strong> It saves itself.</li>
+                <li>Overnight, your coach reads your day and leaves a note (and may adjust the list when you've earned it).</li>
+                <li>Want something changed? <strong>Just say so in the box below</strong> — "swap the protein item", "too easy", anything.</li>
+            </ol>
+            <button type="button" class="intro-dismiss" onclick="document.getElementById('intro-card').remove()">Got it</button>
+        </div>
+    {% endif %}
 
     {% if note %}
         <div class="suggestion">
@@ -52,7 +72,7 @@
                     <span class="check-icon">✓</span>
                     <span class="row-label">{{ q.label }}</span>
                 </div>
-                <button class="skip-btn" title="Skip today" aria-label="Skip {{ q.label }} today">✕</button>
+                <button class="skip-btn" title="Not doing this today" aria-label="Skip {{ q.label }} today">skip</button>
             </div>
         {% endfor %}
     </div>
@@ -68,15 +88,15 @@
                         <span class="check-icon">✓</span>
                         <span class="row-label">{{ q.label }}</span>
                     </div>
-                    <button class="skip-btn" title="Skip today" aria-label="Skip {{ q.label }} today">✕</button>
+                    <button class="skip-btn" title="Not this one — deal me another" aria-label="Skip {{ q.label }}">skip</button>
                 </div>
             {% endfor %}
         </div>
         <div id="bonus-spinner" class="bonus-spinner hidden">Coach is finding your next one…</div>
     </div>
 
-    <label class="comment-label" for="comment">Anything to add? (optional — saves automatically)</label>
-    <textarea id="comment" name="comment" placeholder="e.g. 'Hurt my shoulder, going easy tomorrow' or today's grip numbers">{{ comment }}</textarea>
+    <label class="comment-label" for="comment">Tell your coach anything (optional — saves automatically)</label>
+    <textarea id="comment" name="comment" placeholder="'Swap an item', 'too easy', 'hurt my shoulder', today's numbers, how the day felt…">{{ comment }}</textarea>
     <div id="comment-saved" class="comment-saved" aria-live="polite"></div>
 
     <div class="footer">
@@ -141,9 +161,11 @@
             transform: translateY(-50%);
             background: none;
             border: none;
-            color: rgba(255, 255, 255, 0.25);
-            font-size: 1rem;
-            padding: 10px;
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 10px 8px;
             cursor: pointer;
             border-radius: 8px;
         }
@@ -244,6 +266,50 @@
             align-items: center;
             gap: 2px;
             opacity: 0.85;
+            text-decoration: none;
+            border-radius: 8px;
+            padding: 2px;
+        }
+        .week-day:hover { background: rgba(255, 255, 255, 0.06); }
+
+        /* Backfill banner + intro card */
+        .backfill-banner {
+            background: rgba(135, 206, 235, 0.1);
+            border: 1px solid rgba(135, 206, 235, 0.3);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+            font-size: 0.92rem;
+            color: #b8d8e8;
+        }
+        .backfill-banner a { color: #87ceeb; margin-left: 8px; }
+        .intro-card {
+            background: rgba(255, 217, 122, 0.06);
+            border: 1px solid rgba(255, 217, 122, 0.25);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 0.92rem;
+            line-height: 1.5;
+        }
+        .intro-title {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #ffd97a;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+        .intro-card ol { margin: 0 0 10px; padding-left: 20px; }
+        .intro-card li { margin-bottom: 5px; }
+        .intro-dismiss {
+            background: rgba(255, 217, 122, 0.18);
+            border: 1px solid rgba(255, 217, 122, 0.4);
+            color: #ffd97a;
+            padding: 7px 16px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
         }
         .week-day.today { opacity: 1; }
         .week-day.today .week-label { color: #e8eaed; font-weight: 700; }
@@ -311,7 +377,7 @@
         (function() {
             "use strict";
 
-            var qs = {% if debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
+            var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
             var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
             var CONFETTI_COLORS = ["#78c878", "#ffd97a", "#87ceeb", "#f5b942", "#ffffff"];
 
@@ -377,7 +443,7 @@
                 if (n >= total) {
                     ringEl.classList.add("full");
                     ringText.textContent = "✓";
-                    ringCaption.textContent = "Done for today.";
+                    ringCaption.textContent = "Done for today — see you tomorrow.";
                     ringCaption.classList.add("done-today");
                 } else {
                     ringEl.classList.remove("full");
