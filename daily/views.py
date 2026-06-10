@@ -330,31 +330,86 @@ def set_item_state(request):
     core_keys = version.question_keys()
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
 
-    # Live bonus drip: generate a fresh bonus item when the user
-    #  (a) just completed a BONUS item (refill the pile),
-    #  (b) just SKIPPED a bonus (rejection = "deal me another"; the
-    #      rejected one feeds the prompt as a negative example), or
-    #  (c) just reached the core threshold with no bonus yet (first one).
+    # Live drip triggers (never in backfill):
+    #  (a) completed a BONUS → refill the pile with a fresh one
+    #  (b) SWAPPED any item (state=skip = "not interested") → generate a
+    #      replacement in place; core swaps keep the ring completable
+    #  (c) reached the core threshold with no bonus yet → first bonus
     new_bonus = None
-    bonus_resolved = is_bonus and state in (
-        DailyCheckInAnswer.STATE_DONE, DailyCheckInAnswer.STATE_SKIP
-    )
-    crossed_threshold = (
-        not is_bonus
-        and state == DailyCheckInAnswer.STATE_DONE
-        and done_count >= BONUS_REVEAL_AT
-        and not version.bonus_questions
-    )
-    if (bonus_resolved or crossed_threshold) and not backfill:
-        new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
+    replacement = None
+    if not backfill:
+        if state == DailyCheckInAnswer.STATE_SKIP:
+            replacement = _replace_item(participant, version, check_in, states, rejected_key=key, is_core=not is_bonus)
+        elif is_bonus and state == DailyCheckInAnswer.STATE_DONE:
+            new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
+        elif (
+            not is_bonus
+            and state == DailyCheckInAnswer.STATE_DONE
+            and done_count >= BONUS_REVEAL_AT
+            and not version.bonus_questions
+        ):
+            new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
 
     version.refresh_from_db()
+    core_keys = version.question_keys()
+    done_count = sum(1 for k in core_keys if states.get(k) == "done")
     return JsonResponse({
         "ok": True,
         "done_count": done_count,
         "bonus_revealed": bool(version.bonus_questions) and done_count >= BONUS_REVEAL_AT,
-        "new_bonus": new_bonus,  # {key,label} to slide in, or null
+        "new_bonus": new_bonus,            # {key,label} to append, or null
+        "replacement": replacement,        # {key,label,core} swapped in place, or null
+        "replaced_key": key if replacement else None,
     })
+
+
+def _replace_item(participant, version, check_in, states, rejected_key, is_core):
+    """User tapped "swap" — generate a grounded replacement and substitute
+    it in the current version (core slot or bonus pile). Returns
+    {key,label,core} or None (row stays struck-through as a fallback)."""
+    from rollcall.models import Attestation
+    from .services.ai_coach import generate_one_bonus
+
+    existing = list(version.questions) + list(version.bonus_questions or [])
+    label_by_key = {q["key"]: q["label"] for q in existing}
+    done_labels = [label_by_key[k] for k, s in states.items() if s == "done" and k in label_by_key]
+    rejected_labels = [
+        label_by_key[k] for k, s in states.items()
+        if s == "skip" and k in label_by_key
+    ]
+
+    att_text = ""
+    if participant.telegram_mapping_id:
+        atts = Attestation.objects.filter(
+            telegram_user_id=participant.telegram_mapping_id
+        ).order_by("-posted_at")[:3]
+        att_text = "\n\n".join(a.raw_text for a in atts)
+
+    item = generate_one_bonus(
+        participant_name=participant.display_name,
+        attestation_text=att_text,
+        existing_items=existing,
+        today_done_labels=done_labels,
+        today_comment=check_in.comment or "",
+        rejected_labels=rejected_labels,
+        core=is_core,
+    )
+    if item is None:
+        return None
+    with transaction.atomic():
+        v = ChecklistVersion.objects.select_for_update().get(id=version.id)
+        all_keys = {q["key"] for q in v.questions} | {q["key"] for q in (v.bonus_questions or [])}
+        if item["key"] in all_keys:
+            return None  # collision guard
+        if is_core:
+            v.questions = [item if q["key"] == rejected_key else q for q in v.questions]
+            v.save(update_fields=["questions"])
+        else:
+            bonus = [b for b in (v.bonus_questions or []) if b["key"] != rejected_key]
+            bonus.append(item)
+            v.bonus_questions = bonus
+            v.save(update_fields=["bonus_questions"])
+    return {**item, "core": is_core}
 
 
 def _generate_and_append_bonus(participant, version, check_in, states):

@@ -72,7 +72,7 @@
                     <span class="check-icon">✓</span>
                     <span class="row-label">{{ q.label }}</span>
                 </div>
-                <button class="skip-btn" title="Not doing this today" aria-label="Skip {{ q.label }} today">skip</button>
+                <button class="skip-btn" title="Not interested — swap for something else" aria-label="Swap {{ q.label }}">swap</button>
             </div>
         {% endfor %}
     </div>
@@ -88,7 +88,7 @@
                         <span class="check-icon">✓</span>
                         <span class="row-label">{{ q.label }}</span>
                     </div>
-                    <button class="skip-btn" title="Not this one — deal me another" aria-label="Skip {{ q.label }}">skip</button>
+                    <button class="skip-btn" title="Not this one — deal me another" aria-label="Swap {{ q.label }}">swap</button>
                 </div>
             {% endfor %}
         </div>
@@ -199,6 +199,16 @@
         .question.new-bonus {
             opacity: 0;
             transform: translateY(-8px);
+        }
+        /* Swap-in-progress + arrival flash */
+        .question.swapping .row-main {
+            opacity: 0.45;
+            pointer-events: none;
+        }
+        .question.swapping .skip-btn { color: #ffd97a; }
+        .question.swapped-in .row-main {
+            border-color: rgba(255, 217, 122, 0.6);
+            background: rgba(255, 217, 122, 0.1);
         }
         .question.bonus {
             transition: opacity 0.35s ease, transform 0.35s ease;
@@ -378,6 +388,7 @@
             "use strict";
 
             var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
+            var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
             var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
             var CONFETTI_COLORS = ["#78c878", "#ffd97a", "#87ceeb", "#f5b942", "#ffffff"];
 
@@ -524,18 +535,33 @@
 
                 row.querySelector(".skip-btn").addEventListener("click", function(e) {
                     e.stopPropagation();
-                    var prev = row.dataset.state;
-                    var next = prev === "skip" ? "pending" : "skip";
-                    setRowState(row, next);
+                    if (BACKFILL) {
+                        // Past days: plain record-keeping toggle, no AI.
+                        var prev = row.dataset.state;
+                        var next = prev === "skip" ? "pending" : "skip";
+                        setRowState(row, next);
+                        updateStatus();
+                        postItem(key, next);
+                        return;
+                    }
+                    // Live day: "swap" = not interested → replace in place.
+                    if (row.classList.contains("swapping")) return;
+                    row.classList.add("swapping");
+                    setRowState(row, "skip");
                     updateStatus();
-                    // Skipping a BONUS = "not this one, deal me another" → refill.
-                    var mayRefill = isBonus && next === "skip";
-                    if (mayRefill) showSpinner(true);
-                    postItem(key, next, function(data) {
-                        showSpinner(false);
-                        handleResponse(row, data);
+                    postItem(key, "skip", function(data) {
+                        row.classList.remove("swapping");
+                        if (data && data.replacement) {
+                            row.dataset.key = data.replacement.key;
+                            key = data.replacement.key;  // rebind closure for future taps
+                            row.querySelector(".row-label").textContent = data.replacement.label;
+                            setRowState(row, "pending");
+                            row.classList.add("swapped-in");
+                            setTimeout(function() { row.classList.remove("swapped-in"); }, 700);
+                        }
+                        updateStatus();
                     });
-                    if (mayRefill) setTimeout(function() { showSpinner(false); }, 12000);
+                    setTimeout(function() { row.classList.remove("swapping"); }, 15000);
                 });
             }
 

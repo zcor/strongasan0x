@@ -136,22 +136,27 @@ so I bumped a few of the quantitative targets"). If you kept it the
 same, just give a short encouraging line — don't fake a reason to
 change things.
 
-# Bonus items (optional, extra credit)
+# Bonus items (extra credit) + daily novelty
 
 After the core 5, offer BONUS items for tomorrow — small optional extras
-revealed in the app only after the user has done several core items. They
-keep an engaged user discovering new challenges without bloating the
-core 5. Rules:
-- If the user completed most/all of their core items recently (a sign
-  they have capacity for more), offer 1-2 bonus items. If they're
-  struggling to finish the core 5, offer 0 — don't pile on.
+revealed in the app after the user has done several core items.
+
+DAILY NOVELTY MATTERS: each morning should contain something fresh to
+discover. Aim for 1-2 NEW bonus items every day — new themes, not
+repeats of recent bonuses (you can see recent days' items in the
+context). The anchor habits stay recognizable; novelty lives in the
+bonus zone and in at most one core change per the rules above. An
+engaged user opening the app should regularly find something they
+haven't seen before.
+
+Rules:
+- If the user is struggling to finish even the core 5, offer just 1
+  gentle bonus rather than piling on — but rarely offer zero.
 - Bonus items are extra credit: small, low-friction, grounded in their
-  data (same no-invention rule). Each should be a genuine, fresh nudge
-  toward improvement — NOT a restatement of a core item.
+  data (same no-invention rule). Fresh nudges, NOT restatements of
+  core items.
 - They must NOT duplicate or overlap any core item.
-- Vary them over time as the user engages; this is the "keeps feeding me
-  new things" mechanic. But quality over quantity — 1 great bonus beats
-  3 filler ones. Never exceed 3.
+- Quality over quantity — never exceed 3.
 - Same label rules (past-tense, max 60 chars), keys prefixed "bonus_".
 
 # Output format
@@ -293,6 +298,23 @@ Rules:
 - Output ONLY the JSON object. No prose, no fence."""
 
 
+CORE_SWAP_PROMPT = """You are Coach Jamie. The user just tapped "swap" on
+one of their 5 core daily habits — they're NOT INTERESTED in that item.
+Generate ONE replacement core habit for today.
+
+Rules:
+- It's a CORE habit, not extra-credit fluff: a real daily behavior of
+  similar effort/importance to the rest of their list.
+- Grounded in their real data. Never invent an activity they don't do.
+- It must be clearly DIFFERENT from the rejected item (different theme,
+  not a reword) and from everything else on today's list.
+- A daily yes/no habit, doable TODAY.
+- Output ONE JSON object only: {"key": "q_...", "label": "..."}
+  key starts with "q_", lowercase_with_underscores.
+  label: concise past-tense phrase, max 60 chars.
+- Output ONLY the JSON object. No prose, no fence."""
+
+
 def generate_one_bonus(
     participant_name: str,
     attestation_text: str,
@@ -300,10 +322,13 @@ def generate_one_bonus(
     today_done_labels: Optional[List[str]] = None,
     today_comment: str = "",
     rejected_labels: Optional[List[str]] = None,
+    core: bool = False,
 ) -> Optional[dict]:
-    """Generate ONE fresh bonus item ({"key","label"}), live, grounded in
-    the user's data + today's momentum, distinct from everything already
-    on the list. Returns None on failure (caller leaves the pile as-is)."""
+    """Generate ONE fresh item ({"key","label"}), live, grounded in the
+    user's data + today's momentum, distinct from everything already on
+    the list. core=False → extra-credit bonus item ("bonus_" key);
+    core=True → a real replacement core habit ("q_" key) for a swapped
+    slot. Returns None on failure (caller leaves the list as-is)."""
     api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
     if not api_key:
         logger.warning("daily.ai_coach.generate_one_bonus: DEEPSEEK_API_KEY not configured")
@@ -341,7 +366,7 @@ def generate_one_bonus(
         resp = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": ONE_BONUS_PROMPT},
+                {"role": "system", "content": CORE_SWAP_PROMPT if core else ONE_BONUS_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
             max_tokens=100,
@@ -363,8 +388,9 @@ def generate_one_bonus(
     label = str(obj.get("label", "")).strip()
     if not key or not label or len(label) > 60 or len(key) > 40:
         return None
-    if not key.startswith("bonus_"):
-        key = "bonus_" + key
+    prefix = "q_" if core else "bonus_"
+    if not key.startswith(prefix):
+        key = prefix + key.removeprefix("bonus_").removeprefix("q_")
     # Ensure uniqueness vs existing keys (append a short suffix if needed).
     existing_keys = {q.get("key") for q in existing_items}
     if key in existing_keys:
