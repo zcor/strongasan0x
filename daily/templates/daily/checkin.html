@@ -99,6 +99,15 @@
     <textarea id="comment" name="comment" placeholder="'Swap an item', 'too easy', 'hurt my shoulder', today's numbers, how the day felt…">{{ comment }}</textarea>
     <div id="comment-saved" class="comment-saved" aria-live="polite"></div>
 
+    {% if not backfill %}
+        <button type="button" id="wrap-btn" class="wrap-btn{% if wrapped %} wrapped{% endif %}">
+            {% if wrapped %}Day wrapped ✓{% else %}Wrap up my day{% endif %}
+        </button>
+        <div id="wrap-note" class="wrap-note{% if not wrapped %} hidden{% endif %}">
+            Your coach has read your day — the morning note is sealed and waiting.
+        </div>
+    {% endif %}
+
     <div class="footer">
         Signed in as <span class="name">{{ participant.display_name }}</span>
         {% if not is_baseline %}
@@ -365,6 +374,43 @@
             100% { opacity: 0; transform: var(--end-transform) scale(1); }
         }
 
+        /* Wrap-up button — the explicit closure ritual */
+        .wrap-btn {
+            display: block;
+            width: 100%;
+            margin-top: 22px;
+            padding: 16px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 217, 122, 0.45);
+            background: rgba(255, 217, 122, 0.14);
+            color: #ffd97a;
+            font-size: 1.05rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        .wrap-btn:active { transform: scale(0.985); }
+        .wrap-btn.working {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        .wrap-btn.wrapped {
+            background: rgba(120, 200, 120, 0.14);
+            border-color: rgba(120, 200, 120, 0.5);
+            color: #8fe08f;
+        }
+        .wrap-btn.stale {
+            background: rgba(255, 217, 122, 0.1);
+            border-style: dashed;
+        }
+        .wrap-note {
+            margin-top: 8px;
+            text-align: center;
+            color: #9aa3b2;
+            font-size: 0.85rem;
+        }
+        .wrap-note.hidden { display: none; }
+
         /* Dev bar */
         .dev-bar {
             position: fixed;
@@ -569,6 +615,50 @@
 
             // Initial status (no "saved" tick — nothing was just tapped).
             updateStatus();
+
+            // Wrap-up button: finalize the day, summon the coach now.
+            var wrapBtn = document.getElementById("wrap-btn");
+            var wrapNote = document.getElementById("wrap-note");
+            if (wrapBtn) {
+                wrapBtn.addEventListener("click", function() {
+                    wrapBtn.classList.add("working");
+                    wrapBtn.classList.remove("stale");
+                    wrapBtn.textContent = "Coach is reading your day…";
+                    fetch("/daily/wrap/" + qs, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
+                        body: "{}",
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        wrapBtn.classList.remove("working");
+                        if (data && data.ok && data.note_ready) {
+                            wrapBtn.classList.add("wrapped");
+                            wrapBtn.textContent = "Day wrapped ✓";
+                            if (wrapNote) wrapNote.classList.remove("hidden");
+                            fireConfetti(wrapBtn);
+                        } else {
+                            wrapBtn.textContent = "Wrap up my day";
+                        }
+                    })
+                    .catch(function() {
+                        wrapBtn.classList.remove("working");
+                        wrapBtn.textContent = "Wrap up my day";
+                    });
+                });
+                // Any tap after wrapping marks the wrap stale (re-press to update).
+                document.addEventListener("click", function(e) {
+                    if (!wrapBtn.classList.contains("wrapped")) return;
+                    var t = e.target;
+                    if (t.closest && (t.closest(".question.live") || t.id === "comment")) {
+                        wrapBtn.classList.add("stale");
+                        wrapBtn.textContent = "Update wrap-up";
+                        wrapBtn.classList.remove("wrapped");
+                        if (wrapNote) wrapNote.classList.add("hidden");
+                    }
+                });
+            }
 
             // Bootstrap: if the user already crossed the threshold (e.g.
             // loaded the page at 5/5) and has no open bonus, fetch one now.

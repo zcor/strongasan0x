@@ -219,6 +219,12 @@ def checkin(request):
         check_in__participant=participant
     ).exclude(state=DailyCheckInAnswer.STATE_PENDING).exists()
 
+    # Wrapped: today already has a sealed coach reflection (via the
+    # "Wrap up my day" button).
+    wrapped = existing is not None and existing.suggestions.exclude(
+        status=CoachSuggestion.STATUS_DISMISSED
+    ).exists()
+
     # Last 7 days (oldest → today) for the week strip. Each day scored
     # against the checklist version that was active THAT day.
     week = []
@@ -251,6 +257,7 @@ def checkin(request):
         "today": today,
         "backfill": backfill,
         "first_visit": first_visit and not backfill,
+        "wrapped": wrapped,
         "week": week,
         "note": note,
         "note_was_applied": note_core_changed,
@@ -453,6 +460,35 @@ def _generate_and_append_bonus(participant, version, check_in, states):
         v.bonus_questions = bonus
         v.save(update_fields=["bonus_questions"])
     return item
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def wrap_day(request):
+    """Amy's button: explicitly close out the day. Runs the coach on
+    TODAY's check-in right now (instead of lazily tomorrow morning) and
+    seals the morning note. Re-pressing after more taps re-wraps:
+    unapplied suggestions are dismissed and the coach re-reads the day.
+    Entirely optional — users who never press it get the lazy morning
+    coach as before."""
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    if _is_backfill(request):
+        return JsonResponse({"ok": False, "error": "no_wrap_in_backfill"}, status=400)
+
+    version = participant.get_or_create_current_checklist()
+    check_in = _get_or_create_today(participant, today, version)
+
+    # Re-wrap: clear any prior un-applied reflection for today.
+    check_in.suggestions.exclude(
+        status__in=[CoachSuggestion.STATUS_APPLIED, CoachSuggestion.STATUS_DISMISSED]
+    ).update(status=CoachSuggestion.STATUS_DISMISSED, responded_at=timezone.now())
+
+    _run_coach(check_in.id)
+    ready = check_in.suggestions.exclude(
+        status=CoachSuggestion.STATUS_DISMISSED
+    ).exists()
+    return JsonResponse({"ok": True, "note_ready": ready})
 
 
 @require_daily_actor
