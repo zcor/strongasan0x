@@ -70,12 +70,14 @@ find "\$REPO" -not -path "\$REPO/.git/*" -not -user ${REPO_OWNER} \\
 # Deterministic deploy: the tree must MATCH origin/main, not merge into a
 # possibly-dirty/feature-branch local state. reset --hard discards any local
 # uncommitted edits in the deploy tree by design (a deploy tree is not a
-# workspace). clean -fd drops untracked cruft.
+# workspace). clean -fd drops untracked cruft — but EXCLUDE ox-env (the
+# virtualenv lives in-tree and is NOT gitignored; cleaning it would delete
+# the venv and break the app until rebuilt).
 echo "Syncing to origin/main..."
 sudo -u ${REPO_OWNER} git -C "\$REPO" fetch origin --prune
 sudo -u ${REPO_OWNER} git -C "\$REPO" checkout main
 sudo -u ${REPO_OWNER} git -C "\$REPO" reset --hard origin/main
-sudo -u ${REPO_OWNER} git -C "\$REPO" clean -fd
+sudo -u ${REPO_OWNER} git -C "\$REPO" clean -fd -e ox-env
 
 echo "Deployed commit:"
 sudo -u ${REPO_OWNER} git -C "\$REPO" log --oneline -1
