@@ -721,43 +721,22 @@
             // grants notification permission — so we ask up front, framed by the
             // intro card's "Got it", because the badge's whole job is to nag the
             // people who HAVEN'T finished yet.
-            function syncBadgeNow() {
+            // The GATE (base.html) guarantees notifications are granted before
+            // the app is reachable, so here we only keep the badge in sync.
+            // Exposed for the gate to call the moment permission is granted.
+            window.__syncBadge = function () {
                 if (!window.__setBadge) return;
                 var n = coreDoneCount();
                 var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
                 window.__setBadge(Math.max(0, total - n));
-            }
-            function askNotifications() {
-                if (!("Notification" in window)) return;
-                if (Notification.permission !== "default") { syncBadgeNow(); return; }
-                // iOS requires the request to come from a user gesture — this is
-                // called from the "Got it" tap, which satisfies that.
-                Notification.requestPermission().then(function () { syncBadgeNow(); });
-            }
+            };
 
-            // First-run: "Got it" dismisses the intro AND triggers the ask.
+            // "Got it" just dismisses the intro — the gate already handled the
+            // notification ask before the app was shown.
             window.__introGotIt = function () {
                 var card = document.getElementById("intro-card");
                 if (card) card.remove();
-                askNotifications();
             };
-
-            // Returning users who installed BEFORE this existed (no intro card
-            // shown, permission still default): ask once on a first interaction
-            // inside the installed app, so they're not stuck badge-less forever.
-            var NOTIF_ASKED_KEY = "daily_notif_asked";
-            (function backfillAsk() {
-                if (document.getElementById("intro-card")) return;        // intro path handles new users
-                if (!window.__pwaInstalled) return;                       // only in the installed app
-                if (!("Notification" in window) || Notification.permission !== "default") return;
-                try { if (localStorage.getItem(NOTIF_ASKED_KEY)) return; } catch (e) {}
-                // Defer to the first tap so it's gesture-driven and not jarring on load.
-                document.addEventListener("click", function once() {
-                    document.removeEventListener("click", once);
-                    try { localStorage.setItem(NOTIF_ASKED_KEY, "1"); } catch (e) {}
-                    askNotifications();
-                }, { once: true });
-            })();
         })();
     </script>
 {% endblock %}
