@@ -46,7 +46,7 @@
                 <li>Overnight, your coach reads your day and leaves a note (and may adjust the list when you've earned it).</li>
                 <li>Want something changed? <strong>Just say so in the box below</strong> — "swap the protein item", "too easy", anything.</li>
             </ol>
-            <button type="button" class="intro-dismiss" onclick="document.getElementById('intro-card').remove()">Got it</button>
+            <button type="button" class="intro-dismiss" onclick="window.__introGotIt()">Got it — let's go</button>
         </div>
     {% endif %}
 
@@ -119,12 +119,6 @@
                 </button>
             </form>
         {% endif %}
-        {# TEMP — badge verification probe. Remove after confirming iOS paints it. #}
-        <br>
-        <button type="button" id="badge-test-btn" style="background:none;border:1px dashed #6c7483;color:#9aa3b2;cursor:pointer;font-size:0.78rem;padding:6px 10px;margin-top:10px;border-radius:8px;">
-            🔴 Test icon badge (set to 5)
-        </button>
-        <div id="badge-test-msg" style="color:#6c7483;font-size:0.72rem;margin-top:6px;"></div>
     </div>
 
     {% if debug_as_of is not None %}
@@ -520,11 +514,9 @@
                     mini.style.strokeDashoffset = String(62.8 * (1 - n / total));
                     mini.classList.toggle("mini-full", n >= total);
                 }
-                // PWA icon badge: rings still to fill, cleared at done.
+                // PWA icon badge: incomplete rings, counts down to 0 = clean.
+                // The uncleared badge is the nag; runs on every tap AND on load.
                 if (window.__setBadge) window.__setBadge(Math.max(0, total - n));
-                // Offer the badge after her FIRST fully-completed day (she's
-                // felt the payoff, so the ask converts). Once only.
-                if (n >= total && window.__maybeOfferBadge) window.__maybeOfferBadge();
             }
 
             function maybeRevealBonus() {
@@ -723,74 +715,49 @@
                 saveTimer = setTimeout(saveComment, 2000);
             });
 
-            // --- PWA icon badge opt-in -------------------------------------
-            // Ask for notification permission (badges ride on it) ONCE, only
-            // inside the installed app, only after she's completed a full day.
-            // Called from updateStatus() the moment the ring fills.
-            var BADGE_ASKED_KEY = "daily_badge_asked";
-            window.__maybeOfferBadge = function () {
-                if (!window.__pwaInstalled) return;                 // browser tab: badge is meaningless
-                if (!("setAppBadge" in navigator) || !("Notification" in window)) return;
-                if (Notification.permission !== "default") return;  // already granted/denied
-                try { if (localStorage.getItem(BADGE_ASKED_KEY)) return; } catch (e) {}
-                try { localStorage.setItem(BADGE_ASKED_KEY, "1"); } catch (e) {}
-                // Soft confirm first — a raw browser prompt out of nowhere reads
-                // as spam; this frames the value before the system dialog.
-                var ok = window.confirm(
-                    "Nice — all 5 done!\n\nWant the app icon to show how many rings " +
-                    "you have left each day, so it nudges you until you're complete?"
-                );
-                if (!ok) return;
-                Notification.requestPermission().then(function () {
-                    // Re-sync immediately so the badge reflects today.
-                    if (window.__setBadge) {
-                        var n = coreDoneCount();
-                        var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
-                        window.__setBadge(Math.max(0, total - n));
-                    }
-                });
+            // --- PWA notifications/badge: ask at JOIN, not after a full day ---
+            // The icon badge shows incomplete rings counting down to 0 (set in
+            // updateStatus on every tap + on load). It only paints once the user
+            // grants notification permission — so we ask up front, framed by the
+            // intro card's "Got it", because the badge's whole job is to nag the
+            // people who HAVEN'T finished yet.
+            function syncBadgeNow() {
+                if (!window.__setBadge) return;
+                var n = coreDoneCount();
+                var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                window.__setBadge(Math.max(0, total - n));
+            }
+            function askNotifications() {
+                if (!("Notification" in window)) return;
+                if (Notification.permission !== "default") { syncBadgeNow(); return; }
+                // iOS requires the request to come from a user gesture — this is
+                // called from the "Got it" tap, which satisfies that.
+                Notification.requestPermission().then(function () { syncBadgeNow(); });
+            }
+
+            // First-run: "Got it" dismisses the intro AND triggers the ask.
+            window.__introGotIt = function () {
+                var card = document.getElementById("intro-card");
+                if (card) card.remove();
+                askNotifications();
             };
 
-            // TEMP — badge verification probe. Sets the icon badge to 5 so we
-            // can confirm whether iOS paints PWA badges on this device at all,
-            // before reworking the real logic. Remove once verified.
-            var badgeTestBtn = document.getElementById("badge-test-btn");
-            var badgeTestMsg = document.getElementById("badge-test-msg");
-            function bmsg(t) { if (badgeTestMsg) badgeTestMsg.textContent = t; }
-            if (badgeTestBtn) {
-                badgeTestBtn.addEventListener("click", function () {
-                    if (!("setAppBadge" in navigator)) {
-                        bmsg("✗ setAppBadge not supported in this browser/OS."); return;
-                    }
-                    if (!window.__pwaInstalled) {
-                        bmsg("⚠ Open from the HOME-SCREEN icon (not Safari) for the badge to apply."); return;
-                    }
-                    var run = function () {
-                        navigator.setAppBadge(5).then(function () {
-                            bmsg("✓ Badge set to 5. Now SWIPE UP to background the app and look at the icon. (Tap again = clear.)");
-                            // Flip to clear on a second press so you can toggle.
-                            badgeTestBtn.textContent = "🔴 Clear icon badge";
-                            badgeTestBtn.onclick = function () {
-                                navigator.clearAppBadge();
-                                bmsg("Cleared. Background the app to confirm the red dot is gone.");
-                            };
-                        }).catch(function (e) {
-                            bmsg("✗ setAppBadge threw: " + (e && e.message ? e.message : e));
-                        });
-                    };
-                    if ("Notification" in window && Notification.permission === "default") {
-                        bmsg("Requesting notification permission (the badge rides on it)…");
-                        Notification.requestPermission().then(function (p) {
-                            if (p === "granted") run();
-                            else bmsg("✗ Permission " + p + " — iOS won't show a badge without it.");
-                        });
-                    } else if ("Notification" in window && Notification.permission === "denied") {
-                        bmsg("✗ Notifications are DENIED for this app. Enable them in iOS Settings → notifications, then retry.");
-                    } else {
-                        run();
-                    }
-                });
-            }
+            // Returning users who installed BEFORE this existed (no intro card
+            // shown, permission still default): ask once on a first interaction
+            // inside the installed app, so they're not stuck badge-less forever.
+            var NOTIF_ASKED_KEY = "daily_notif_asked";
+            (function backfillAsk() {
+                if (document.getElementById("intro-card")) return;        // intro path handles new users
+                if (!window.__pwaInstalled) return;                       // only in the installed app
+                if (!("Notification" in window) || Notification.permission !== "default") return;
+                try { if (localStorage.getItem(NOTIF_ASKED_KEY)) return; } catch (e) {}
+                // Defer to the first tap so it's gesture-driven and not jarring on load.
+                document.addEventListener("click", function once() {
+                    document.removeEventListener("click", once);
+                    try { localStorage.setItem(NOTIF_ASKED_KEY, "1"); } catch (e) {}
+                    askNotifications();
+                }, { once: true });
+            })();
         })();
     </script>
 {% endblock %}
