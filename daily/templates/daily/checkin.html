@@ -119,6 +119,12 @@
                 </button>
             </form>
         {% endif %}
+        {# TEMP — badge verification probe. Remove after confirming iOS paints it. #}
+        <br>
+        <button type="button" id="badge-test-btn" style="background:none;border:1px dashed #6c7483;color:#9aa3b2;cursor:pointer;font-size:0.78rem;padding:6px 10px;margin-top:10px;border-radius:8px;">
+            🔴 Test icon badge (set to 5)
+        </button>
+        <div id="badge-test-msg" style="color:#6c7483;font-size:0.72rem;margin-top:6px;"></div>
     </div>
 
     {% if debug_as_of is not None %}
@@ -744,6 +750,47 @@
                     }
                 });
             };
+
+            // TEMP — badge verification probe. Sets the icon badge to 5 so we
+            // can confirm whether iOS paints PWA badges on this device at all,
+            // before reworking the real logic. Remove once verified.
+            var badgeTestBtn = document.getElementById("badge-test-btn");
+            var badgeTestMsg = document.getElementById("badge-test-msg");
+            function bmsg(t) { if (badgeTestMsg) badgeTestMsg.textContent = t; }
+            if (badgeTestBtn) {
+                badgeTestBtn.addEventListener("click", function () {
+                    if (!("setAppBadge" in navigator)) {
+                        bmsg("✗ setAppBadge not supported in this browser/OS."); return;
+                    }
+                    if (!window.__pwaInstalled) {
+                        bmsg("⚠ Open from the HOME-SCREEN icon (not Safari) for the badge to apply."); return;
+                    }
+                    var run = function () {
+                        navigator.setAppBadge(5).then(function () {
+                            bmsg("✓ Badge set to 5. Now SWIPE UP to background the app and look at the icon. (Tap again = clear.)");
+                            // Flip to clear on a second press so you can toggle.
+                            badgeTestBtn.textContent = "🔴 Clear icon badge";
+                            badgeTestBtn.onclick = function () {
+                                navigator.clearAppBadge();
+                                bmsg("Cleared. Background the app to confirm the red dot is gone.");
+                            };
+                        }).catch(function (e) {
+                            bmsg("✗ setAppBadge threw: " + (e && e.message ? e.message : e));
+                        });
+                    };
+                    if ("Notification" in window && Notification.permission === "default") {
+                        bmsg("Requesting notification permission (the badge rides on it)…");
+                        Notification.requestPermission().then(function (p) {
+                            if (p === "granted") run();
+                            else bmsg("✗ Permission " + p + " — iOS won't show a badge without it.");
+                        });
+                    } else if ("Notification" in window && Notification.permission === "denied") {
+                        bmsg("✗ Notifications are DENIED for this app. Enable them in iOS Settings → notifications, then retry.");
+                    } else {
+                        run();
+                    }
+                });
+            }
         })();
     </script>
 {% endblock %}
