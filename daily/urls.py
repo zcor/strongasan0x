@@ -13,4 +13,7 @@ urlpatterns = [
     path("comment/", views.save_comment, name="save_comment"),
     path("suggestion/<int:suggestion_id>/respond/", views.respond_to_suggestion, name="respond_to_suggestion"),
     path("baseline/", views.reset_to_baseline_view, name="reset_to_baseline"),
+    # PWA: installable home-screen app (manifest + service worker).
+    path("manifest.webmanifest", views.manifest, name="manifest"),
+    path("sw.js", views.service_worker, name="service_worker"),
 ]

@@ -514,6 +514,11 @@
                     mini.style.strokeDashoffset = String(62.8 * (1 - n / total));
                     mini.classList.toggle("mini-full", n >= total);
                 }
+                // PWA icon badge: rings still to fill, cleared at done.
+                if (window.__setBadge) window.__setBadge(Math.max(0, total - n));
+                // Offer the badge after her FIRST fully-completed day (she's
+                // felt the payoff, so the ask converts). Once only.
+                if (n >= total && window.__maybeOfferBadge) window.__maybeOfferBadge();
             }
 
             function maybeRevealBonus() {
@@ -711,6 +716,34 @@
                 clearTimeout(saveTimer);
                 saveTimer = setTimeout(saveComment, 2000);
             });
+
+            // --- PWA icon badge opt-in -------------------------------------
+            // Ask for notification permission (badges ride on it) ONCE, only
+            // inside the installed app, only after she's completed a full day.
+            // Called from updateStatus() the moment the ring fills.
+            var BADGE_ASKED_KEY = "daily_badge_asked";
+            window.__maybeOfferBadge = function () {
+                if (!window.__pwaInstalled) return;                 // browser tab: badge is meaningless
+                if (!("setAppBadge" in navigator) || !("Notification" in window)) return;
+                if (Notification.permission !== "default") return;  // already granted/denied
+                try { if (localStorage.getItem(BADGE_ASKED_KEY)) return; } catch (e) {}
+                try { localStorage.setItem(BADGE_ASKED_KEY, "1"); } catch (e) {}
+                // Soft confirm first — a raw browser prompt out of nowhere reads
+                // as spam; this frames the value before the system dialog.
+                var ok = window.confirm(
+                    "Nice — all 5 done!\n\nWant the app icon to show how many rings " +
+                    "you have left each day, so it nudges you until you're complete?"
+                );
+                if (!ok) return;
+                Notification.requestPermission().then(function () {
+                    // Re-sync immediately so the badge reflects today.
+                    if (window.__setBadge) {
+                        var n = coreDoneCount();
+                        var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                        window.__setBadge(Math.max(0, total - n));
+                    }
+                });
+            };
         })();
     </script>
 {% endblock %}

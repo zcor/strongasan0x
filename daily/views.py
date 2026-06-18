@@ -19,8 +19,9 @@ from datetime import date, datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
@@ -625,3 +626,76 @@ def _run_coach(check_in_id: int, refinement: str = ""):
         model_name=model_name,
         cost_usd=cost_usd,
     )
+
+
+# --- PWA (installable home-screen app) -------------------------------------
+# The check-in page is installable to the home screen so it lives in the
+# user's daily phone ritual. These two endpoints are public (no participant
+# session required): the browser fetches them outside the auth flow. The
+# installed app's start_url is /daily/checkin/, which the user's existing
+# daily session authenticates — no token in the manifest.
+
+def manifest(request):
+    """Web app manifest. Served from /daily/ so its scope covers the app."""
+    data = {
+        "name": "Strong as an 0x — Daily",
+        "short_name": "Daily",
+        "description": "Your daily check-in. Fill the ring.",
+        "start_url": "/daily/checkin/",
+        "scope": "/daily/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#1a1a2e",
+        "theme_color": "#1a1a2e",
+        "icons": [
+            {"src": static("daily/icons/icon-192.png"), "sizes": "192x192", "type": "image/png"},
+            {"src": static("daily/icons/icon-512.png"), "sizes": "512x512", "type": "image/png"},
+            {"src": static("daily/icons/icon-512-maskable.png"), "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    # application/manifest+json is the spec type; some iOS versions are picky,
+    # but this is correct and Chrome requires it.
+    return JsonResponse(data, content_type="application/manifest+json")
+
+
+def service_worker(request):
+    """Minimal network-first service worker.
+
+    Served at /daily/sw.js so its scope covers /daily/. This is a LIVE app
+    (the checklist mutates daily), so we deliberately do NOT cache content —
+    the SW exists to make the app installable and to keep navigations fresh.
+    A tiny offline fallback keeps the icon from opening to a dead page with
+    no signal.
+    """
+    js = """\
+const OFFLINE_MSG = 'You\\'re offline — reconnect to check in.';
+self.addEventListener('install', (e) => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;            // never intercept POSTs (taps/saves)
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(() =>
+        new Response(
+          '<!doctype html><meta name=viewport content="width=device-width">' +
+          '<body style="font-family:-apple-system;background:#1a1a2e;color:#e8eaed;' +
+          'display:flex;align-items:center;justify-content:center;height:100vh;' +
+          'margin:0;text-align:center;padding:24px">' + OFFLINE_MSG + '</body>',
+          { headers: { 'Content-Type': 'text/html' } }
+        )
+      )
+    );
+  }
+  // Static assets (icons): cache-bust-free passthrough, fall back to cache nothing.
+});
+"""
+    resp = HttpResponse(js, content_type="application/javascript")
+    # SW must be served with a non-caching header during iteration so updates
+    # ship; the browser re-checks the SW byte-for-byte on each navigation.
+    resp["Cache-Control"] = "no-cache"
+    # A service worker can only control a scope at or below its own path; an
+    # explicit header lets us keep the file under /daily/ while scoping it there.
+    resp["Service-Worker-Allowed"] = "/daily/"
+    return resp
