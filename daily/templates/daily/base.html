@@ -1,10 +1,19 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#1a1a2e">
     <title>{% block title %}Daily Check-In{% endblock %}</title>
+
+    {# --- PWA: installable home-screen app --- #}
+    <link rel="manifest" href="{% url 'daily:manifest' %}">
+    {# iOS ignores the manifest's display/icons — it needs these legacy tags. #}
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Daily">
+    <link rel="apple-touch-icon" href="{% static 'daily/icons/icon-180.png' %}">
+    <link rel="icon" type="image/png" href="{% static 'daily/icons/icon-192.png' %}">
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { margin: 0; padding: 0; }
@@ -165,6 +174,40 @@
             font-size: 0.8rem;
         }
         .footer .name { color: #9aa3b2; }
+
+        /* --- PWA install coaching card (iOS Safari, not-yet-installed) --- */
+        #install-card {
+            position: fixed;
+            left: 12px; right: 12px; bottom: 12px;
+            bottom: calc(12px + env(safe-area-inset-bottom));
+            max-width: 456px;
+            margin: 0 auto;
+            background: linear-gradient(160deg, #232544 0%, #1b2540 100%);
+            border: 1px solid rgba(255, 217, 122, 0.35);
+            border-radius: 16px;
+            padding: 16px 16px 14px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+            z-index: 999;
+            display: none;
+        }
+        #install-card.show { display: block; animation: install-rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+        @keyframes install-rise { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        #install-card .ic-row { display: flex; align-items: center; gap: 12px; }
+        #install-card img { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; }
+        #install-card .ic-title { font-size: 1rem; color: #ffd97a; font-weight: 600; margin: 0 0 2px; }
+        #install-card .ic-body { font-size: 0.88rem; line-height: 1.4; color: #c7cdd9; margin: 0; }
+        #install-card .ic-body b { color: #e8eaed; }
+        #install-card .ic-share {
+            display: inline-flex; vertical-align: -3px; width: 16px; height: 18px;
+            margin: 0 1px;
+        }
+        #install-card .ic-dismiss {
+            display: block; width: 100%; margin-top: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: #9aa3b2; padding: 9px; border-radius: 9px;
+            font-size: 0.85rem; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -176,5 +219,85 @@
         {% endif %}
         {% block content %}{% endblock %}
     </div>
+
+    {# --- PWA install coaching card (rendered hidden; JS decides to show) --- #}
+    <div id="install-card" role="dialog" aria-label="Add to Home Screen">
+        <div class="ic-row">
+            <img src="{% static 'daily/icons/icon-180.png' %}" alt="">
+            <div>
+                <p class="ic-title">Keep it on your home screen</p>
+                <p class="ic-body">Tap
+                    <svg class="ic-share" viewBox="0 0 16 18" fill="none" aria-hidden="true">
+                        <path d="M8 1.5v9M8 1.5 5 4.5M8 1.5l3 3" stroke="#ffd97a" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M3.5 7.5H2.5v8h11v-8h-1" stroke="#ffd97a" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    then <b>Add to Home Screen</b>.
+                </p>
+            </div>
+        </div>
+        <button class="ic-dismiss" type="button" onclick="window.__dismissInstall()">Not now</button>
+    </div>
+
+    <script>
+    (function () {
+        // 1) Register the service worker (makes the app installable; keeps
+        //    navigations fresh — it does not cache the live checklist).
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", function () {
+                navigator.serviceWorker.register("{% url 'daily:service_worker' %}", { scope: "/daily/" })
+                    .catch(function () { /* non-fatal: app still works in-browser */ });
+            });
+        }
+
+        // 2) Running state + platform detection.
+        var isStandalone = window.navigator.standalone === true
+            || window.matchMedia("(display-mode: standalone)").matches;
+        var ua = navigator.userAgent || "";
+        var isIOS = /iphone|ipad|ipod/i.test(ua)
+            || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+        var isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+        // The Telegram / in-app browsers can't "Add to Home Screen" — detect and
+        // steer the user to open in Safari instead of showing dead instructions.
+        var isInAppBrowser = /Telegram|FBAN|FBAV|Instagram|Line\//i.test(ua);
+
+        var card = document.getElementById("install-card");
+        var DISMISS_KEY = "daily_install_dismissed";
+
+        window.__dismissInstall = function () {
+            if (card) card.classList.remove("show");
+            try { localStorage.setItem(DISMISS_KEY, "1"); } catch (e) {}
+        };
+
+        function maybeShowInstallCard() {
+            if (isStandalone || !card) return;            // already installed → never
+            try { if (localStorage.getItem(DISMISS_KEY)) return; } catch (e) {}
+            if (isInAppBrowser) {
+                // Different ask: they must reopen in Safari first.
+                card.querySelector(".ic-title").textContent = "Open in Safari to install";
+                card.querySelector(".ic-body").innerHTML =
+                    "Tap the <b>•••</b> menu and choose <b>Open in Safari</b>, then add it to your home screen.";
+            } else if (!(isIOS && isSafari)) {
+                // Android/Chrome shows its own install affordance; only coach iOS Safari.
+                return;
+            }
+            // Delay so it doesn't fight the first paint / her reading the page.
+            setTimeout(function () { card.classList.add("show"); }, 1500);
+        }
+        maybeShowInstallCard();
+
+        // 3) Icon badge — count of rings still to fill (5 - done). Cleared at 5.
+        //    Needs a one-time permission; we ask AFTER her first complete day
+        //    (the page sets window.__dailyBadge / window.__askBadge hooks).
+        //    Exposed here so checkin.html can drive it on every tap.
+        window.__setBadge = function (remaining) {
+            if (!("setAppBadge" in navigator)) return;     // unsupported → no-op
+            try {
+                if (remaining > 0) navigator.setAppBadge(remaining);
+                else navigator.clearAppBadge();
+            } catch (e) {}
+        };
+        window.__pwaInstalled = isStandalone;
+    })();
+    </script>
 </body>
 </html>
