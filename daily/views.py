@@ -216,9 +216,12 @@ def checkin(request):
     bonus_done = any(i["state"] != "pending" for i in bonus_items)
 
     # First-run intro: shown until the participant has marked anything, ever.
+    # ?intro=1 force-shows it on demand (preview the onboarding anytime).
     first_visit = not DailyCheckInAnswer.objects.filter(
         check_in__participant=participant
     ).exclude(state=DailyCheckInAnswer.STATE_PENDING).exists()
+    if request.GET.get("intro") == "1":
+        first_visit = True
 
     # Wrapped: today already has a sealed coach reflection (via the
     # "Wrap up my day" button).
