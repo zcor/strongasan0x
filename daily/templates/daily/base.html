@@ -201,8 +201,19 @@
             display: inline-flex; vertical-align: -3px; width: 16px; height: 18px;
             margin: 0 1px;
         }
-        #install-card .ic-dismiss {
+        #install-card .ic-copy {
             display: block; width: 100%; margin-top: 12px;
+            background: rgba(255, 217, 122, 0.2);
+            border: 1px solid rgba(255, 217, 122, 0.5);
+            color: #ffd97a; padding: 11px; border-radius: 9px;
+            font-size: 0.92rem; font-weight: 600; cursor: pointer;
+        }
+        #install-card .ic-copy.copied {
+            background: rgba(120, 200, 120, 0.2);
+            border-color: rgba(120, 200, 120, 0.55); color: #c8f0c8;
+        }
+        #install-card .ic-dismiss {
+            display: block; width: 100%; margin-top: 8px;
             background: rgba(255, 255, 255, 0.06);
             border: 1px solid rgba(255, 255, 255, 0.14);
             color: #9aa3b2; padding: 9px; border-radius: 9px;
@@ -235,6 +246,7 @@
                 </p>
             </div>
         </div>
+        <button class="ic-copy" type="button" id="ic-copy-btn" onclick="window.__copyLink()" style="display:none">Copy link for Safari</button>
         <button class="ic-dismiss" type="button" onclick="window.__dismissInstall()">Not now</button>
     </div>
 
@@ -256,9 +268,17 @@
         var isIOS = /iphone|ipad|ipod/i.test(ua)
             || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
         var isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
-        // The Telegram / in-app browsers can't "Add to Home Screen" — detect and
-        // steer the user to open in Safari instead of showing dead instructions.
-        var isInAppBrowser = /Telegram|FBAN|FBAV|Instagram|Line\//i.test(ua);
+        // In-app browsers (Telegram/Meta/etc.) can't "Add to Home Screen" — steer
+        // the user to Safari instead of showing dead Share-button instructions.
+        // CRITICAL: Telegram's iOS webview often ships a UA *identical* to real
+        // Safari (no "Telegram" token), so the UA test alone misses it and we'd
+        // wrongly show the Safari card. Telegram injects runtime objects we can
+        // sniff — TelegramWebviewProxy (iOS) / TelegramWebview (Android) — which
+        // is the only reliable signal. Combine UA + injected-object detection.
+        var isInAppBrowser =
+            /Telegram|FBAN|FBAV|FB_IAB|Instagram|Line\/|GSA|MicroMessenger/i.test(ua)
+            || !!(window.TelegramWebviewProxy || window.TelegramWebview
+                  || (window.external && window.external.notify));
 
         var card = document.getElementById("install-card");
         var DISMISS_KEY = "daily_install_dismissed";
@@ -268,19 +288,50 @@
             try { localStorage.setItem(DISMISS_KEY, "1"); } catch (e) {}
         };
 
+        // Copy the page URL so the user can paste it into Safari, where
+        // Add-to-Home-Screen actually exists. This is the closest thing to an
+        // "install" button iOS allows from inside an in-app browser — a button
+        // that DOES something, vs. a fake install button (no iOS API exists).
+        window.__copyLink = function () {
+            var url = window.location.href;
+            var btn = document.getElementById("ic-copy-btn");
+            function ok() {
+                if (!btn) return;
+                btn.textContent = "Copied — now open Safari & paste";
+                btn.classList.add("copied");
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(ok).catch(function () { legacyCopy(url, ok); });
+            } else {
+                legacyCopy(url, ok);
+            }
+        };
+        function legacyCopy(text, done) {
+            try {
+                var ta = document.createElement("textarea");
+                ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+                document.body.appendChild(ta); ta.focus(); ta.select();
+                document.execCommand("copy"); document.body.removeChild(ta);
+                done();
+            } catch (e) { /* clipboard blocked — instructions still stand */ }
+        }
+
         function maybeShowInstallCard() {
             if (isStandalone || !card) return;            // already installed → never
             try { if (localStorage.getItem(DISMISS_KEY)) return; } catch (e) {}
             if (isInAppBrowser) {
-                // Different ask: they must reopen in Safari first.
-                card.querySelector(".ic-title").textContent = "Open in Safari to install";
+                // Can't install from here — give a copy-link escape to Safari.
+                card.querySelector(".ic-title").textContent = "Open in Safari to add it";
                 card.querySelector(".ic-body").innerHTML =
-                    "Tap the <b>•••</b> menu and choose <b>Open in Safari</b>, then add it to your home screen.";
+                    "Add-to-Home-Screen only works in Safari. Copy this link, open Safari, "
+                    + "and paste — then tap Share → <b>Add to Home Screen</b>.";
+                var copyBtn = document.getElementById("ic-copy-btn");
+                if (copyBtn) copyBtn.style.display = "block";
             } else if (!(isIOS && isSafari)) {
                 // Android/Chrome shows its own install affordance; only coach iOS Safari.
                 return;
             }
-            // Delay so it doesn't fight the first paint / her reading the page.
+            // Delay so it doesn't fight the first paint / the user reading the page.
             setTimeout(function () { card.classList.add("show"); }, 1500);
         }
         maybeShowInstallCard();
