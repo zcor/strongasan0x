@@ -163,6 +163,71 @@ def _get_or_create_today(participant: DailyParticipant, today: date, version: Ch
     return check_in
 
 
+# The streak bar SELF-CALIBRATES to each user (persona principle): it should
+# require roughly what THAT person reliably does, so it stays meaningful for a
+# power user (Spencer does ~5/day → his streak demands real effort) without
+# punishing a beginner (Amy just shows up → showing up IS her streak).
+#
+# Floor = 1 so the lowest-engagement users keep a streak simply by using the
+# app daily. Cap = 5 so the bar never exceeds a full core sweep.
+STREAK_FLOOR = 1
+STREAK_CAP = 5
+
+
+def _day_done_count(ci: DailyCheckIn) -> int:
+    """Items done that day, counting BOTH core and bonus."""
+    return sum(1 for a in ci.answers.all() if a.state == DailyCheckInAnswer.STATE_DONE)
+
+
+def _streak_bar(done_counts: list) -> int:
+    """The per-user threshold: what this person reliably hits on a normal day.
+    Use the MEDIAN of their recent daily done-counts (robust to one big/zero
+    day), clamped to [FLOOR, CAP]. A user who routinely does 5 gets a bar of 5;
+    one who routinely does 1-2 gets a bar of 1-2."""
+    if not done_counts:
+        return STREAK_FLOOR
+    s = sorted(done_counts)
+    median = s[len(s) // 2]
+    return max(STREAK_FLOOR, min(STREAK_CAP, median))
+
+
+def _current_streak(participant: DailyParticipant, today: date) -> int:
+    """Consecutive days (back from today, or yesterday if today isn't done yet)
+    where the user hit THEIR OWN bar. An unfinished today does NOT break a
+    streak that was alive yesterday."""
+    recent = {
+        ci.date: ci
+        for ci in DailyCheckIn.objects.filter(
+            participant=participant, date__lte=today, date__gte=today - timedelta(days=400)
+        ).select_related("checklist_version").prefetch_related("answers")
+    }
+    if not recent:
+        return 0
+
+    # Calibrate the bar from the user's recent ENGAGED days (last ~21 with any
+    # activity) — so a string of zeros before they joined doesn't drag it down.
+    recent_counts = [
+        _day_done_count(ci)
+        for d, ci in sorted(recent.items(), reverse=True)
+        if _day_done_count(ci) > 0
+    ][:21]
+    bar = _streak_bar(recent_counts)
+
+    streak = 0
+    d = today
+    today_ci = recent.get(today)
+    if not (today_ci and _day_done_count(today_ci) >= bar):
+        d = today - timedelta(days=1)   # don't punish an in-progress today
+    while True:
+        ci = recent.get(d)
+        if ci is not None and _day_done_count(ci) >= bar:
+            streak += 1
+            d -= timedelta(days=1)
+        else:
+            break
+    return streak
+
+
 @ensure_csrf_cookie  # page is AJAX-driven; force the csrftoken cookie even with no rendered form
 @require_daily_actor
 @require_http_methods(["GET"])
@@ -272,6 +337,7 @@ def checkin(request):
         "bonus_revealed": bool(bonus_items) and (done_count >= BONUS_REVEAL_AT or bonus_done),
         "bonus_reveal_at": BONUS_REVEAL_AT,
         "done_count": done_count,
+        "streak": _current_streak(participant, today) if not backfill else 0,
         "comment": existing.comment if existing else "",
         "is_baseline": _is_baseline_questions(current_version.questions),
         "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
