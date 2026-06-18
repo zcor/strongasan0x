@@ -15,6 +15,12 @@
         </svg>
         <div id="ring-caption" class="ring-caption">saves as you tap</div>
 
+        {% if streak >= 2 %}
+            <div class="streak-chip" id="streak-chip" aria-label="{{ streak }} day streak">
+                <span class="streak-flame">🔥</span><span class="streak-num">{{ streak }}</span><span class="streak-word">day streak</span>
+            </div>
+        {% endif %}
+
         <div class="week-strip" aria-label="Last 7 days — tap a day to view or fill it in">
             {% for d in week %}
                 <a class="week-day{% if d.is_today %} today{% endif %}" href="{{ d.href }}">
@@ -163,6 +169,26 @@
             border-color: #78c878;
             color: #14391a;
         }
+        /* Delight: a satisfying pop when an item is checked done (Amy wanted
+           tap feedback). Class added by JS for one animation cycle. */
+        .question.just-done .check-icon { animation: check-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes check-pop {
+            0%   { transform: scale(0.5); }
+            60%  { transform: scale(1.25); }
+            100% { transform: scale(1); }
+        }
+        .question.just-done .row-main { animation: row-nudge 0.3s ease; }
+        @keyframes row-nudge {
+            0%, 100% { transform: scale(1); }
+            40%      { transform: scale(1.015); }
+        }
+        /* Swap tap: the word spins + the row gives a little shuffle so the
+           "deal me another" action feels physical (Amy's swap-animation ask). */
+        .skip-btn.spinning { animation: swap-spin 0.5s ease; color: #ffd97a !important; }
+        @keyframes swap-spin {
+            0%   { transform: translateY(-50%) rotate(0deg); }
+            100% { transform: translateY(-50%) rotate(360deg); }
+        }
         .skip-btn {
             position: absolute;
             right: 10px;
@@ -272,6 +298,21 @@
             font-size: 0.95rem;
             font-weight: 600;
         }
+
+        /* Streak chip — the dopamine Amy asked for; Spencer finally sees his
+           run too. One small element by the ring, not a new section. */
+        .streak-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            margin-top: 12px; padding: 5px 12px 5px 9px;
+            background: rgba(255, 145, 60, 0.12);
+            border: 1px solid rgba(255, 145, 60, 0.35);
+            border-radius: 999px;
+            animation: streak-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes streak-pop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        .streak-flame { font-size: 1rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,0.5)); }
+        .streak-num { color: #ffb060; font-weight: 700; font-size: 1rem; }
+        .streak-word { color: #c79a6a; font-size: 0.78rem; }
 
         /* Week strip — progress over time at a glance */
         .week-strip {
@@ -566,6 +607,13 @@
                     var prev = row.dataset.state;
                     var next = prev === "done" ? "pending" : "done";
                     setRowState(row, next);
+                    if (next === "done") {
+                        // Pop the check + nudge the row for a satisfying tap.
+                        row.classList.remove("just-done");
+                        void row.offsetWidth;            // restart the animation
+                        row.classList.add("just-done");
+                        setTimeout(function () { row.classList.remove("just-done"); }, 420);
+                    }
                     updateStatus();
                     if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
                         fireConfetti(row);
@@ -595,6 +643,10 @@
                     }
                     // Live day: "swap" = not interested → replace in place.
                     if (row.classList.contains("swapping")) return;
+                    // Spin the swap word so the action feels physical.
+                    var sb = row.querySelector(".skip-btn");
+                    if (sb) { sb.classList.remove("spinning"); void sb.offsetWidth; sb.classList.add("spinning");
+                              setTimeout(function () { sb.classList.remove("spinning"); }, 520); }
                     row.classList.add("swapping");
                     setRowState(row, "skip");
                     updateStatus();
