@@ -97,6 +97,19 @@ if [ -x "\$VENV_PY" ]; then
     sudo -u ${REPO_OWNER} "\$VENV_PY" "\$REPO/manage.py" migrate --noinput
 fi
 
+# Sync cron jobs from the repo (reviewable git artifact). The file
+# deploy/crontab.ox uses standard /etc/cron.d format. Installing it needs root,
+# which this wrapper already has — so scheduled jobs become a code change, no
+# extra privilege. Absent file = remove our cron (clean uninstall).
+CRON_SRC="\$REPO/deploy/crontab.ox"
+CRON_DST="/etc/cron.d/ox-strongasan0x"
+if [ -f "\$CRON_SRC" ]; then
+    install -o root -g root -m 0644 "\$CRON_SRC" "\$CRON_DST"
+    echo "Synced cron from deploy/crontab.ox"
+elif [ -f "\$CRON_DST" ]; then
+    rm -f "\$CRON_DST"; echo "Removed cron (no crontab.ox in repo)"
+fi
+
 echo "Restarting ${SERVICE}..."
 systemctl restart ${SERVICE}
 echo "=== ox deploy complete ==="
@@ -126,7 +139,53 @@ else
     exit 1
 fi
 
+# 3) The secret-setter wrapper: sets ONE key in .env without exposing the rest.
+#    Lets the agent add/update a secret (e.g. an API key) without being in the
+#    webdev group or able to READ .env — the one capability the deploy wrapper
+#    can't cover. KEY is strictly validated; VALUE is written literally.
+SECRET_WRAPPER="${WRAPPER_DIR}/ox-set-secret"
+SECRET_SUDOERS="/etc/sudoers.d/ox-set-secret-claude"
+echo "Writing wrapper ${SECRET_WRAPPER}..."
+cat > "${SECRET_WRAPPER}" <<SECRET_EOF
+#!/bin/bash
+# ox-set-secret KEY VALUE — set/replace one key in the project .env (root-owned).
+# Does NOT print or expose existing secrets. KEY must be A-Z0-9_ starting with a
+# letter (blocks traversal/injection). Invoked by ${AGENT_USER} via one NOPASSWD rule.
+set -euo pipefail
+ENV="${REPO}/.env"
+KEY="\${1:-}"; VALUE="\${2:-}"
+if ! printf '%s' "\$KEY" | grep -qE '^[A-Z][A-Z0-9_]*\$'; then
+    echo "ERROR: invalid key name (must be A-Z0-9_, start with a letter)" >&2; exit 1
+fi
+[ -f "\$ENV" ] || { echo "ERROR: \$ENV missing" >&2; exit 1; }
+TMP="\$(mktemp)"
+# Drop any existing line for KEY, then append the new one.
+grep -vE "^\${KEY}=" "\$ENV" > "\$TMP" || true
+printf '%s=%s\n' "\$KEY" "\$VALUE" >> "\$TMP"
+install -o ${REPO_OWNER} -g ${REPO_GROUP} -m 640 "\$TMP" "\$ENV"
+rm -f "\$TMP"
+echo "set \$KEY in .env"
+SECRET_EOF
+chown root:root "${SECRET_WRAPPER}"; chmod 755 "${SECRET_WRAPPER}"
+echo "  ✓ secret wrapper installed"
+
+echo "Writing sudoers drop-in ${SECRET_SUDOERS}..."
+TMP_S2="$(mktemp)"
+cat > "${TMP_S2}" <<SUDOERS2_EOF
+# Lets ${AGENT_USER} set ONE .env key via the vetted wrapper (cannot read .env).
+${AGENT_USER} ALL=(root) NOPASSWD: ${SECRET_WRAPPER}
+SUDOERS2_EOF
+if visudo -cf "${TMP_S2}"; then
+    install -o root -g root -m 0440 "${TMP_S2}" "${SECRET_SUDOERS}"
+    rm -f "${TMP_S2}"
+    echo "  ✓ secret sudoers drop-in installed"
+else
+    rm -f "${TMP_S2}"; echo "ERROR: secret sudoers validation failed" >&2; exit 1
+fi
+
 echo ""
 echo "=== DONE ==="
-echo "Verify (as ${AGENT_USER}):  sudo -n ${WRAPPER}"
-echo "The agent now owns strongasan0x deploys unattended."
+echo "Deploy:      sudo -n ${WRAPPER}"
+echo "Set secret:  sudo -n ${SECRET_WRAPPER} KEY VALUE"
+echo "Crons:       edit deploy/crontab.ox in the repo, then deploy"
+echo "The agent now owns strongasan0x deploys + secrets + crons unattended."
