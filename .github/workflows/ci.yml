@@ -11,3 +11,13 @@ jobs:
           python-version: '3.11'
       - run: pip install ruff
       - run: ruff check .
+      # Guard: Django {# #} comments are SINGLE-LINE only. A multi-line one is
+      # NOT stripped and leaks as visible text on the page (shipped twice —
+      # never again). Fail if any template opens {# without closing #} on the
+      # same line.
+      - name: No multi-line Django template comments
+        run: |
+          if grep -rnE '\{#' --include='*.html' . | grep -vE '#\}'; then
+            echo "::error::Multi-line {# #} Django comment found — it renders as visible text. Make it single-line or use {% comment %}.";
+            exit 1;
+          fi

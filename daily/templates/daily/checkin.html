@@ -44,8 +44,7 @@
     {% endif %}
 
     {% if first_visit or intro_replayable %}
-        {# first_visit → shown immediately. intro_replayable (veteran) → hidden;
-           JS reveals it only if this device hasn't seen INTRO_VERSION yet. #}
+        {# first_visit shows now; veteran replay starts hidden, JS reveals once per INTRO_VERSION. #}
         <div class="intro-card" id="intro-card"
              data-intro-version="{{ intro_version }}"
              data-replay="{% if first_visit %}0{% else %}1{% endif %}"
