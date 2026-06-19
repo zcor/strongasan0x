@@ -2,7 +2,7 @@
 
 import math
 from datetime import date, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from django.test import TestCase, RequestFactory
 

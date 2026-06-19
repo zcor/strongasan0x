@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 
 # Substack-leaning typography: black on white, serif body, sans-ish heavy heading.

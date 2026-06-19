@@ -1,7 +1,6 @@
 """
 Generate a Homeric ode for Substack based on ranked attestations
 """
-import json
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from datetime import date, timedelta
