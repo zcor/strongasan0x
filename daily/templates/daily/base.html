@@ -412,8 +412,10 @@
                 gBtn.textContent = "Turn on my counter"; gBtn.style.display = "inline-block";
                 gBtn.onclick = function () {
                     Notification.requestPermission().then(function (p) {
-                        if (p === "granted") { passGate(); if (window.__syncBadge) window.__syncBadge(); }
-                        else renderNotifGate();   // denied -> re-render with Settings path
+                        if (p === "granted") {
+                            subscribePush();   // register for the morning badge push
+                            passGate(); if (window.__syncBadge) window.__syncBadge();
+                        } else renderNotifGate();   // denied -> re-render with Settings path
                     });
                 };
                 gHint.textContent = "iOS calls this “notifications,” but you'll only ever see the number.";
@@ -452,6 +454,52 @@
             } catch (e) {}
         };
         window.__pwaInstalled = isStandalone;
+
+        // 4) Web Push subscription — registers this device so the morning job
+        //    can refresh the badge while the app is CLOSED (the only way to do
+        //    it on iOS). Subscribe when permission is granted; also re-subscribe
+        //    silently on every load for already-granted users (idempotent —
+        //    the server upserts by endpoint).
+        var VAPID_PUBLIC_KEY = "{{ vapid_public_key }}";
+        function urlB64ToUint8Array(base64String) {
+            var padding = "=".repeat((4 - base64String.length % 4) % 4);
+            var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+            var raw = atob(base64);
+            var out = new Uint8Array(raw.length);
+            for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+            return out;
+        }
+        function subscribePush() {
+            if (!VAPID_PUBLIC_KEY) return;                       // not configured yet
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+            if (!("Notification" in window) || Notification.permission !== "granted") return;
+            navigator.serviceWorker.ready.then(function (reg) {
+                return reg.pushManager.getSubscription().then(function (existing) {
+                    return existing || reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
+                    });
+                });
+            }).then(function (sub) {
+                if (!sub) return;
+                return fetch("/daily/push/subscribe/", {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+                    body: JSON.stringify(sub.toJSON()),
+                });
+            }).catch(function () { /* push optional — never block the app */ });
+        }
+        function getCookie(name) {
+            var m = document.cookie.match("(^|;)\\s*" + name + "\\s*=\\s*([^;]+)");
+            return m ? m.pop() : "";
+        }
+        // Already-granted users: subscribe quietly on load so they start
+        // getting the morning badge without re-prompting.
+        if (window.__pwaInstalled && "Notification" in window && Notification.permission === "granted") {
+            subscribePush();
+        }
+        window.__subscribePush = subscribePush;
     })();
     </script>
 </body>
