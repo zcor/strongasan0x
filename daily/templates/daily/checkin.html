@@ -43,8 +43,13 @@
         </div>
     {% endif %}
 
-    {% if first_visit %}
-        <div class="intro-card" id="intro-card">
+    {% if first_visit or intro_replayable %}
+        {# first_visit → shown immediately. intro_replayable (veteran) → hidden;
+           JS reveals it only if this device hasn't seen INTRO_VERSION yet. #}
+        <div class="intro-card" id="intro-card"
+             data-intro-version="{{ intro_version }}"
+             data-replay="{% if first_visit %}0{% else %}1{% endif %}"
+             {% if intro_replayable and not first_visit %}style="display:none"{% endif %}>
             <div class="intro-title">How this works</div>
             <ol>
                 <li>These five daily habits were picked <em>for you</em>, from your own training data.</li>
@@ -783,11 +788,27 @@
                 window.__setBadge(Math.max(0, total - n));
             };
 
-            // "Got it" just dismisses the intro — the gate already handled the
-            // notification ask before the app was shown.
+            // Intro replay: a veteran user's intro card is rendered hidden with
+            // data-replay="1". Show it ONCE if this device hasn't seen the
+            // current INTRO_VERSION yet (used to re-gather feedback after a
+            // change). "Got it" records the version so it won't show again.
+            var INTRO_SEEN_KEY = "daily_intro_version_seen";
+            (function maybeReplayIntro() {
+                var card = document.getElementById("intro-card");
+                if (!card || card.dataset.replay !== "1") return;   // not a replay
+                var ver = card.dataset.introVersion || "0";
+                var seen = null;
+                try { seen = localStorage.getItem(INTRO_SEEN_KEY); } catch (e) {}
+                if (seen === ver) { card.remove(); return; }        // already saw this version
+                card.style.display = "";                            // reveal it
+            })();
+
             window.__introGotIt = function () {
                 var card = document.getElementById("intro-card");
-                if (card) card.remove();
+                if (card) {
+                    try { localStorage.setItem(INTRO_SEEN_KEY, card.dataset.introVersion || "1"); } catch (e) {}
+                    card.remove();
+                }
             };
         })();
     </script>

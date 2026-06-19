@@ -286,6 +286,12 @@ def checkin(request):
     ).exclude(state=DailyCheckInAnswer.STATE_PENDING).exists()
     if request.GET.get("intro") == "1":
         first_visit = True
+    # Intro REPLAY: bump INTRO_VERSION to re-show the "how this works" card once
+    # to EVERY user (even veterans with history) — e.g. to gather feedback on a
+    # change. The client shows it if its stored version is older, then records
+    # the new version. Render the card whenever it's a genuine first visit OR a
+    # replay is possible; JS makes the final show/hide call by localStorage.
+    intro_replayable = (not first_visit) and (not backfill)
 
     # Wrapped: today already has a sealed coach reflection (via the
     # "Wrap up my day" button).
@@ -325,6 +331,8 @@ def checkin(request):
         "today": today,
         "backfill": backfill,
         "first_visit": first_visit and not backfill,
+        "intro_replayable": intro_replayable,
+        "intro_version": 1,  # bump to re-show the intro to everyone once
         "wrapped": wrapped,
         "week": week,
         "note": note,
