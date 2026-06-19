@@ -292,3 +292,35 @@ class CoachSuggestion(models.Model):
 
     def __str__(self):
         return f"Suggestion for {self.check_in} ({self.status})"
+
+
+class PushSubscription(models.Model):
+    """A Web Push subscription for one device of one participant. The morning
+    badge job sends a push to each active subscription so the home-screen icon
+    shows today's remaining to-do count WITHOUT the app being opened (the only
+    way to refresh the badge on a closed iOS PWA).
+
+    Keyed by endpoint (unique per device+browser). A 404/410 from the push
+    service means the subscription is dead — the sender deletes it.
+    """
+
+    participant = models.ForeignKey(
+        DailyParticipant,
+        on_delete=models.CASCADE,
+        related_name="push_subscriptions",
+    )
+    endpoint = models.URLField(max_length=500, unique=True)
+    # The two keys the push service needs to encrypt the payload (from the
+    # browser's PushSubscription.toJSON().keys).
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_pushed_at = models.DateTimeField(null=True, blank=True)
+    # Soft fail counter — a few transient errors are fine; many = prune.
+    fail_count = models.IntegerField(default=0)
+
+    class Meta:
+        indexes = [models.Index(fields=["participant"])]
+
+    def __str__(self):
+        return f"Push sub for {self.participant} ({self.endpoint[:40]}…)"

@@ -16,4 +16,6 @@ urlpatterns = [
     # PWA: installable home-screen app (manifest + service worker).
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("sw.js", views.service_worker, name="service_worker"),
+    # Web Push: device registers here so the morning job can badge it.
+    path("push/subscribe/", views.push_subscribe, name="push_subscribe"),
 ]

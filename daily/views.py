@@ -337,6 +337,7 @@ def checkin(request):
         "bonus_reveal_at": BONUS_REVEAL_AT,
         "done_count": done_count,
         "streak": _current_streak(participant, today) if not backfill else 0,
+        "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
         "comment": existing.comment if existing else "",
         "is_baseline": _is_baseline_questions(current_version.questions),
         "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
@@ -758,6 +759,36 @@ self.addEventListener('fetch', (event) => {
   }
   // Static assets (icons): cache-bust-free passthrough, fall back to cache nothing.
 });
+
+// --- Web Push: the morning badge ---
+// The server pushes {count: N} each morning. We set the home-screen badge to
+// N (today's remaining to-dos) WITHOUT opening the app. iOS requires us to
+// also show a notification on each push, so we show a quiet one whose body
+// just states the count — it doubles as the morning nudge.
+self.addEventListener('push', (event) => {
+  let count = 0;
+  try { count = (event.data && event.data.json().count) || 0; } catch (e) {}
+  event.waitUntil((async () => {
+    try {
+      if (navigator.setAppBadge) {
+        if (count > 0) await navigator.setAppBadge(count); else await navigator.clearAppBadge();
+      }
+    } catch (e) {}
+    // iOS will not deliver a silent push reliably — a visible notification is
+    // required. Keep it minimal and on-message (it IS the daily counter).
+    const title = count > 0 ? (count + ' to-do' + (count === 1 ? '' : 's') + ' today') : 'All done for today';
+    const body = count > 0 ? 'Open Daily and fill your rings.' : 'Nice work — see you tomorrow.';
+    await self.registration.showNotification(title, {
+      body: body, badge: '/static/daily/icons/icon-192.png',
+      icon: '/static/daily/icons/icon-192.png', tag: 'daily-badge', renotify: false,
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow('/daily/checkin/'));
+});
 """
     resp = HttpResponse(js, content_type="application/javascript")
     # SW must be served with a non-caching header during iteration so updates
@@ -767,3 +798,43 @@ self.addEventListener('fetch', (event) => {
     # explicit header lets us keep the file under /daily/ while scoping it there.
     resp["Service-Worker-Allowed"] = "/daily/"
     return resp
+
+
+# --- Web Push: morning badge -----------------------------------------------
+
+def remaining_core_today(participant: DailyParticipant, today: date) -> int:
+    """How many CORE items the participant still has to do today (0..5). This
+    is the number the home-screen badge shows. A day with no check-in yet =
+    the full core count of their current checklist."""
+    version = participant.get_or_create_current_checklist()
+    total = len(version.questions)
+    ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    if ci is None:
+        return total
+    done = ci.score  # done among CORE
+    return max(0, total - done)
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def push_subscribe(request):
+    """Store (or refresh) this device's Web Push subscription for the logged-in
+    participant. Body = the browser's PushSubscription.toJSON()."""
+    from .models import PushSubscription
+    participant = request.daily_participant
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+    endpoint = body.get("endpoint")
+    keys = body.get("keys") or {}
+    p256dh, auth = keys.get("p256dh"), keys.get("auth")
+    if not endpoint or not p256dh or not auth:
+        return JsonResponse({"ok": False, "error": "incomplete"}, status=400)
+    # Upsert by endpoint (unique per device); re-point to this participant if
+    # the same device was previously another participant's (shared phone).
+    PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={"participant": participant, "p256dh": p256dh, "auth": auth, "fail_count": 0},
+    )
+    return JsonResponse({"ok": True})

@@ -205,3 +205,10 @@ X_BEARER_TOKEN = config("X_BEARER_TOKEN", default="")
 # Strava API Configuration
 STRAVA_CLIENT_ID = config("STRAVA_CLIENT_ID", default="")
 STRAVA_CLIENT_SECRET = config("STRAVA_CLIENT_SECRET", default="")
+
+# Web Push (daily/ home-screen badge). Public key is exposed to the browser
+# (it's meant to be); private key is a secret set in .env on the server only.
+# VAPID_SUBJECT is a contact mailto/url required by the push spec.
+VAPID_PUBLIC_KEY = config("VAPID_PUBLIC_KEY", default="")
+VAPID_PRIVATE_KEY = config("VAPID_PRIVATE_KEY", default="")
+VAPID_SUBJECT = config("VAPID_SUBJECT", default="mailto:curvedefi@gmail.com")
