@@ -27,9 +27,7 @@ from django.utils import timezone
 
 from rollcall.models import TelegramUserMapping
 from rollcall.warrior.auth import (
-    SESSION_TELEGRAM_FIRST_NAME,
     SESSION_TELEGRAM_USER_ID,
-    SESSION_TELEGRAM_USERNAME,
     get_telegram_user_from_session,
 )
 

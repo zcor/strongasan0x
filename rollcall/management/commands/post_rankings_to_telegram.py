@@ -21,7 +21,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from rollcall.models import (
-    Attestation,
     MessageLog,
     TelegramUserMapping,
     WeeklyRollCall,

@@ -15,7 +15,6 @@ from .models import (
     DiscordUserMapping, TelegramUserMapping, Attestation
 )
 from rollcall.utils.rollcalls import get_active_roll_call
-from rollcall.services.ranking_stats import normalize_name
 
 
 def get_week_monday(date):

@@ -14,7 +14,6 @@ tweet 2 fails entirely, tweet 1 stays live and the URL is logged.
 """
 from __future__ import annotations
 
-import os
 import time
 from datetime import date
 from pathlib import Path

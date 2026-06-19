@@ -2,7 +2,7 @@
 
 import json
 from datetime import date, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from django.test import TestCase, RequestFactory
 from django.utils import timezone

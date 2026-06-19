@@ -263,7 +263,6 @@ def warrior_progress(request):
     warrior_param = request.GET.get('warrior')
     if warrior_param and telegram_user_id in ADMIN_TELEGRAM_IDS:
         # Look up by linked_name (try both Discord and Telegram mappings)
-        from rollcall.models import DiscordUserMapping
         att_filter = (
             Q(telegram_user__linked_name__iexact=warrior_param) |
             Q(discord_user__linked_name__iexact=warrior_param)
