@@ -531,6 +531,17 @@
             function coreDoneCount() {
                 return document.querySelectorAll('.question[data-core="1"].done').length;
             }
+            function bonusDoneCount() {
+                return document.querySelectorAll('.question[data-core="0"].done').length;
+            }
+            // Ring credit: core done, PLUS bonus done can FILL a missed core slot
+            // (capped at the core total). So 4 core + 1 bonus = a full ring — real
+            // effort counts even when a specific core item wasn't possible today
+            // (e.g. couldn't hit nutrition, but did an extra walk). Never exceeds
+            // the core total; bonus beyond that is just extra credit.
+            function ringCredit(coreTotal) {
+                return Math.min(coreTotal, coreDoneCount() + bonusDoneCount());
+            }
 
             var RING_C = 301.6; // 2πr, r=48
             var ringEl = document.getElementById("ring");
@@ -539,8 +550,8 @@
             var ringCaption = document.getElementById("ring-caption");
             function updateStatus() {
                 if (!ringArc) return;
-                var n = coreDoneCount();
                 var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                var n = ringCredit(total);
                 ringArc.style.strokeDashoffset = String(RING_C * (1 - n / total));
                 if (n >= total) {
                     ringEl.classList.add("full");
@@ -619,9 +630,16 @@
                         setTimeout(function () { row.classList.remove("just-done"); }, 420);
                     }
                     updateStatus();
-                    if (next === "done" && row.dataset.core === "1" && coreDoneCount() === 5) {
+                    // Celebrate when the RING fills — whether by the last core
+                    // item or by a bonus covering a missed core slot. Fire once,
+                    // on the tap that crosses the line.
+                    var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                    if (next === "done" && ringCredit(total) >= total && (ringCredit(total) - 1) < total
+                        && !ringEl.dataset.celebrated) {
+                        ringEl.dataset.celebrated = "1";
                         fireConfetti(row);
                     }
+                    if (ringCredit(total) < total) { delete ringEl.dataset.celebrated; }  // re-arm if they untick
                     maybeRevealBonus();
                     // A done that may spawn a fresh bonus → show spinner.
                     var mayRefill = next === "done" && (isBonus || (row.dataset.core === "1" && coreDoneCount() >= {{ bonus_reveal_at }}));
