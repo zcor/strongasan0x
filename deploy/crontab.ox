@@ -6,7 +6,3 @@
 # Daily home-screen badge push: refresh each device's "to-dos left" count at
 # 06:30, while the app is closed (the only way to update an iOS PWA badge).
 30 6 * * * zcor /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py send_daily_badges >> /var/log/ox-daily-badges.log 2>&1
-
-# ONE-SHOT (remove after it runs): backfill Spencer's (participant 10) metrics
-# from his comment history. Idempotent; runs hourly until this line is removed.
-5 * * * * zcor /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py backfill_metrics --participant 10 >> /var/log/ox-backfill.log 2>&1
