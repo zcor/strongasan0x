@@ -3,28 +3,32 @@
 {% block title %}Daily Check-In · {{ participant.display_name }}{% endblock %}
 
 {% block content %}
-    <h1>Hi, {{ participant.display_name }}.</h1>
-    <div class="date">{{ today|date:"l, F j" }}</div>
-
-    <div class="ring-wrap">
-        <svg id="ring" width="116" height="116" viewBox="0 0 116 116" aria-label="Daily progress">
-            <circle class="ring-track" cx="58" cy="58" r="48" fill="none" stroke-width="9"/>
-            <circle id="ring-arc" class="ring-arc" cx="58" cy="58" r="48" fill="none" stroke-width="9"
+    {# --- Compact header: greeting left, ring floats top-right (the fit fix) --- #}
+    <div class="topbar">
+        <div class="topbar-text">
+            <h1>Hi, {{ participant.display_name }}.</h1>
+            <div class="date">{{ today|date:"D, M j" }}</div>
+        </div>
+        <svg id="ring" class="ring-mini" width="76" height="76" viewBox="0 0 116 116" aria-label="Daily progress">
+            <circle class="ring-track" cx="58" cy="58" r="48" fill="none" stroke-width="11"/>
+            <circle id="ring-arc" class="ring-arc" cx="58" cy="58" r="48" fill="none" stroke-width="11"
                     stroke-linecap="round" transform="rotate(-90 58 58)"/>
             <text id="ring-text" class="ring-text" x="58" y="58" text-anchor="middle" dominant-baseline="central"></text>
         </svg>
-        <div id="ring-caption" class="ring-caption">saves as you tap</div>
+    </div>
+    <div id="ring-caption" class="ring-caption">saves as you tap</div>
 
+    {# --- Slim feedback row: streak + week strip on one line --- #}
+    <div class="meta-row">
         {% if streak >= 2 %}
             <div class="streak-chip" id="streak-chip" aria-label="{{ streak }} day streak">
-                <span class="streak-flame">🔥</span><span class="streak-num">{{ streak }}</span><span class="streak-word">day streak</span>
+                <span class="streak-flame">🔥</span><span class="streak-num">{{ streak }}</span>
             </div>
         {% endif %}
-
         <div class="week-strip" aria-label="Last 7 days — tap a day to view or fill it in">
             {% for d in week %}
                 <a class="week-day{% if d.is_today %} today{% endif %}" href="{{ d.href }}">
-                    <svg width="26" height="26" viewBox="0 0 26 26" {% if d.is_today %}id="mini-today"{% endif %}>
+                    <svg width="22" height="22" viewBox="0 0 26 26" {% if d.is_today %}id="mini-today"{% endif %}>
                         <circle class="mini-track" cx="13" cy="13" r="10" fill="none" stroke-width="3.5"/>
                         <circle class="mini-arc{% if d.done >= d.total %} mini-full{% endif %}" cx="13" cy="13" r="10" fill="none"
                                 stroke-width="3.5" stroke-linecap="round" transform="rotate(-90 13 13)"
@@ -52,26 +56,10 @@
             <div class="intro-title">How this works</div>
             <ol>
                 <li>These five daily habits were picked <em>for you</em>, from your own training data.</li>
-                <li>Keep this page handy all day — <strong>tap each one when you've done it.</strong> It saves itself.</li>
-                <li>Overnight, your coach reads your day and leaves a note (and may adjust the list when you've earned it).</li>
-                <li>Want something changed? <strong>Just say so in the box below</strong> — "swap the protein item", "too easy", anything.</li>
+                <li>Tap each one when you've done it — it saves itself.</li>
+                <li>Tap the <strong>💬 coach</strong> anytime to log notes, numbers, or ask for changes — it talks back.</li>
             </ol>
             <button type="button" class="intro-dismiss" onclick="window.__introGotIt()">Got it — let's go</button>
-        </div>
-    {% endif %}
-
-    {% if note %}
-        <div class="suggestion">
-            <div class="suggestion-label">
-                {% if note_was_applied %}Coach's note · checklist updated{% else %}Coach's note{% endif %}
-            </div>
-            <div class="suggestion-text">{{ note.suggestion_text }}</div>
-            {% if note_was_applied %}
-                <form method="post" action="{% url 'daily:respond_to_suggestion' note.id %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="suggestion-actions">
-                    {% csrf_token %}
-                    <button type="submit" name="response" value="dismissed">Undo change</button>
-                </form>
-            {% endif %}
         </div>
     {% endif %}
 
@@ -126,19 +114,6 @@
         </div>
     {% endif %}
 
-    <label class="comment-label" for="comment">Tell your coach anything (optional — saves automatically)</label>
-    <textarea id="comment" name="comment" placeholder="'Swap an item', 'too easy', 'hurt my shoulder', today's numbers, how the day felt…">{{ comment }}</textarea>
-    <div id="comment-saved" class="comment-saved" aria-live="polite"></div>
-
-    {% if not backfill %}
-        <button type="button" id="wrap-btn" class="wrap-btn{% if wrapped %} wrapped{% endif %}">
-            {% if wrapped %}Day wrapped ✓{% else %}Wrap up my day{% endif %}
-        </button>
-        <div id="wrap-note" class="wrap-note{% if not wrapped %} hidden{% endif %}">
-            Your coach has read your day — the morning note is sealed and waiting.
-        </div>
-    {% endif %}
-
     <div class="footer">
         Signed in as <span class="name">{{ participant.display_name }}</span>
         {% if not is_baseline %}
@@ -161,6 +136,48 @@
                 <a href="/daily/checkin/">today</a>
             </div>
         </div>
+    {% endif %}
+
+    {% if not backfill %}
+    {# --- Coach: FAB ⟷ chat panel (shared-element expand/contract) --- #}
+    <div id="coach-scrim"></div>
+    <div id="coach" class="coach-fab{% if chat_unread %} has-unread{% endif %}"
+         role="button" tabindex="0" aria-label="Coach chat">
+        <span class="coach-fab-icon">💬</span>
+        <span class="coach-dot"></span>
+
+        <div class="coach-panel" id="coach-panel">
+            <div class="coach-head">
+                <span class="coach-title">Coach Jamie</span>
+                <button type="button" class="coach-close" id="coach-close" aria-label="Close chat">⌄</button>
+            </div>
+            <div class="coach-log" id="coach-log">
+                {% for m in chat_history %}
+                    <div class="msg msg-{{ m.role }}">
+                        <div class="msg-bubble">{{ m.text }}</div>
+                        <div class="msg-time">{{ m.at }}</div>
+                    </div>
+                {% empty %}
+                    <div class="coach-empty">Tell me anything — a note, your numbers, or ask for a change to your list.</div>
+                {% endfor %}
+            </div>
+            <form class="coach-input" id="coach-input" onsubmit="return false;">
+                <textarea id="coach-text" rows="1" placeholder="Message your coach…"></textarea>
+                <button type="submit" class="coach-send" id="coach-send" aria-label="Send">↑</button>
+            </form>
+        </div>
+    </div>
+
+    {# Load modal: the latest coach note, dimmed app behind. Tap → genie into FAB. #}
+    {% if chat_unread and latest_coach_text %}
+    <div id="coach-modal" class="coach-modal show">
+        <div class="coach-modal-card" id="coach-modal-card">
+            <div class="coach-modal-label">Coach Jamie</div>
+            <div class="coach-modal-text">{{ latest_coach_text }}</div>
+            <button type="button" class="coach-modal-ok" id="coach-modal-ok">Got it</button>
+        </div>
+    </div>
+    {% endif %}
     {% endif %}
 
     <style>
@@ -287,11 +304,20 @@
         .bonus-spinner.hidden { display: none; }
 
         /* Progress ring — the CTA. The ring IS "do I submit?" answered. */
-        .ring-wrap {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 6px 0 22px;
+        /* Compact header: greeting left, ring floats top-right (the fit fix). */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin: 4px 0 0;
+        }
+        .topbar-text { min-width: 0; }
+        .ring-mini { flex-shrink: 0; }
+        .ring-caption {
+            margin: 2px 0 10px; color: #6c7483; font-size: 0.74rem;
+            letter-spacing: 0.02em; transition: color 0.4s; text-align: left;
+        }
+        .meta-row {
+            display: flex; align-items: center; gap: 12px;
+            margin: 0 0 18px; flex-wrap: nowrap;
         }
         .ring-track { stroke: rgba(255, 255, 255, 0.08); }
         .ring-arc {
@@ -311,39 +337,27 @@
             font-family: inherit;
         }
         #ring.full .ring-text { fill: #8fe08f; }
-        .ring-caption {
-            margin-top: 8px;
-            color: #6c7483;
-            font-size: 0.78rem;
-            letter-spacing: 0.02em;
-            transition: color 0.4s;
-        }
-        .ring-caption.done-today {
-            color: #8fe08f;
-            font-size: 0.95rem;
-            font-weight: 600;
-        }
+        .ring-caption.done-today { color: #8fe08f; font-weight: 600; }
 
-        /* Streak chip — the dopamine Amy asked for; Spencer finally sees his
-           run too. One small element by the ring, not a new section. */
+        /* Streak chip — compact, sits in the slim meta row beside the week strip. */
         .streak-chip {
-            display: inline-flex; align-items: center; gap: 5px;
-            margin-top: 12px; padding: 5px 12px 5px 9px;
+            display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+            padding: 5px 11px 5px 8px;
             background: rgba(255, 145, 60, 0.12);
             border: 1px solid rgba(255, 145, 60, 0.35);
             border-radius: 999px;
             animation: streak-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         @keyframes streak-pop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-        .streak-flame { font-size: 1rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,0.5)); }
-        .streak-num { color: #ffb060; font-weight: 700; font-size: 1rem; }
-        .streak-word { color: #c79a6a; font-size: 0.78rem; }
+        .streak-flame { font-size: 0.95rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,0.5)); }
+        .streak-num { color: #ffb060; font-weight: 700; font-size: 0.95rem; }
 
-        /* Week strip — progress over time at a glance */
+        /* Week strip — sits inline in the meta row, fills remaining width. */
         .week-strip {
             display: flex;
-            gap: 10px;
-            margin-top: 14px;
+            gap: 8px;
+            flex: 1;
+            justify-content: space-between;
         }
         .week-day {
             display: flex;
@@ -522,6 +536,141 @@
         .dev-nav { display: flex; gap: 12px; align-items: center; }
         .dev-nav a { color: #1a1a2e; text-decoration: underline; }
         .dev-label { font-weight: 700; letter-spacing: 0.05em; }
+
+        /* ===== Coach: FAB ⟷ chat panel (shared-element expand/contract) ===== */
+        #coach-scrim {
+            position: fixed; inset: 0; background: rgba(10, 12, 24, 0.55);
+            opacity: 0; pointer-events: none; transition: opacity 0.28s ease; z-index: 1400;
+        }
+        #coach-scrim.show { opacity: 1; pointer-events: auto; }
+
+        .coach-fab {
+            position: fixed; right: 18px; z-index: 1500;
+            bottom: calc(18px + env(safe-area-inset-bottom));
+            width: 56px; height: 56px; border-radius: 28px;
+            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            /* The morph: same element animates to a full panel. */
+            transition: width 0.32s cubic-bezier(0.2,0.7,0.2,1),
+                        height 0.32s cubic-bezier(0.2,0.7,0.2,1),
+                        border-radius 0.32s cubic-bezier(0.2,0.7,0.2,1),
+                        right 0.32s cubic-bezier(0.2,0.7,0.2,1),
+                        bottom 0.32s cubic-bezier(0.2,0.7,0.2,1),
+                        background 0.3s ease;
+            overflow: hidden;
+        }
+        .coach-fab-icon { font-size: 1.5rem; transition: opacity 0.15s; }
+        .coach-dot {
+            position: absolute; top: 11px; right: 11px; width: 11px; height: 11px;
+            border-radius: 50%; background: #ff5a5a; border: 2px solid #1a1a2e;
+            display: none;
+        }
+        .coach-fab.has-unread .coach-dot { display: block; }
+
+        /* Expanded state: the FAB becomes a near-full-screen chat panel. */
+        .coach-fab.open {
+            width: min(440px, calc(100vw - 24px));
+            height: min(80vh, 620px);
+            right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+            border-radius: 20px;
+            background: linear-gradient(165deg, #20223c 0%, #181f37 100%);
+            box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+            cursor: default;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .coach-fab.open .coach-fab-icon,
+        .coach-fab.open .coach-dot { opacity: 0; pointer-events: none; }
+
+        /* The panel content: hidden until open, fades in after the morph. */
+        .coach-panel {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s ease 0.12s;
+        }
+        .coach-fab.open .coach-panel { opacity: 1; pointer-events: auto; }
+
+        .coach-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.07);
+            flex-shrink: 0;
+        }
+        .coach-title { color: #ffd97a; font-weight: 600; font-size: 1rem; }
+        .coach-close {
+            background: none; border: none; color: #9aa3b2; font-size: 1.5rem;
+            line-height: 1; cursor: pointer; padding: 2px 8px;
+        }
+        .coach-log {
+            flex: 1; overflow-y: auto; padding: 14px 14px 8px;
+            display: flex; flex-direction: column; gap: 10px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .coach-empty { color: #6c7483; font-size: 0.9rem; text-align: center; margin: auto; padding: 0 20px; }
+        .msg { display: flex; flex-direction: column; max-width: 82%; }
+        .msg-coach { align-self: flex-start; align-items: flex-start; }
+        .msg-user { align-self: flex-end; align-items: flex-end; }
+        .msg-bubble {
+            padding: 9px 13px; border-radius: 15px; font-size: 0.95rem; line-height: 1.4;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        .msg-coach .msg-bubble {
+            background: rgba(255,255,255,0.07); color: #e8eaed; border-bottom-left-radius: 5px;
+        }
+        .msg-user .msg-bubble {
+            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
+            color: #1a1a2e; border-bottom-right-radius: 5px; font-weight: 500;
+        }
+        .msg-time { font-size: 0.66rem; color: #6c7483; margin-top: 3px; padding: 0 4px; }
+        .msg.typing .msg-bubble { color: #9aa3b2; font-style: italic; }
+
+        .coach-input {
+            display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
+            padding-bottom: calc(10px + env(safe-area-inset-bottom));
+            border-top: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+        }
+        #coach-text {
+            flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 18px; color: #e8eaed; font-family: inherit; font-size: 0.95rem;
+            padding: 9px 14px; resize: none; max-height: 110px; line-height: 1.35;
+        }
+        #coach-text:focus { outline: none; border-color: rgba(255,217,122,0.5); }
+        .coach-send {
+            flex-shrink: 0; width: 38px; height: 38px; border-radius: 19px; border: none;
+            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%); color: #1a1a2e;
+            font-size: 1.2rem; font-weight: 700; cursor: pointer;
+        }
+        .coach-send:disabled { opacity: 0.4; cursor: default; }
+
+        /* Load modal: latest coach note, app dimmed; tap → genie into the FAB. */
+        .coach-modal {
+            position: fixed; inset: 0; z-index: 1600; display: flex;
+            align-items: center; justify-content: center; padding: 28px;
+            background: rgba(10, 12, 24, 0.6);
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+        }
+        .coach-modal.show { opacity: 1; pointer-events: auto; }
+        .coach-modal-card {
+            background: linear-gradient(165deg, #232544 0%, #1b2540 100%);
+            border: 1px solid rgba(255,217,122,0.3); border-radius: 18px;
+            padding: 20px; max-width: 380px; width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            transition: transform 0.4s cubic-bezier(0.4,0,0.6,1), opacity 0.4s ease;
+        }
+        .coach-modal.genie .coach-modal-card { transform: translate(40vw, 60vh) scale(0.05); opacity: 0; }
+        .coach-modal-label {
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: #ffd97a; margin-bottom: 8px;
+        }
+        .coach-modal-text { font-size: 1.02rem; line-height: 1.5; color: #e8eaed; margin-bottom: 18px; }
+        .coach-modal-ok {
+            width: 100%; background: rgba(255,217,122,0.2); border: 1px solid rgba(255,217,122,0.5);
+            color: #ffd97a; padding: 12px; border-radius: 11px; font-size: 0.95rem;
+            font-weight: 600; cursor: pointer;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .coach-fab, .coach-modal-card { transition: opacity 0.2s ease; }
+        }
     </style>
 
     <script>
@@ -743,47 +892,96 @@
             // Initial status (no "saved" tick — nothing was just tapped).
             updateStatus();
 
-            // Wrap-up button: finalize the day, summon the coach now.
-            var wrapBtn = document.getElementById("wrap-btn");
-            var wrapNote = document.getElementById("wrap-note");
-            if (wrapBtn) {
-                wrapBtn.addEventListener("click", function() {
-                    wrapBtn.classList.add("working");
-                    wrapBtn.classList.remove("stale");
-                    wrapBtn.textContent = "Coach is reading your day…";
-                    fetch("/daily/wrap/" + qs, {
-                        method: "POST",
-                        credentials: "same-origin",
-                        headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
-                        body: "{}",
-                    })
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        wrapBtn.classList.remove("working");
-                        if (data && data.ok && data.note_ready) {
-                            wrapBtn.classList.add("wrapped");
-                            wrapBtn.textContent = "Day wrapped ✓";
-                            if (wrapNote) wrapNote.classList.remove("hidden");
-                            fireConfetti(wrapBtn);
-                        } else {
-                            wrapBtn.textContent = "Wrap up my day";
-                        }
-                    })
-                    .catch(function() {
-                        wrapBtn.classList.remove("working");
-                        wrapBtn.textContent = "Wrap up my day";
-                    });
+            // ===== Coach chat: FAB ⟷ panel, send/receive, modal genie =====
+            var coach = document.getElementById("coach");
+            var coachScrim = document.getElementById("coach-scrim");
+            var coachLog = document.getElementById("coach-log");
+            var coachText = document.getElementById("coach-text");
+            var coachSend = document.getElementById("coach-send");
+            var coachForm = document.getElementById("coach-input");
+
+            function scrollChatBottom() { if (coachLog) coachLog.scrollTop = coachLog.scrollHeight; }
+            function openCoach() {
+                if (!coach) return;
+                coach.classList.add("open");
+                coach.classList.remove("has-unread");
+                if (coachScrim) coachScrim.classList.add("show");
+                setTimeout(function () { scrollChatBottom(); if (coachText) coachText.focus(); }, 200);
+            }
+            function closeCoach() {
+                if (!coach) return;
+                coach.classList.remove("open");
+                if (coachScrim) coachScrim.classList.remove("show");
+                if (coachText) coachText.blur();
+            }
+            if (coach) {
+                // Tap the FAB (but not inside the open panel) → open.
+                coach.addEventListener("click", function (e) {
+                    if (!coach.classList.contains("open")) { openCoach(); }
                 });
-                // Any tap after wrapping marks the wrap stale (re-press to update).
-                document.addEventListener("click", function(e) {
-                    if (!wrapBtn.classList.contains("wrapped")) return;
-                    var t = e.target;
-                    if (t.closest && (t.closest(".question.live") || t.id === "comment")) {
-                        wrapBtn.classList.add("stale");
-                        wrapBtn.textContent = "Update wrap-up";
-                        wrapBtn.classList.remove("wrapped");
-                        if (wrapNote) wrapNote.classList.add("hidden");
-                    }
+                var closeBtn = document.getElementById("coach-close");
+                if (closeBtn) closeBtn.addEventListener("click", function (e) { e.stopPropagation(); closeCoach(); });
+                if (coachScrim) coachScrim.addEventListener("click", closeCoach);
+            }
+
+            function addMsg(role, text, time) {
+                var wrap = document.createElement("div");
+                wrap.className = "msg msg-" + role;
+                var b = document.createElement("div"); b.className = "msg-bubble"; b.textContent = text;
+                wrap.appendChild(b);
+                if (time) { var t = document.createElement("div"); t.className = "msg-time"; t.textContent = time; wrap.appendChild(t); }
+                var empty = coachLog.querySelector(".coach-empty"); if (empty) empty.remove();
+                coachLog.appendChild(wrap); scrollChatBottom();
+                return wrap;
+            }
+            function nowTime() {
+                var d = new Date(); var h = d.getHours(); var m = d.getMinutes();
+                var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
+                return h + ":" + (m < 10 ? "0" : "") + m + " " + ap;
+            }
+
+            function sendCoach() {
+                var text = (coachText.value || "").trim();
+                if (!text) return;
+                addMsg("user", text, nowTime());
+                coachText.value = ""; coachText.style.height = "auto";
+                coachSend.disabled = true;
+                var typing = addMsg("coach", "typing…", "");
+                typing.classList.add("typing");
+                fetch("/daily/chat/" + qs, {
+                    method: "POST", credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+                    body: JSON.stringify({ text: text }),
+                }).then(function (r) { return r.json(); })
+                  .then(function (d) {
+                      typing.remove(); coachSend.disabled = false;
+                      if (d && d.ok && d.reply) { addMsg("coach", d.reply.text, nowTime()); }
+                      else { addMsg("coach", "Saved your note. (Coach is offline right now.)", nowTime()); }
+                      // A reply may have changed the checklist — refresh to reflect it.
+                  }).catch(function () {
+                      typing.remove(); coachSend.disabled = false;
+                      addMsg("coach", "Couldn't reach the coach — your note is saved, try again in a sec.", nowTime());
+                  });
+            }
+            if (coachForm) coachForm.addEventListener("submit", function (e) { e.preventDefault(); sendCoach(); });
+            if (coachText) {
+                // Grow the textarea; Enter sends, Shift+Enter newlines.
+                coachText.addEventListener("input", function () {
+                    coachText.style.height = "auto";
+                    coachText.style.height = Math.min(110, coachText.scrollHeight) + "px";
+                });
+                coachText.addEventListener("keydown", function (e) {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCoach(); }
+                });
+            }
+
+            // Load modal → "Got it" genies the card down into the FAB.
+            var modal = document.getElementById("coach-modal");
+            var modalOk = document.getElementById("coach-modal-ok");
+            if (modal && modalOk) {
+                modalOk.addEventListener("click", function () {
+                    modal.classList.add("genie");
+                    setTimeout(function () { modal.classList.remove("show", "genie"); }, 420);
                 });
             }
 
@@ -810,34 +1008,7 @@
                 .catch(function() { showSpinner(false); });
             }
 
-            // Comment autosave on blur + debounce while typing
-            var commentEl = document.getElementById("comment");
-            var savedEl = document.getElementById("comment-saved");
-            var saveTimer = null;
-            function saveComment() {
-                fetch("/daily/comment/" + qs, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-CSRFToken": CSRF,
-                    },
-                    body: JSON.stringify({comment: commentEl.value}),
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (data && data.ok) {
-                        savedEl.textContent = "Saved";
-                        savedEl.classList.add("visible");
-                        setTimeout(function() { savedEl.classList.remove("visible"); }, 1500);
-                    }
-                });
-            }
-            commentEl.addEventListener("blur", saveComment);
-            commentEl.addEventListener("input", function() {
-                clearTimeout(saveTimer);
-                saveTimer = setTimeout(saveComment, 2000);
-            });
+            // (The comment box was replaced by the coach chat above.)
 
             // --- Metrics quick-entry autosave (only present for Spencer-types) ---
             var metricsSaved = document.getElementById("metrics-saved");

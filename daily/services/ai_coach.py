@@ -635,3 +635,84 @@ def generate_suggestion(
     )).quantize(Decimal("0.000001"))
 
     return suggestion_text, proposed_questions, proposed_bonus, model, cost
+
+
+CHAT_SYSTEM_PROMPT = """You are Coach Jamie in a LIVE chat with the user inside
+their daily check-in app. This is a real-time message thread, not the overnight
+note. Reply like a sharp, warm coach texting back — brief (1-3 sentences),
+specific, never preachy. No greetings like "Hi"/"Hey [name]" on every message;
+just talk.
+
+You can see: today's checklist (what's done/skipped), their logged metrics
+(weight, grip, pain, etc.), recent days, and the conversation so far.
+
+What the chat is for:
+- They log notes and numbers here ("weight 184, grip up", "couldn't do nutrition
+  today, Father's Day pie"). Acknowledge naturally and usefully.
+- They give feedback and make requests ("change my walk to 15 min", "too easy",
+  "swap the protein item"). When they ask for a checklist change, CONFIRM you'll
+  make it in plain words — the app applies it separately.
+- They ask questions. Answer concisely from their data; never invent facts.
+
+If their logs show structured self-programmed training, stay out of prescribing
+workouts — your lane is the unmanaged margins (recovery, sleep, fueling,
+measurement, sun, stress) and being a thoughtful sounding board.
+
+Keep it human and short. This is a text thread, not an essay."""
+
+
+def chat_reply(participant_name, checklist, today_states, metrics_summary,
+               recent_summary, history):
+    """Generate a live coach chat reply. `history` is a list of
+    {"role": "user"|"coach", "text": str} in chronological order (the last item
+    is the user's new message). Returns (reply_text, model, cost) or None."""
+    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
+    if not api_key:
+        return None
+    try:
+        import openai
+    except ImportError:
+        return None
+
+    context_lines = [f"User: {participant_name}", "", "Today's checklist:"]
+    for q in checklist:
+        st = today_states.get(q["key"], "untouched")
+        context_lines.append(f"  [{st}] {q['label']}")
+    if metrics_summary:
+        context_lines += ["", "Their logged metrics (recent):", metrics_summary]
+    if recent_summary:
+        context_lines += ["", "Recent days:", recent_summary]
+    context = "\n".join(context_lines)
+
+    messages = [
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+        {"role": "system", "content": "Context for this conversation:\n" + context},
+    ]
+    # Map our roles to OpenAI roles (coach → assistant).
+    for m in history[-20:]:
+        messages.append({
+            "role": "assistant" if m["role"] == "coach" else "user",
+            "content": m["text"],
+        })
+
+    model = "deepseek-chat"
+    try:
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+        resp = client.chat.completions.create(
+            model=model, messages=messages, max_tokens=220, temperature=0.7,
+        )
+    except Exception as exc:
+        logger.exception("daily.ai_coach.chat_reply failed: %s", exc)
+        return None
+
+    text = (resp.choices[0].message.content or "").strip()
+    if not text:
+        return None
+    usage = getattr(resp, "usage", None)
+    it = getattr(usage, "prompt_tokens", None) if usage else _estimate_tokens(context)
+    ot = getattr(usage, "completion_tokens", None) if usage else _estimate_tokens(text)
+    cost = Decimal(str(
+        (it / 1_000_000) * DEEPSEEK_INPUT_USD_PER_1M
+        + (ot / 1_000_000) * DEEPSEEK_OUTPUT_USD_PER_1M
+    )).quantize(Decimal("0.000001"))
+    return text, model, cost

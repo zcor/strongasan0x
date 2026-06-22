@@ -267,6 +267,27 @@ def checkin(request):
             parent = note.applied_version.derived_from
             note_core_changed = parent is None or parent.questions != note.applied_version.questions
 
+    # The morning note becomes the first coach CHAT message of the day, so it
+    # lives in the conversation thread (not a separate card). Seed it once.
+    from .models import CoachChatMessage
+    chat_history = []
+    chat_unread = False
+    if not backfill:
+        if note and not CoachChatMessage.objects.filter(suggestion=note).exists():
+            CoachChatMessage.objects.create(
+                participant=participant, role=CoachChatMessage.ROLE_COACH,
+                text=note.suggestion_text, date=today, suggestion=note,
+            )
+        chat_history = [
+            {"role": m.role, "text": m.text, "at": m.created_at.strftime("%-I:%M %p")}
+            for m in _chat_history(participant)
+        ]
+        # "Unread" = the most recent message is from the coach (a fresh note or
+        # a reply the user hasn't opened the chat to see). Drives the FAB dot
+        # and the load modal.
+        chat_unread = bool(chat_history) and chat_history[-1]["role"] == "coach"
+        latest_coach_text = chat_history[-1]["text"] if chat_unread else ""
+
     core_items = [
         {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
         for q in render_version.questions
@@ -338,6 +359,9 @@ def checkin(request):
         "week": week,
         "note": note,
         "note_was_applied": note_core_changed,
+        "chat_history": chat_history,
+        "chat_unread": chat_unread,
+        "latest_coach_text": locals().get("latest_coach_text", ""),
         "core_items": core_items,
         "bonus_items": bonus_items,
         # Reveal bonus once threshold hit — or keep visible if any bonus
@@ -704,6 +728,110 @@ def _run_coach(check_in_id: int, refinement: str = ""):
         model_name=model_name,
         cost_usd=cost_usd,
     )
+
+
+# --- Coach chat (live two-way; successor to the comment box) ----------------
+
+ADMIN_TELEGRAM_ID = 1234982301  # CurveCap — gets a DM for each user chat message
+
+
+def _notify_admin_of_message(participant, text):
+    """Best-effort Telegram DM to the admin so feedback is never missed (the
+    comment box used to be read by hand; chat keeps that). Never raises."""
+    token = getattr(settings, "TELEGRAM_BOT_TOKEN", "") or ""
+    if not token:
+        return
+    try:
+        import requests
+        msg = f"💬 {participant.display_name}: {text[:400]}"
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": ADMIN_TELEGRAM_ID, "text": msg},
+            timeout=5,
+        )
+    except Exception:
+        logger.warning("daily: admin chat notify failed", exc_info=True)
+
+
+def _metrics_summary(participant):
+    """Compact recent-metrics string for chat context, or ''."""
+    from .models import DailyMetric, DailyMetricReading
+    metrics = list(DailyMetric.objects.filter(participant=participant, is_active=True))
+    if not metrics:
+        return ""
+    lines = []
+    for m in metrics:
+        last = (DailyMetricReading.objects.filter(metric=m).order_by("-date").first())
+        if last:
+            lines.append(f"  {m.label}: {last.value} ({last.date})")
+    return "\n".join(lines)
+
+
+def _chat_history(participant, limit=40):
+    from .models import CoachChatMessage
+    msgs = list(
+        CoachChatMessage.objects.filter(participant=participant).order_by("-created_at")[:limit]
+    )
+    msgs.reverse()
+    return msgs
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def chat_send(request):
+    """User sends a chat message → save it, notify admin, generate + save a
+    live coach reply, return the reply."""
+    from .models import CoachChatMessage
+    from .services.ai_coach import chat_reply
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return JsonResponse({"ok": False, "error": "empty"}, status=400)
+    if len(text) > 2000:
+        text = text[:2000]
+
+    user_msg = CoachChatMessage.objects.create(
+        participant=participant, role=CoachChatMessage.ROLE_USER, text=text, date=today,
+    )
+    _notify_admin_of_message(participant, text)
+    user_msg.notified = True
+    user_msg.save(update_fields=["notified"])
+
+    # Build context + history and get a live reply.
+    version = participant.get_or_create_current_checklist()
+    ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    states = ci.answers_by_key() if ci else {}
+    recent = DailyCheckIn.objects.filter(
+        participant=participant, date__lt=today
+    ).order_by("-date")[:3]
+    recent_summary = "; ".join(
+        f"{r.date}: {r.score}/{len(r.checklist_version.questions)}" for r in recent
+    )
+    history = [
+        {"role": m.role, "text": m.text} for m in _chat_history(participant)
+    ]
+    result = chat_reply(
+        participant.display_name, list(version.questions), states,
+        _metrics_summary(participant), recent_summary, history,
+    )
+    if result is None:
+        reply_text = "Got it — logged. (Coach is offline right now, but I saved your note.)"
+        model = ""
+    else:
+        reply_text, model, _cost = result
+    coach_msg = CoachChatMessage.objects.create(
+        participant=participant, role=CoachChatMessage.ROLE_COACH,
+        text=reply_text, date=today,
+    )
+    return JsonResponse({
+        "ok": True,
+        "reply": {"text": coach_msg.text, "at": coach_msg.created_at.isoformat()},
+    })
 
 
 # --- PWA (installable home-screen app) -------------------------------------
