@@ -183,9 +183,53 @@ else
     rm -f "${TMP_S2}"; echo "ERROR: secret sudoers validation failed" >&2; exit 1
 fi
 
+# 4) The ox-run wrapper: runs an ALLOWLISTED management command on demand.
+#    The allowlist is baked into the wrapper (NOT passed by the caller), so the
+#    agent can run only these specific, safe one-off jobs — not arbitrary
+#    `manage.py` (which would be code execution as zcor). Extra args after the
+#    command name are passed through (e.g. --participant 10).
+RUN_WRAPPER="${WRAPPER_DIR}/ox-run"
+RUN_SUDOERS="/etc/sudoers.d/ox-run-claude"
+echo "Writing wrapper ${RUN_WRAPPER}..."
+cat > "${RUN_WRAPPER}" <<RUN_EOF
+#!/bin/bash
+# ox-run CMD [args...] — run ONE allowlisted Django management command as the
+# repo owner. Allowlist is hardcoded here; the caller cannot run anything else.
+set -euo pipefail
+REPO="${REPO}"
+PY="\$REPO/ox-env/bin/python"
+CMD="\${1:-}"; shift || true
+case "\$CMD" in
+    send_daily_badges|backfill_metrics)
+        ;;   # allowed
+    *)
+        echo "ERROR: '\$CMD' is not an allowlisted command" >&2
+        echo "Allowed: send_daily_badges, backfill_metrics" >&2
+        exit 1 ;;
+esac
+exec sudo -u ${REPO_OWNER} "\$PY" "\$REPO/manage.py" "\$CMD" "\$@"
+RUN_EOF
+chown root:root "${RUN_WRAPPER}"; chmod 755 "${RUN_WRAPPER}"
+echo "  ✓ run wrapper installed"
+
+echo "Writing sudoers drop-in ${RUN_SUDOERS}..."
+TMP_S3="$(mktemp)"
+cat > "${TMP_S3}" <<SUDOERS3_EOF
+# Lets ${AGENT_USER} run allowlisted mgmt commands via the vetted wrapper only.
+${AGENT_USER} ALL=(root) NOPASSWD: ${RUN_WRAPPER}
+SUDOERS3_EOF
+if visudo -cf "${TMP_S3}"; then
+    install -o root -g root -m 0440 "${TMP_S3}" "${RUN_SUDOERS}"
+    rm -f "${TMP_S3}"
+    echo "  ✓ run sudoers drop-in installed"
+else
+    rm -f "${TMP_S3}"; echo "ERROR: run sudoers validation failed" >&2; exit 1
+fi
+
 echo ""
 echo "=== DONE ==="
 echo "Deploy:      sudo -n ${WRAPPER}"
 echo "Set secret:  sudo -n ${SECRET_WRAPPER} KEY VALUE"
+echo "Run command: sudo -n ${RUN_WRAPPER} {send_daily_badges|backfill_metrics} [args]"
 echo "Crons:       edit deploy/crontab.ox in the repo, then deploy"
-echo "The agent now owns strongasan0x deploys + secrets + crons unattended."
+echo "The agent now owns strongasan0x deploys + secrets + crons + vetted runs."
