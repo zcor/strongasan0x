@@ -324,3 +324,65 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f"Push sub for {self.participant} ({self.endpoint[:40]}…)"
+
+
+class DailyMetric(models.Model):
+    """A metric DEFINITION for one participant (e.g. bodyweight, grip_left,
+    back_pain). Per-participant by design: a participant with no metrics shows
+    no metric UI at all — the persona branch (Spencer-the-data-logger vs.
+    Amy-the-simple) falls out of whether rows exist, no flags needed.
+
+    SCALE metrics (0-10, like pain) and number metrics (weight, grip) share one
+    shape. AM/PM readings live on the reading's `slot`, not here.
+    """
+
+    KIND_NUMBER = "number"   # weight, grip — a decimal
+    KIND_SCALE = "scale"     # 0-10 (pain, readiness)
+    KIND_CHOICES = [(KIND_NUMBER, "Number"), (KIND_SCALE, "Scale (0-10)")]
+
+    participant = models.ForeignKey(
+        DailyParticipant, on_delete=models.CASCADE, related_name="metrics"
+    )
+    key = models.CharField(max_length=40)         # slug, stable
+    label = models.CharField(max_length=60)       # "Bodyweight", "Grip (left)"
+    unit = models.CharField(max_length=12, blank=True)  # "lbs", "/10", ""
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=KIND_NUMBER)
+    # Does this metric take morning + evening readings (e.g. pain)?
+    has_am_pm = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("participant", "key")]
+        ordering = ["sort_order", "id"]
+
+    def __str__(self):
+        return f"{self.label} ({self.participant})"
+
+
+class DailyMetricReading(models.Model):
+    """One logged value for a metric on a date. `slot` distinguishes morning
+    vs. evening for has_am_pm metrics ('' for single-reading metrics). Clean
+    longitudinal data → charts are a trivial (date, value) read later."""
+
+    SLOT_NONE = ""
+    SLOT_AM = "am"
+    SLOT_PM = "pm"
+
+    metric = models.ForeignKey(
+        DailyMetric, on_delete=models.CASCADE, related_name="readings"
+    )
+    date = models.DateField()
+    slot = models.CharField(max_length=2, default=SLOT_NONE)  # '', 'am', 'pm'
+    value = models.DecimalField(max_digits=7, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("metric", "date", "slot")]
+        indexes = [models.Index(fields=["metric", "date"])]
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.metric.label} {self.date}{('/' + self.slot) if self.slot else ''}: {self.value}"
