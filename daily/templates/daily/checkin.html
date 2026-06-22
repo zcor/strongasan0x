@@ -105,6 +105,27 @@
         <div id="bonus-spinner" class="bonus-spinner hidden">Coach is finding your next one…</div>
     </div>
 
+    {% if metric_fields %}
+        {# Metrics quick-entry — only for participants with active metrics. #}
+        {# Absent entirely for everyone else, so the simple screen stays simple. #}
+        <div class="metrics-block" id="metrics-block">
+            <div class="metrics-label">Today's numbers <span class="metrics-saved" id="metrics-saved"></span></div>
+            <div class="metrics-grid">
+                {% for f in metric_fields %}
+                    <label class="metric-field">
+                        <span class="metric-name">{{ f.label }}</span>
+                        <span class="metric-input-wrap">
+                            <input type="number" inputmode="decimal" step="any"
+                                   class="metric-input" data-key="{{ f.key }}" data-slot="{{ f.slot }}"
+                                   value="{{ f.value }}" placeholder="—">
+                            {% if f.unit %}<span class="metric-unit">{{ f.unit }}</span>{% endif %}
+                        </span>
+                    </label>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
     <label class="comment-label" for="comment">Tell your coach anything (optional — saves automatically)</label>
     <textarea id="comment" name="comment" placeholder="'Swap an item', 'too easy', 'hurt my shoulder', today's numbers, how the day felt…">{{ comment }}</textarea>
     <div id="comment-saved" class="comment-saved" aria-live="polite"></div>
@@ -402,6 +423,35 @@
             transition: opacity 0.3s;
         }
         .comment-saved.visible { opacity: 1; }
+
+        /* Metrics quick-entry (Spencer persona; absent for everyone else) */
+        .metrics-block { margin-top: 20px; }
+        .metrics-label {
+            display: block; color: #9aa3b2; font-size: 0.85rem; margin-bottom: 8px;
+        }
+        .metrics-saved { color: #78c878; font-size: 0.78rem; opacity: 0; transition: opacity 0.3s; }
+        .metrics-saved.visible { opacity: 1; }
+        .metrics-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+        }
+        .metric-field { display: flex; flex-direction: column; gap: 4px; }
+        .metric-name { color: #c7cdd9; font-size: 0.82rem; }
+        .metric-input-wrap {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px; padding: 0 10px;
+        }
+        .metric-input-wrap:focus-within { border-color: rgba(255, 217, 122, 0.5); }
+        .metric-input {
+            flex: 1; background: none; border: none; color: #e8eaed;
+            font-size: 1rem; padding: 11px 0; min-width: 0; font-family: inherit;
+            -moz-appearance: textfield;
+        }
+        .metric-input::-webkit-outer-spin-button,
+        .metric-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .metric-input:focus { outline: none; }
+        .metric-unit { color: #6c7483; font-size: 0.82rem; flex-shrink: 0; }
 
         /* Confetti (fires on 5th core done) */
         .confetti-piece {
@@ -787,6 +837,33 @@
             commentEl.addEventListener("input", function() {
                 clearTimeout(saveTimer);
                 saveTimer = setTimeout(saveComment, 2000);
+            });
+
+            // --- Metrics quick-entry autosave (only present for Spencer-types) ---
+            var metricsSaved = document.getElementById("metrics-saved");
+            function flashMetricSaved() {
+                if (!metricsSaved) return;
+                metricsSaved.textContent = "saved";
+                metricsSaved.classList.add("visible");
+                setTimeout(function () { metricsSaved.classList.remove("visible"); }, 1200);
+            }
+            function saveMetric(input) {
+                fetch("/daily/metric/" + qs, {
+                    method: "POST", credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+                    body: JSON.stringify({
+                        key: input.dataset.key, slot: input.dataset.slot, value: input.value.trim(),
+                    }),
+                }).then(function (r) { return r.json(); })
+                  .then(function (d) { if (d && d.ok) flashMetricSaved(); })
+                  .catch(function () {});
+            }
+            document.querySelectorAll(".metric-input").forEach(function (input) {
+                var last = input.value;
+                input.addEventListener("blur", function () {
+                    if (input.value === last) return;     // no change → no save
+                    last = input.value; saveMetric(input);
+                });
             });
 
             // --- PWA notifications/badge: ask at JOIN, not after a full day ---

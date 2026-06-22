@@ -333,6 +333,7 @@ def checkin(request):
         "first_visit": first_visit and not backfill,
         "intro_replayable": intro_replayable,
         "intro_version": 1,  # bump to re-show the intro to everyone once
+        "metric_fields": _metric_fields(participant, today) if not backfill else [],
         "wrapped": wrapped,
         "week": week,
         "note": note,
@@ -821,6 +822,66 @@ def remaining_core_today(participant: DailyParticipant, today: date) -> int:
         return total
     done = ci.score  # done among CORE
     return max(0, total - done)
+
+
+def _metric_fields(participant, today):
+    """Build the metric quick-entry fields for the participant's active metrics,
+    prefilled with today's readings. Returns [] when the participant has no
+    metrics (Amy) → the template renders nothing. Each field is a flat dict the
+    template can loop over; has_am_pm metrics yield two fields (am, pm)."""
+    from .models import DailyMetric, DailyMetricReading
+    metrics = list(DailyMetric.objects.filter(participant=participant, is_active=True))
+    if not metrics:
+        return []
+    readings = {
+        (r.metric_id, r.slot): r.value
+        for r in DailyMetricReading.objects.filter(metric__in=metrics, date=today)
+    }
+    fields = []
+    for m in metrics:
+        slots = [("am", " (AM)"), ("pm", " (PM)")] if m.has_am_pm else [("", "")]
+        for slot, suffix in slots:
+            val = readings.get((m.id, slot))
+            fields.append({
+                "key": m.key, "slot": slot,
+                "label": m.label + suffix, "unit": m.unit, "kind": m.kind,
+                "value": ("" if val is None else (f"{val:.2f}".rstrip("0").rstrip("."))),
+            })
+    return fields
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def save_metric(request):
+    """Upsert one metric reading. Body (JSON): key, slot, value (or "" to clear)."""
+    from .models import DailyMetric, DailyMetricReading
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+    key = str(body.get("key", "")).strip()
+    slot = str(body.get("slot", "")).strip()
+    raw = str(body.get("value", "")).strip()
+    try:
+        metric = DailyMetric.objects.get(participant=participant, key=key, is_active=True)
+    except DailyMetric.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "unknown_metric"}, status=400)
+    if slot not in (DailyMetricReading.SLOT_NONE, DailyMetricReading.SLOT_AM, DailyMetricReading.SLOT_PM):
+        return JsonResponse({"ok": False, "error": "bad_slot"}, status=400)
+    if raw == "":
+        DailyMetricReading.objects.filter(metric=metric, date=today, slot=slot).delete()
+        return JsonResponse({"ok": True, "cleared": True})
+    try:
+        from decimal import Decimal, InvalidOperation
+        value = Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return JsonResponse({"ok": False, "error": "bad_value"}, status=400)
+    DailyMetricReading.objects.update_or_create(
+        metric=metric, date=today, slot=slot, defaults={"value": value},
+    )
+    return JsonResponse({"ok": True})
 
 
 @require_daily_actor
