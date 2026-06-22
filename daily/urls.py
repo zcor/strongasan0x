@@ -20,4 +20,6 @@ urlpatterns = [
     path("push/subscribe/", views.push_subscribe, name="push_subscribe"),
     # Metrics (Spencer-persona): log a number reading.
     path("metric/", views.save_metric, name="save_metric"),
+    # Coach chat: live two-way messaging (successor to the comment box).
+    path("chat/", views.chat_send, name="chat_send"),
 ]

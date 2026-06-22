@@ -386,3 +386,37 @@ class DailyMetricReading(models.Model):
 
     def __str__(self):
         return f"{self.metric.label} {self.date}{('/' + self.slot) if self.slot else ''}: {self.value}"
+
+
+class CoachChatMessage(models.Model):
+    """One message in the live coach chat — the bidirectional successor to the
+    old comment box (the #1 feedback channel). User messages are now THE way
+    people talk to the coach; coach messages are its replies (including the
+    migrated morning note). Full history is just an ordered query of these.
+    """
+
+    ROLE_USER = "user"
+    ROLE_COACH = "coach"
+    ROLE_CHOICES = [(ROLE_USER, "User"), (ROLE_COACH, "Coach")]
+
+    participant = models.ForeignKey(
+        DailyParticipant, on_delete=models.CASCADE, related_name="chat_messages"
+    )
+    role = models.CharField(max_length=8, choices=ROLE_CHOICES)
+    text = models.TextField()
+    date = models.DateField()  # the check-in day this belongs to
+    # If a coach reply changed the checklist, link the suggestion that did it.
+    suggestion = models.ForeignKey(
+        "CoachSuggestion", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="chat_messages",
+    )
+    # Was a user message already DM'd to the admin? (avoid double-notify)
+    notified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["participant", "created_at"])]
+
+    def __str__(self):
+        return f"{self.role} @ {self.created_at:%Y-%m-%d %H:%M}: {self.text[:40]}"
