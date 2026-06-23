@@ -23,6 +23,9 @@ METRIC_DEFS = [
     ("grip_left", "Grip (left)", "lbs", DailyMetric.KIND_NUMBER, False, 20),
     ("grip_right", "Grip (right)", "lbs", DailyMetric.KIND_NUMBER, False, 30),
     ("back_pain", "Back pain", "/10", DailyMetric.KIND_SCALE, True, 40),
+    ("bp_systolic", "Blood pressure (systolic)", "mmHg", DailyMetric.KIND_NUMBER, False, 50),
+    ("bp_diastolic", "Blood pressure (diastolic)", "mmHg", DailyMetric.KIND_NUMBER, False, 60),
+    ("resting_hr", "Resting heart rate", "bpm", DailyMetric.KIND_NUMBER, False, 70),
 ]
 
 
@@ -45,9 +48,24 @@ def parse_comment(text):
     gr = re.search(r"right[:\s-]*([0-9]+(?:\.[0-9]+)?)", text, re.I)
     if gr and _dec(gr.group(1)) is not None:
         out[("grip_right", "")] = _dec(gr.group(1))
+    # Blood pressure: "129/78" (systolic/diastolic). Match sys 80-220, dia
+    # 40-140 so it doesn't catch pain ("2/10") or dates. Do BP BEFORE pain so
+    # the BP numerator isn't mistaken for a pain score.
+    bp = re.search(r"\b(\d{2,3})\s*/\s*(\d{2,3})\b", text)
+    if bp:
+        s, d = int(bp.group(1)), int(bp.group(2))
+        if 80 <= s <= 220 and 40 <= d <= 140:
+            out[("bp_systolic", "")] = _dec(s)
+            out[("bp_diastolic", "")] = _dec(d)
+    # Resting / heart rate: "64 bpm", "hr 64", "heart rate 64".
+    hr = re.search(r"(?:(?:resting\s*)?(?:heart\s*rate|hr)\s*[:\-]?\s*(\d{2,3})|(\d{2,3})\s*bpm)", text, re.I)
+    if hr:
+        val = hr.group(1) or hr.group(2)
+        if val and 30 <= int(val) <= 220:
+            out[("resting_hr", "")] = _dec(val)
     # Back pain: "2/10 morning ... 3/10 ... end of day". Take first as AM,
-    # second (if any) as PM. Best-effort — pain mentions vary.
-    pains = re.findall(r"([0-9]+)\s*/\s*10", text)
+    # second (if any) as PM. Best-effort — pain mentions vary. Only "/10".
+    pains = re.findall(r"([0-9]+)\s*/\s*10\b", text)
     if pains:
         out[("back_pain", "am")] = _dec(pains[0])
         if len(pains) > 1:
