@@ -87,21 +87,30 @@ class Command(BaseCommand):
         except DailyParticipant.DoesNotExist:
             self.stderr.write(f"No participant {pid}"); return
 
-        checkins = list(
-            DailyCheckIn.objects.filter(participant=participant)
-            .exclude(comment="").order_by("date")
-        )
-        # Which metric keys actually appear in their history?
+        # Parse metric numbers from BOTH sources: legacy check-in comments AND
+        # user chat messages (the chat replaced the comment box, so new data —
+        # like Spencer's BP/HR — flows through chat now). Merge by date; a later
+        # source for the same (key, slot) on a date wins (chat is more recent).
+        from daily.models import CoachChatMessage
         seen_keys = set()
         parsed_by_date = {}
-        for ci in checkins:
-            vals = parse_comment(ci.comment or "")
-            if vals:
-                parsed_by_date[ci.date] = vals
-                seen_keys.update(k for (k, _slot) in vals)
+
+        def _absorb(d, vals):
+            if not vals:
+                return
+            bucket = parsed_by_date.setdefault(d, {})
+            bucket.update(vals)
+            seen_keys.update(k for (k, _slot) in vals)
+
+        for ci in DailyCheckIn.objects.filter(participant=participant).exclude(comment="").order_by("date"):
+            _absorb(ci.date, parse_comment(ci.comment or ""))
+        for m in CoachChatMessage.objects.filter(
+            participant=participant, role=CoachChatMessage.ROLE_USER
+        ).order_by("created_at"):
+            _absorb(m.date, parse_comment(m.text or ""))
 
         if not seen_keys:
-            self.stdout.write("No parseable metrics in this participant's comments.")
+            self.stdout.write("No parseable metrics in this participant's comments or chat.")
             return
 
         self.stdout.write(f"Found metrics: {sorted(seen_keys)} across {len(parsed_by_date)} days")
