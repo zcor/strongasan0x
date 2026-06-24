@@ -5,4 +5,7 @@
 
 # Daily home-screen badge push: refresh each device's "to-dos left" count at
 # 06:30, while the app is closed (the only way to update an iOS PWA badge).
-30 6 * * * zcor /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py send_daily_badges >> /var/log/ox-daily-badges.log 2>&1
+# Logs to the repo's logs/ dir — zcor CANNOT write /var/log (root-owned 755),
+# which silently failed the redirect and stopped this cron from EVER running.
+# mkdir -p inline so it self-heals whether or not the dir exists yet.
+30 6 * * * zcor mkdir -p /var/www/ox/strongasan0x/logs && /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py send_daily_badges >> /var/www/ox/strongasan0x/logs/cron-badges.log 2>&1
