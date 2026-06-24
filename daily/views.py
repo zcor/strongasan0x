@@ -102,6 +102,8 @@ def token_login(request, token):
     if participant is None:
         return render(request, "daily/token_invalid.html", status=404)
 
+    # Apply ?theme= here so it survives the redirect to /daily/checkin/.
+    _resolve_theme(request)
     return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 
@@ -151,6 +153,23 @@ def _morning_note(participant: DailyParticipant, today: date):
             # exists, otherwise nothing.
             return qs.exclude(rationale="seed_welcome").first()
     return note
+
+
+VALID_THEMES = {"gauge", "steel"}
+
+
+def _resolve_theme(request) -> str:
+    """Theme for the page: ?theme=gauge|steel sets + remembers it in session;
+    ?theme=default clears it. Empty string = the original look. Lets us A/B the
+    visual identity on-device without per-user config."""
+    raw = request.GET.get("theme")
+    if raw is not None:
+        # Store "" for default/anything-invalid; a real theme otherwise.
+        chosen = raw if raw in VALID_THEMES else ""
+        request.session["daily_theme"] = chosen
+        request.session.modified = True
+        return chosen
+    return request.session.get("daily_theme", "") or ""
 
 
 def _get_or_create_today(participant: DailyParticipant, today: date, version: ChecklistVersion) -> DailyCheckIn:
@@ -354,6 +373,7 @@ def checkin(request):
         "first_visit": first_visit and not backfill,
         "intro_replayable": intro_replayable,
         "intro_version": 1,  # bump to re-show the intro to everyone once
+        "theme": _resolve_theme(request),
         "metric_fields": _metric_fields(participant, today) if not backfill else [],
         "wrapped": wrapped,
         "week": week,
