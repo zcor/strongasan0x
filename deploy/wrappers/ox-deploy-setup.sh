@@ -200,7 +200,7 @@ REPO="${REPO}"
 PY="\$REPO/ox-env/bin/python"
 CMD="\${1:-}"; shift || true
 case "\$CMD" in
-    send_daily_badges|backfill_metrics|backfill_chat)
+    send_daily_badges|backfill_metrics|backfill_chat|add_conditional_bonus)
         ;;   # allowed: badge push + idempotent backfills
     *)
         echo "ERROR: '\$CMD' is not an allowlisted command" >&2
