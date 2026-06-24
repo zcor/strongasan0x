@@ -895,27 +895,14 @@ def service_worker(request):
     no signal.
     """
     js = """\
-const OFFLINE_MSG = 'You\\'re offline — reconnect to check in.';
 self.addEventListener('install', (e) => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;            // never intercept POSTs (taps/saves)
-  if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req).catch(() =>
-        new Response(
-          '<!doctype html><meta name=viewport content="width=device-width">' +
-          '<body style="font-family:-apple-system;background:#1a1a2e;color:#e8eaed;' +
-          'display:flex;align-items:center;justify-content:center;height:100vh;' +
-          'margin:0;text-align:center;padding:24px">' + OFFLINE_MSG + '</body>',
-          { headers: { 'Content-Type': 'text/html' } }
-        )
-      )
-    );
-  }
-  // Static assets (icons): cache-bust-free passthrough, fall back to cache nothing.
-});
+// Deliberately NO fetch handler. An earlier version intercepted every
+// navigation with event.respondWith(fetch(...)) to show an offline message —
+// but that put the SW in the critical path of every page load with no timeout,
+// so a slow/cold SW wakeup stalled loads (~20s observed). The page is fast on
+// its own; the SW only needs to exist for installability + push. Not proxying
+// navigations = the browser loads directly, instantly.
 
 // --- Web Push: the morning badge ---
 // The server pushes {count: N} each morning. We set the home-screen badge to
