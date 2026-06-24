@@ -120,7 +120,7 @@
             <br>
             <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" style="display:inline;">
                 {% csrf_token %}
-                <button type="submit" style="background:none;border:none;color:#6c7483;text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:4px 0;margin-top:4px;">
+                <button type="submit" style="background:none;border:none;color:var(--text-faint);text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:4px 0;margin-top:4px;">
                     Reset to original 5 questions
                 </button>
             </form>
@@ -200,16 +200,16 @@
         .question.done .row-main {
             background: rgba(120, 200, 120, 0.18);
             border-color: rgba(120, 200, 120, 0.55);
-            color: #c8f0c8;
+            color: var(--done-bright);
         }
         .question.skip .row-main {
             opacity: 0.45;
         }
         .question.skip .row-label { text-decoration: line-through; }
         .question.done .check-icon {
-            background: #78c878;
-            border-color: #78c878;
-            color: #14391a;
+            background: var(--done);
+            border-color: var(--done);
+            color: var(--on-done);
         }
         /* Delight: a satisfying pop when an item is checked done (Amy wanted
            tap feedback). Class added by JS for one animation cycle. */
@@ -226,7 +226,7 @@
         }
         /* Swap tap: the word spins + the row gives a little shuffle so the
            "deal me another" action feels physical (Amy's swap-animation ask). */
-        .skip-btn.spinning { animation: swap-spin 0.5s ease; color: #ffd97a !important; }
+        .skip-btn.spinning { animation: swap-spin 0.5s ease; color: var(--accent) !important; }
         @keyframes swap-spin {
             0%   { transform: translateY(-50%) rotate(0deg); }
             100% { transform: translateY(-50%) rotate(360deg); }
@@ -261,7 +261,7 @@
             font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.12em;
-            color: #ffd97a;
+            color: var(--accent);
             margin-bottom: 10px;
         }
         .question.bonus .row-main {
@@ -282,7 +282,7 @@
             opacity: 0.45;
             pointer-events: none;
         }
-        .question.swapping .skip-btn { color: #ffd97a; }
+        .question.swapping .skip-btn { color: var(--accent); }
         .question.swapped-in .row-main {
             border-color: rgba(255, 217, 122, 0.6);
             background: rgba(255, 217, 122, 0.1);
@@ -297,7 +297,7 @@
             margin-top: 12px;
             padding: 14px;
             text-align: center;
-            color: #9aa3b2;
+            color: var(--text-dim);
             font-size: 0.9rem;
             font-style: italic;
         }
@@ -312,7 +312,7 @@
         .topbar-text { min-width: 0; }
         .ring-mini { flex-shrink: 0; }
         .ring-caption {
-            margin: 2px 0 10px; color: #6c7483; font-size: 0.74rem;
+            margin: 2px 0 10px; color: var(--text-faint); font-size: 0.74rem;
             letter-spacing: 0.02em; transition: color 0.4s; text-align: left;
         }
         .meta-row {
@@ -321,23 +321,23 @@
         }
         .ring-track { stroke: rgba(255, 255, 255, 0.08); }
         .ring-arc {
-            stroke: #78c878;
+            stroke: var(--done);
             stroke-dasharray: 301.6;   /* 2πr, r=48 */
             stroke-dashoffset: 301.6;  /* starts empty */
             transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s, filter 0.4s;
         }
         #ring.full .ring-arc {
-            stroke: #8fe08f;
+            stroke: var(--done-bright);
             filter: drop-shadow(0 0 8px rgba(120, 200, 120, 0.55));
         }
         .ring-text {
-            fill: #e8eaed;
+            fill: var(--text);
             font-size: 1.5rem;
             font-weight: 700;
             font-family: inherit;
         }
-        #ring.full .ring-text { fill: #8fe08f; }
-        .ring-caption.done-today { color: #8fe08f; font-weight: 600; }
+        #ring.full .ring-text { fill: var(--done-bright); }
+        .ring-caption.done-today { color: var(--done-bright); font-weight: 600; }
 
         /* Streak chip — compact, sits in the slim meta row beside the week strip. */
         .streak-chip {
@@ -395,7 +395,7 @@
             font-size: 0.72rem;
             text-transform: uppercase;
             letter-spacing: 0.1em;
-            color: #ffd97a;
+            color: var(--accent);
             margin-bottom: 6px;
             font-weight: 700;
         }
@@ -404,25 +404,25 @@
         .intro-dismiss {
             background: rgba(255, 217, 122, 0.18);
             border: 1px solid rgba(255, 217, 122, 0.4);
-            color: #ffd97a;
+            color: var(--accent);
             padding: 7px 16px;
             border-radius: 8px;
             font-size: 0.85rem;
             cursor: pointer;
         }
         .week-day.today { opacity: 1; }
-        .week-day.today .week-label { color: #e8eaed; font-weight: 700; }
+        .week-day.today .week-label { color: var(--text); font-weight: 700; }
         .mini-track { stroke: rgba(255, 255, 255, 0.08); }
         .mini-arc {
-            stroke: #78c878;
+            stroke: var(--done);
             transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .mini-arc.mini-full {
-            stroke: #8fe08f;
+            stroke: var(--done-bright);
             filter: drop-shadow(0 0 3px rgba(120, 200, 120, 0.6));
         }
         .week-label {
-            color: #6c7483;
+            color: var(--text-faint);
             font-size: 0.62rem;
             letter-spacing: 0.04em;
         }
@@ -430,15 +430,15 @@
         /* Metrics quick-entry (Spencer persona; absent for everyone else) */
         .metrics-block { margin-top: 20px; }
         .metrics-label {
-            display: block; color: #9aa3b2; font-size: 0.85rem; margin-bottom: 8px;
+            display: block; color: var(--text-dim); font-size: 0.85rem; margin-bottom: 8px;
         }
-        .metrics-saved { color: #78c878; font-size: 0.78rem; opacity: 0; transition: opacity 0.3s; }
+        .metrics-saved { color: var(--done); font-size: 0.78rem; opacity: 0; transition: opacity 0.3s; }
         .metrics-saved.visible { opacity: 1; }
         .metrics-grid {
             display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
         }
         .metric-field { display: flex; flex-direction: column; gap: 4px; }
-        .metric-name { color: #c7cdd9; font-size: 0.82rem; }
+        .metric-name { color: var(--text-dim); font-size: 0.82rem; }
         .metric-input-wrap {
             display: flex; align-items: center; gap: 6px;
             background: rgba(255, 255, 255, 0.05);
@@ -447,14 +447,14 @@
         }
         .metric-input-wrap:focus-within { border-color: rgba(255, 217, 122, 0.5); }
         .metric-input {
-            flex: 1; background: none; border: none; color: #e8eaed;
+            flex: 1; background: none; border: none; color: var(--text);
             font-size: 1rem; padding: 11px 0; min-width: 0; font-family: inherit;
             -moz-appearance: textfield;
         }
         .metric-input::-webkit-outer-spin-button,
         .metric-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         .metric-input:focus { outline: none; }
-        .metric-unit { color: #6c7483; font-size: 0.82rem; flex-shrink: 0; }
+        .metric-unit { color: var(--text-faint); font-size: 0.82rem; flex-shrink: 0; }
 
         /* Confetti (fires on 5th core done) */
         .confetti-piece {
@@ -500,7 +500,7 @@
             position: fixed; right: 18px; z-index: 1500;
             bottom: calc(18px + env(safe-area-inset-bottom));
             width: 56px; height: 56px; border-radius: 28px;
-            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
+            background: var(--accent-grad);
             box-shadow: 0 8px 24px rgba(0,0,0,0.45);
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
@@ -547,9 +547,9 @@
             padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.07);
             flex-shrink: 0;
         }
-        .coach-title { color: #ffd97a; font-weight: 600; font-size: 1rem; }
+        .coach-title { color: var(--accent); font-weight: 600; font-size: 1rem; }
         .coach-close {
-            background: none; border: none; color: #9aa3b2; font-size: 1.5rem;
+            background: none; border: none; color: var(--text-dim); font-size: 1.5rem;
             line-height: 1; cursor: pointer; padding: 2px 8px;
         }
         .coach-log {
@@ -557,7 +557,7 @@
             display: flex; flex-direction: column; gap: 10px;
             -webkit-overflow-scrolling: touch;
         }
-        .coach-empty { color: #6c7483; font-size: 0.9rem; text-align: center; margin: auto; padding: 0 20px; }
+        .coach-empty { color: var(--text-faint); font-size: 0.9rem; text-align: center; margin: auto; padding: 0 20px; }
         .msg { display: flex; flex-direction: column; max-width: 82%; }
         .msg-coach { align-self: flex-start; align-items: flex-start; }
         .msg-user { align-self: flex-end; align-items: flex-end; }
@@ -566,14 +566,14 @@
             white-space: pre-wrap; word-break: break-word;
         }
         .msg-coach .msg-bubble {
-            background: rgba(255,255,255,0.07); color: #e8eaed; border-bottom-left-radius: 5px;
+            background: rgba(255,255,255,0.07); color: var(--text); border-bottom-left-radius: 5px;
         }
         .msg-user .msg-bubble {
-            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
-            color: #1a1a2e; border-bottom-right-radius: 5px; font-weight: 500;
+            background: var(--accent-grad);
+            color: var(--on-accent); border-bottom-right-radius: 5px; font-weight: 500;
         }
-        .msg-time { font-size: 0.66rem; color: #6c7483; margin-top: 3px; padding: 0 4px; }
-        .msg.typing .msg-bubble { color: #9aa3b2; font-style: italic; }
+        .msg-time { font-size: 0.66rem; color: var(--text-faint); margin-top: 3px; padding: 0 4px; }
+        .msg.typing .msg-bubble { color: var(--text-dim); font-style: italic; }
 
         .coach-input {
             display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
@@ -582,13 +582,13 @@
         }
         #coach-text {
             flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
-            border-radius: 18px; color: #e8eaed; font-family: inherit; font-size: 0.95rem;
+            border-radius: 18px; color: var(--text); font-family: inherit; font-size: 0.95rem;
             padding: 9px 14px; resize: none; max-height: 110px; line-height: 1.35;
         }
         #coach-text:focus { outline: none; border-color: rgba(255,217,122,0.5); }
         .coach-send {
             flex-shrink: 0; width: 38px; height: 38px; border-radius: 19px; border: none;
-            background: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%); color: #1a1a2e;
+            background: var(--accent-grad); color: var(--on-accent);
             font-size: 1.2rem; font-weight: 700; cursor: pointer;
         }
         .coach-send:disabled { opacity: 0.4; cursor: default; }
@@ -611,12 +611,12 @@
         .coach-modal.genie .coach-modal-card { transform: translate(40vw, 60vh) scale(0.05); opacity: 0; }
         .coach-modal-label {
             font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
-            color: #ffd97a; margin-bottom: 8px;
+            color: var(--accent); margin-bottom: 8px;
         }
-        .coach-modal-text { font-size: 1.02rem; line-height: 1.5; color: #e8eaed; margin-bottom: 18px; }
+        .coach-modal-text { font-size: 1.02rem; line-height: 1.5; color: var(--text); margin-bottom: 18px; }
         .coach-modal-ok {
             width: 100%; background: rgba(255,217,122,0.2); border: 1px solid rgba(255,217,122,0.5);
-            color: #ffd97a; padding: 12px; border-radius: 11px; font-size: 0.95rem;
+            color: var(--accent); padding: 12px; border-radius: 11px; font-size: 0.95rem;
             font-weight: 600; cursor: pointer;
         }
 
@@ -632,7 +632,7 @@
             var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
             var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
             var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
-            var CONFETTI_COLORS = ["#78c878", "#ffd97a", "#87ceeb", "#f5b942", "#ffffff"];
+            var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "#87ceeb", "var(--accent-2)", "#ffffff"];
 
             function postItem(key, state, onOk) {
                 fetch("/daily/item/" + qs, {
