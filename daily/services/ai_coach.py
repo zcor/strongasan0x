@@ -465,11 +465,28 @@ def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
             "comment": ci.comment or "",
         }
 
+    # The chat REPLACED the comment box, so user requests ("make X a goal",
+    # "swap Y") now live in chat. Pull the user's recent chat messages so the
+    # overnight coach actually acts on them — otherwise the chat coach's
+    # "your list updates overnight" promise would be a lie.
+    chat_requests = []
+    try:
+        from daily.models import CoachChatMessage
+        since = check_in.date - __import__("datetime").timedelta(days=2)
+        msgs = CoachChatMessage.objects.filter(
+            participant=participant, role=CoachChatMessage.ROLE_USER,
+            date__gte=since, date__lte=check_in.date,
+        ).order_by("created_at")
+        chat_requests = [m.text for m in msgs if m.text.strip()]
+    except Exception:
+        chat_requests = []
+
     return {
         "participant_name": participant.display_name,
         "current_questions": list(check_in.checklist_version.questions),
         "today": _summarize(check_in),
         "recent": [_summarize(ci) for ci in recent_checkins if ci.id != check_in.id],
+        "chat_requests": chat_requests,
     }
 
 
@@ -486,6 +503,13 @@ def _format_user_prompt(context: CoachContext, refinement: Optional[str] = None)
         lines.append(f"  {state_marks.get(state, state)} — {label}")
     if today["comment"]:
         lines.append(f"Comment: {today['comment']}")
+    chat_reqs = context.get("chat_requests") or []
+    if chat_reqs:
+        lines.append("")
+        lines.append("WHAT THE USER TOLD THEIR COACH IN CHAT (act on explicit "
+                     "requests here — e.g. 'make X a goal', 'swap Y', 'too hard'):")
+        for t in chat_reqs[-10:]:
+            lines.append(f"  • {t}")
     if context["recent"]:
         lines.append("")
         lines.append(f"Last {len(context['recent'])} days (most recent first):")
@@ -650,9 +674,29 @@ What the chat is for:
 - They log notes and numbers here ("weight 184, grip up", "couldn't do nutrition
   today, Father's Day pie"). Acknowledge naturally and usefully.
 - They give feedback and make requests ("change my walk to 15 min", "too easy",
-  "swap the protein item"). When they ask for a checklist change, CONFIRM you'll
-  make it in plain words — the app applies it separately.
+  "swap the protein item"). See the CHECKLIST CHANGES rule below.
 - They ask questions. Answer concisely from their data; never invent facts.
+
+# CHECKLIST CHANGES — be scrupulously honest (this is critical)
+
+You CANNOT edit the checklist from this chat in real time. You have NO button,
+no live access to change their list right now. The overnight coach reads this
+conversation and updates the list for the NEXT day.
+
+So when they ask for a change:
+- Say you've NOTED it and their list will update with tomorrow's check-in.
+  e.g. "Got it — I'll swap that in for tomorrow." / "Noted. Your list updates
+  overnight and you'll see it in the morning."
+- NEVER say "it's updated now", "I just made the change", "it's done", "refresh
+  to see it", or "I confirmed the swap". Those are FALSE — nothing changes
+  instantly, and claiming it did destroys trust.
+- If they say "I don't see it" / "did you do it?": tell the truth — "It won't
+  show until tomorrow's list; it's queued, not instant." Do NOT pretend to
+  "check on your end" or "push it through now." You have no such ability.
+- They can change an item RIGHT NOW themselves with the "swap" button on any
+  checklist item — point them there if they want it immediately.
+
+Never invent facts, numbers, or actions. If you don't know, say so.
 
 If their logs show structured self-programmed training, stay out of prescribing
 workouts — your lane is the unmanaged margins (recovery, sleep, fueling,

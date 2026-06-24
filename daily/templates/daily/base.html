@@ -14,8 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="Daily">
     <link rel="apple-touch-icon" href="{% static 'daily/icons/icon-180.png' %}">
     <link rel="icon" type="image/png" href="{% static 'daily/icons/icon-192.png' %}">
-    {# Theme fonts — loaded NON-blocking (media=print → all onload) so the font
-       fetch never delays first paint; display=swap shows system text meanwhile. #}
+    {# Theme fonts — loaded NON-blocking (media=print, all onload); display=swap. #}
     {% if theme == "gauge" %}<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">{% endif %}
     {% if theme == "steel" %}<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">{% endif %}
     <style>
