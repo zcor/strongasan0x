@@ -81,7 +81,9 @@
         <div class="bonus-header">BONUS · optional, keep going as long as you like</div>
         <div id="bonus-items">
             {% for q in bonus_items %}
-                <div class="question live bonus {{ q.state }}" data-key="{{ q.key }}" data-state="{{ q.state }}" data-core="0">
+                <div class="question live bonus {{ q.state }}{% if q.unlock_after and not q.unlocked %} locked{% endif %}"
+                     data-key="{{ q.key }}" data-state="{{ q.state }}" data-core="0"
+                     {% if q.unlock_after %}data-unlock-after="{{ q.unlock_after }}"{% endif %}>
                     <div class="row-main" role="button" tabindex="0">
                         <span class="check-icon">✓</span>
                         <span class="row-label">{{ q.label }}</span>
@@ -271,6 +273,17 @@
         .question.bonus.done .row-main {
             background: rgba(120, 200, 120, 0.18);
             border-style: solid;
+        }
+        /* Conditional bonus: hidden until its prerequisite item is checked. */
+        .question.bonus.locked { display: none; }
+        /* The reveal moment when a conditional bonus unlocks. */
+        .question.bonus.unlocking {
+            animation: unlock-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        @keyframes unlock-in {
+            0%   { opacity: 0; transform: translateY(-10px) scale(0.96); }
+            60%  { transform: translateY(0) scale(1.02); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
         }
         /* New bonus slide-in */
         .question.new-bonus {
@@ -734,6 +747,22 @@
                 }
             }
 
+            // Conditional bonuses: reveal any locked bonus whose prerequisite
+            // (data-unlock-after) just got checked done — with an unlock pop.
+            function unlockConditionalBonuses() {
+                document.querySelectorAll('.question.bonus.locked[data-unlock-after]').forEach(function (b) {
+                    var pre = document.querySelector('.question[data-key="' + b.dataset.unlockAfter + '"]');
+                    if (pre && pre.classList.contains("done")) {
+                        b.classList.remove("locked");
+                        b.classList.add("unlocking");
+                        setTimeout(function () { b.classList.remove("unlocking"); }, 520);
+                        // Make sure the bonus section is visible to show it.
+                        var section = document.getElementById("bonus-section");
+                        if (section) section.classList.remove("hidden");
+                    }
+                });
+            }
+
             var spinner = document.getElementById("bonus-spinner");
             function showSpinner(on) {
                 if (spinner) spinner.classList.toggle("hidden", !on);
@@ -792,6 +821,7 @@
                     }
                     if (ringCredit(total) < total) { delete ringEl.dataset.celebrated; }  // re-arm if they untick
                     maybeRevealBonus();
+                    unlockConditionalBonuses();
                     // A done that may spawn a fresh bonus → show spinner.
                     var mayRefill = next === "done" && (isBonus || (row.dataset.core === "1" && coreDoneCount() >= {{ bonus_reveal_at }}));
                     if (mayRefill) showSpinner(true);

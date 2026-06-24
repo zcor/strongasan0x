@@ -314,7 +314,14 @@ def checkin(request):
     done_count = sum(1 for i in core_items if i["state"] == "done")
 
     bonus_items = [
-        {"key": q["key"], "label": q["label"], "state": states.get(q["key"], "pending")}
+        {
+            "key": q["key"], "label": q["label"],
+            "state": states.get(q["key"], "pending"),
+            # Conditional bonus: only unlocks once `unlock_after` (a core/bonus
+            # item key) is done. None = a normal, always-available bonus.
+            "unlock_after": q.get("unlock_after"),
+            "unlocked": (not q.get("unlock_after")) or states.get(q["unlock_after"]) == "done",
+        }
         for q in (render_version.bonus_questions or [])
     ]
     bonus_done = any(i["state"] != "pending" for i in bonus_items)
