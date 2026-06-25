@@ -200,11 +200,11 @@ REPO="${REPO}"
 PY="\$REPO/ox-env/bin/python"
 CMD="\${1:-}"; shift || true
 case "\$CMD" in
-    send_daily_badges|backfill_metrics|backfill_chat|add_conditional_bonus)
-        ;;   # allowed: badge push + idempotent backfills
+    send_daily_badges|backfill_metrics|backfill_chat|add_conditional_bonus|run_coach_for_all)
+        ;;   # allowed: badge push + idempotent backfills + overnight coach
     *)
         echo "ERROR: '\$CMD' is not an allowlisted command" >&2
-        echo "Allowed: send_daily_badges, backfill_metrics, backfill_chat" >&2
+        echo "Allowed: send_daily_badges, backfill_metrics, backfill_chat, add_conditional_bonus, run_coach_for_all" >&2
         exit 1 ;;
 esac
 exec sudo -u ${REPO_OWNER} "\$PY" "\$REPO/manage.py" "\$CMD" "\$@"
@@ -230,6 +230,6 @@ echo ""
 echo "=== DONE ==="
 echo "Deploy:      sudo -n ${WRAPPER}"
 echo "Set secret:  sudo -n ${SECRET_WRAPPER} KEY VALUE"
-echo "Run command: sudo -n ${RUN_WRAPPER} {send_daily_badges|backfill_metrics} [args]"
+echo "Run command: sudo -n ${RUN_WRAPPER} {send_daily_badges|backfill_metrics|run_coach_for_all|...} [args]"
 echo "Crons:       edit deploy/crontab.ox in the repo, then deploy"
 echo "The agent now owns strongasan0x deploys + secrets + crons + vetted runs."

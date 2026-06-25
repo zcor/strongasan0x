@@ -874,6 +874,59 @@
             // Initial status (no "saved" tick — nothing was just tapped).
             updateStatus();
 
+            // ===== Per-user timezone + new-local-day badge reset =====
+            // The app's day boundary must be the USER'S local day, not the
+            // server's (US/Pacific). Two halves work together:
+            //
+            //  (a) Capture: tell the server this browser's IANA timezone so the
+            //      page, streak, and the hourly badge cron all resolve "today"
+            //      in the user's own tz. Cheap + idempotent (server saves only
+            //      on change). Never blocks the app.
+            //
+            //  (b) Belt-and-suspenders: if the local date changed since we last
+            //      saw this device, force the home-screen badge to today's
+            //      fresh remaining count RIGHT NOW — so a new day reads correct
+            //      on first open even before the cron fires (or if it missed
+            //      this user's tz). updateStatus() already paints from the
+            //      server-rendered (now tz-correct) DOM; this guarantees it on
+            //      the day rollover regardless of cron timing.
+            (function tzAndDayReset() {
+                if (BACKFILL) return;  // viewing a past day — not "today"
+                var localDate;
+                try {
+                    // en-CA renders YYYY-MM-DD; this is the user's LOCAL date.
+                    localDate = new Date().toLocaleDateString("en-CA");
+                } catch (e) {
+                    localDate = "";
+                }
+
+                // (a) Capture the browser timezone (best-effort).
+                try {
+                    var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
+                    if (tz) {
+                        fetch("/daily/timezone/", {
+                            method: "POST",
+                            credentials: "same-origin",
+                            headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+                            body: JSON.stringify({ timezone: tz }),
+                        }).catch(function () { /* tz capture is optional — never block */ });
+                    }
+                } catch (e) { /* no Intl → skip; server falls back to its tz */ }
+
+                // (b) New-local-day → force the badge to the fresh count now.
+                // updateStatus() (already defined + just called above) recomputes
+                // the remaining count from the server-rendered DOM and pushes it
+                // to the badge; calling it on the rollover guarantees the badge
+                // is correct on first open of a new local day.
+                var LAST_DAY_KEY = "daily_last_local_date";
+                var seen = null;
+                try { seen = localStorage.getItem(LAST_DAY_KEY); } catch (e) {}
+                if (localDate && seen !== localDate) {
+                    updateStatus();   // repaint ring + badge to today's fresh remaining
+                    try { localStorage.setItem(LAST_DAY_KEY, localDate); } catch (e) {}
+                }
+            })();
+
             // ===== Coach chat: FAB ⟷ panel, send/receive, modal genie =====
             var coach = document.getElementById("coach");
             var coachScrim = document.getElementById("coach-scrim");

@@ -18,6 +18,9 @@ urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
     # Web Push: device registers here so the morning job can badge it.
     path("push/subscribe/", views.push_subscribe, name="push_subscribe"),
+    # Per-user timezone capture: the browser POSTs its IANA tz on app load so
+    # the day boundary (today/streak/badge) is the user's local day.
+    path("timezone/", views.set_timezone, name="set_timezone"),
     # Metrics (Spencer-persona): log a number reading.
     path("metric/", views.save_metric, name="save_metric"),
     # Coach chat: live two-way messaging (successor to the comment box).
