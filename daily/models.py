@@ -43,6 +43,11 @@ class DailyParticipant(models.Model):
         help_text="Populated for warriors; null for external participants",
     )
     is_active = models.BooleanField(default=True)
+    # IANA timezone name (e.g. "America/New_York"), captured from the browser
+    # on app load. Blank = not yet captured → fall back to the server tz. This
+    # makes the app's day boundary (today, streak, badge reset) each user's
+    # LOCAL day, not the single server tz. See daily/services/tz.py.
+    timezone = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -316,6 +321,11 @@ class PushSubscription(models.Model):
     auth = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
     last_pushed_at = models.DateTimeField(null=True, blank=True)
+    # The participant's LOCAL date we last sent the once-a-day "morning badge"
+    # for. The hourly badge job fires the morning push at ~6am in each user's
+    # OWN timezone and uses this to push exactly once per local day (so a
+    # non-Pacific user's badge resets on THEIR morning, not the server's).
+    last_badge_date = models.DateField(null=True, blank=True)
     # Soft fail counter — a few transient errors are fine; many = prune.
     fail_count = models.IntegerField(default=0)
 

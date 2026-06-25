@@ -39,17 +39,28 @@ from .models import (
     DailyCheckInAnswer,
     DailyParticipant,
 )
-from .services.ai_coach import build_coach_context, generate_suggestion
 from .services.checklist import apply_pending_mutations, revert_to_baseline
+from .services.coach_runner import coach_prior_day, run_coach
+from .services.tz import participant_today
 
 logger = logging.getLogger(__name__)
 
-RECENT_DAYS = 7
 BONUS_REVEAL_AT = 3  # bonus section appears once this many core items are done
 
 
+def _real_today(request) -> date:
+    """The current LOCAL date for THIS request's participant (their timezone),
+    falling back to the server tz when there's no participant on the request
+    (e.g. token_login, which runs before @require_daily_actor) or no stored tz.
+    This is the app's true "today" — every day-boundary decision keys off it."""
+    participant = getattr(request, "daily_participant", None)
+    if participant is not None:
+        return participant_today(participant)
+    return timezone.localdate()
+
+
 def _resolve_today(request) -> date:
-    real_today = timezone.localdate()
+    real_today = _real_today(request)
     # Prod-safe backfill: ?day=YYYY-MM-DD views/edits a PAST day (max 7
     # back, never future). Lets users log evening items (screens-off,
     # magnesium) the next morning via the week strip.
@@ -75,7 +86,7 @@ def _resolve_today(request) -> date:
 
 def _is_backfill(request) -> bool:
     """True when viewing a past day via ?day= (no coaching/bonus there)."""
-    return _resolve_today(request) < timezone.localdate() and bool(request.GET.get("day"))
+    return _resolve_today(request) < _real_today(request) and bool(request.GET.get("day"))
 
 
 def _as_of_query(request) -> str:
@@ -108,22 +119,12 @@ def token_login(request, token):
 
 
 def ensure_prior_day_coached(participant: DailyParticipant, today: date) -> bool:
-    """If the most recent check-in BEFORE today has no coach suggestion,
-    run the coach for it synchronously (once). Only the most recent —
-    we don't burn API calls coaching a backlog of missed days.
-
-    Returns True if a coach run happened (caller may want to log).
+    """Lazy in-request coach: if the most recent check-in BEFORE today has no
+    coach suggestion, run the coach for it synchronously (once). Thin wrapper
+    over the shared coach_runner so the lazy path and the nightly cron share
+    one implementation. Returns True if a coach run happened.
     """
-    prior = (
-        DailyCheckIn.objects
-        .filter(participant=participant, date__lt=today)
-        .order_by("-date")
-        .first()
-    )
-    if prior is None or prior.suggestions.exists():
-        return False
-    _run_coach(prior.id)
-    return True
+    return coach_prior_day(participant, today)
 
 
 def _morning_note(participant: DailyParticipant, today: date):
@@ -357,7 +358,7 @@ def checkin(request):
         ).select_related("checklist_version").prefetch_related("answers")
     }
     MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
-    real_today = timezone.localdate()
+    real_today = _real_today(request)
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         ci = by_date.get(d)
@@ -720,41 +721,10 @@ def reset_to_baseline_view(request):
 
 
 def _run_coach(check_in_id: int, refinement: str = ""):
-    """Synchronous coach run (mod_wsgi-safe — daemon threads are not)."""
-    try:
-        check_in = DailyCheckIn.objects.select_related(
-            "participant", "checklist_version"
-        ).get(id=check_in_id)
-    except DailyCheckIn.DoesNotExist:
-        logger.warning("daily._run_coach: check_in %s vanished", check_in_id)
-        return
-
-    participant = check_in.participant
-    since = check_in.date - timedelta(days=RECENT_DAYS)
-    recent = list(
-        DailyCheckIn.objects
-        .filter(participant=participant, date__gte=since, date__lte=check_in.date)
-        .select_related("checklist_version")
-        .prefetch_related("answers")
-        .order_by("-date")
-    )
-
-    context = build_coach_context(participant, check_in, recent)
-    result = generate_suggestion(context, refinement=refinement or None)
-    if result is None:
-        return
-    suggestion_text, proposed_questions, proposed_bonus, model_name, cost_usd = result
-
-    CoachSuggestion.objects.create(
-        check_in=check_in,
-        suggestion_text=suggestion_text,
-        proposed_questions=proposed_questions,
-        proposed_bonus=proposed_bonus,
-        rationale=f"refinement: {refinement}" if refinement else "",
-        status=CoachSuggestion.STATUS_PENDING,
-        model_name=model_name,
-        cost_usd=cost_usd,
-    )
+    """Synchronous coach run (mod_wsgi-safe — daemon threads are not).
+    Delegates to the shared coach_runner; kept as a wrapper because other
+    views (wrap_day) call it by this name."""
+    run_coach(check_in_id, refinement=refinement)
 
 
 # --- Coach chat (live two-way; successor to the comment box) ----------------
@@ -1048,4 +1018,26 @@ def push_subscribe(request):
         endpoint=endpoint,
         defaults={"participant": participant, "p256dh": p256dh, "auth": auth, "fail_count": 0},
     )
+    return JsonResponse({"ok": True})
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def set_timezone(request):
+    """Capture the participant's browser timezone (IANA name) so the app's day
+    boundary — today, streak, badge reset — is THEIR local day, not the server
+    tz. The page POSTs Intl.DateTimeFormat().resolvedOptions().timeZone on load;
+    we save it only when it's a valid IANA name and actually changed."""
+    from .services.tz import is_valid_iana
+    participant = request.daily_participant
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+    tz = str(body.get("timezone", "")).strip()
+    if not is_valid_iana(tz):
+        return JsonResponse({"ok": False, "error": "bad_timezone"}, status=400)
+    if participant.timezone != tz:
+        participant.timezone = tz
+        participant.save(update_fields=["timezone", "updated_at"])
     return JsonResponse({"ok": True})

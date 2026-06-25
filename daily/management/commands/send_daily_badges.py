@@ -1,9 +1,19 @@
 """Send each subscribed device a Web Push that refreshes the home-screen badge
-to today's remaining to-do count. Run by a morning cron — this is the only way
-to update an iOS PWA badge while the app is closed.
+to today's remaining to-do count. Run by cron — this is the only way to update
+an iOS PWA badge while the app is closed.
+
+Two modes:
+  - default: push EVERY subscription right now (manual/testing, or a single
+    fixed-time daily cron in a one-timezone world).
+  - --hourly: the production mode. Run this every hour; it pushes a given
+    device only when it's the MORNING hour in THAT participant's own timezone,
+    and only once per their local day. So a non-Pacific user's badge resets to
+    the fresh count on THEIR morning, not the server's. (Fixes the 06:30-UTC
+    bug where the badge reflected the prior, already-cleared day.)
 
 Usage:
-    python manage.py send_daily_badges            # all active subscriptions
+    python manage.py send_daily_badges                    # push everyone now
+    python manage.py send_daily_badges --hourly           # per-user-tz morning push
     python manage.py send_daily_badges --participant 11   # one person (testing)
     python manage.py send_daily_badges --dry-run          # compute, don't send
 
@@ -19,11 +29,13 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from daily.models import PushSubscription
+from daily.services.tz import participant_local_hour, participant_today
 from daily.views import remaining_core_today
 
 logger = logging.getLogger(__name__)
 
 MAX_FAILS = 5  # prune a subscription after this many consecutive failures
+MORNING_HOUR = 6  # local hour at which the once-a-day morning badge fires
 
 
 class Command(BaseCommand):
@@ -34,6 +46,9 @@ class Command(BaseCommand):
                             help="Only this participant id (testing).")
         parser.add_argument("--dry-run", action="store_true",
                             help="Compute counts and log, but send nothing.")
+        parser.add_argument("--hourly", action="store_true",
+                            help="Per-user-tz mode: push only at the morning hour "
+                                 "in each participant's own timezone, once per local day.")
 
     def handle(self, *args, **opts):
         pub = getattr(settings, "VAPID_PUBLIC_KEY", "")
@@ -49,15 +64,28 @@ class Command(BaseCommand):
             self.stderr.write("pywebpush not installed — nothing sent.")
             return
 
-        today = timezone.localdate()
+        hourly = opts["hourly"]
         qs = PushSubscription.objects.select_related("participant").all()
         if opts["participant"] is not None:
             qs = qs.filter(participant_id=opts["participant"])
 
-        sent = pruned = skipped = 0
+        sent = pruned = skipped = held = 0
         for sub in qs:
+            # Each user's "today" is resolved in THEIR timezone (fixes the badge
+            # reflecting the prior, already-cleared day for non-Pacific users).
+            local_today = participant_today(sub.participant)
+
+            # In hourly mode, only the morning hour in this user's tz fires, and
+            # only once per their local day. Outside that window, hold.
+            if hourly and (
+                participant_local_hour(sub.participant) != MORNING_HOUR
+                or sub.last_badge_date == local_today
+            ):
+                held += 1
+                continue
+
             try:
-                count = remaining_core_today(sub.participant, today)
+                count = remaining_core_today(sub.participant, local_today)
             except Exception as exc:  # never let one bad participant break the run
                 logger.exception("send_daily_badges: count failed for %s: %s", sub.participant_id, exc)
                 skipped += 1
@@ -79,8 +107,9 @@ class Command(BaseCommand):
                     timeout=10,
                 )
                 sub.last_pushed_at = timezone.now()
+                sub.last_badge_date = local_today  # mark this local day done (hourly dedupe)
                 sub.fail_count = 0
-                sub.save(update_fields=["last_pushed_at", "fail_count"])
+                sub.save(update_fields=["last_pushed_at", "last_badge_date", "fail_count"])
                 sent += 1
             except WebPushException as exc:
                 status = getattr(getattr(exc, "response", None), "status_code", None)
@@ -102,5 +131,5 @@ class Command(BaseCommand):
                 skipped += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f"Done. sent={sent} pruned={pruned} skipped={skipped}"
+            f"Done. sent={sent} pruned={pruned} skipped={skipped} held={held}"
         ))
