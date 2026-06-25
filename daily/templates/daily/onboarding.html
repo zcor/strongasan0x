@@ -1,0 +1,237 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Welcome · Daily{% endblock %}
+
+{% block content %}
+<style>
+    .ob {
+        max-width: 460px; margin: 0 auto; padding: 8px 18px 40px;
+        box-sizing: border-box; color: var(--text); font-family: var(--font-body);
+    }
+    .ob-head { text-align: center; margin: 18px 0 22px; }
+    .ob-title {
+        font-family: var(--font-display); font-size: 1.5rem; font-weight: 700;
+        margin: 0 0 6px; letter-spacing: -0.01em;
+    }
+    .ob-sub { color: var(--text-dim); font-size: 0.95rem; margin: 0; }
+    /* Progress dots */
+    .ob-dots { display: flex; gap: 7px; justify-content: center; margin: 0 0 24px; }
+    .ob-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--panel-border); transition: background .25s, transform .25s;
+    }
+    .ob-dot.active { background: var(--accent); transform: scale(1.25); }
+    .ob-dot.done { background: var(--accent-2); }
+
+    .ob-step { display: none; }
+    .ob-step.show { display: block; animation: obIn .28s ease; }
+    @keyframes obIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .ob-q {
+        font-family: var(--font-display); font-size: 1.18rem; font-weight: 600;
+        margin: 0 0 16px; text-align: center;
+    }
+    .ob-opts { display: flex; flex-direction: column; gap: 11px; }
+    .ob-opt {
+        display: flex; align-items: center; gap: 13px; width: 100%;
+        text-align: left; cursor: pointer;
+        background: var(--panel); border: 1.5px solid var(--panel-border);
+        border-radius: var(--radius); padding: 15px 16px;
+        color: var(--text); font-size: 1.02rem; font-family: var(--font-body);
+        transition: border-color .15s, background .15s, transform .08s;
+    }
+    .ob-opt:active { transform: scale(0.985); }
+    .ob-opt.sel { border-color: var(--accent); background: var(--done-bg); }
+    .ob-opt .ob-emoji { font-size: 1.5rem; line-height: 1; flex: 0 0 auto; }
+    .ob-opt .ob-otext { display: flex; flex-direction: column; gap: 2px; }
+    .ob-opt .ob-olabel { font-weight: 600; }
+    .ob-opt .ob-osub { color: var(--text-dim); font-size: 0.85rem; }
+
+    .ob-writein { margin-top: 13px; }
+    .ob-writein input {
+        width: 100%; box-sizing: border-box; background: var(--panel);
+        border: 1.5px solid var(--panel-border); border-radius: var(--radius);
+        padding: 12px 14px; color: var(--text); font-size: 1rem;
+        font-family: var(--font-body);
+    }
+    .ob-writein input::placeholder { color: var(--text-faint); }
+    .ob-writein input:focus { outline: none; border-color: var(--accent); }
+
+    .ob-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+    .ob-back {
+        background: none; border: none; color: var(--text-dim);
+        font-size: 0.95rem; cursor: pointer; padding: 8px 4px;
+    }
+    .ob-back[hidden] { visibility: hidden; }
+    .ob-next {
+        background: var(--accent-grad); color: var(--on-accent); border: none;
+        border-radius: var(--radius); padding: 12px 22px; font-weight: 700;
+        font-size: 1rem; cursor: pointer; transition: opacity .15s, transform .08s;
+    }
+    .ob-next:active { transform: scale(0.97); }
+    .ob-next:disabled { opacity: 0.4; cursor: default; }
+
+    .ob-skip {
+        display: block; margin: 26px auto 0; background: none; border: none;
+        color: var(--text-faint); font-size: 0.9rem; cursor: pointer;
+        text-decoration: underline; text-underline-offset: 3px;
+    }
+</style>
+
+<div class="ob" id="ob">
+    <div class="ob-head">
+        <h1 class="ob-title">Welcome 👋</h1>
+        <p class="ob-sub">A few quick taps and your daily checklist is ready.</p>
+    </div>
+
+    <div class="ob-dots">
+        <span class="ob-dot active" data-dot="0"></span>
+        <span class="ob-dot" data-dot="1"></span>
+        <span class="ob-dot" data-dot="2"></span>
+    </div>
+
+    {% for q in questions %}
+    <div class="ob-step{% if forloop.first %} show{% endif %}" data-step="{{ forloop.counter0 }}" data-qid="{{ q.id }}">
+        <div class="ob-q">{{ q.prompt }}</div>
+        <div class="ob-opts" data-opts>
+            {% for opt in q.options %}
+            <button type="button" class="ob-opt" data-value="{{ opt.value }}">
+                {% if opt.emoji %}<span class="ob-emoji">{{ opt.emoji }}</span>{% endif %}
+                <span class="ob-otext">
+                    <span class="ob-olabel">{{ opt.label }}</span>
+                    {% if opt.sub %}<span class="ob-osub">{{ opt.sub }}</span>{% endif %}
+                </span>
+            </button>
+            {% endfor %}
+        </div>
+        {% if q.allow_write_in %}
+        <div class="ob-writein">
+            <input type="text" maxlength="120" data-writein
+                   placeholder="Anything else? (optional)">
+        </div>
+        {% endif %}
+        <div class="ob-nav">
+            <button type="button" class="ob-back"{% if forloop.first %} hidden{% endif %}>← Back</button>
+            <button type="button" class="ob-next" disabled>{% if forloop.last %}Set up my checklist{% else %}Next{% endif %}</button>
+        </div>
+    </div>
+    {% endfor %}
+
+    <button type="button" class="ob-skip" id="ob-skip">Skip — just give me the basics</button>
+</div>
+
+<script>
+(function () {
+    "use strict";
+    var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    var ob = document.getElementById("ob");
+    var steps = Array.prototype.slice.call(ob.querySelectorAll(".ob-step"));
+    var dots = Array.prototype.slice.call(ob.querySelectorAll(".ob-dot"));
+
+    // Branch-specific Q2 option sets (Q2 starts empty; we inject after Q1).
+    var Q2_BY_BRANCH = JSON.parse('{{ q2_branch_json|escapejs }}');
+
+    var answers = { q1_goal: "", q2_focus: "", q3_cadence: "" };
+    var writeIns = {};
+    var cur = 0;
+
+    function qid(i) { return steps[i].dataset.qid; }
+
+    function renderDots() {
+        dots.forEach(function (d, i) {
+            d.classList.toggle("active", i === cur);
+            d.classList.toggle("done", i < cur);
+        });
+    }
+
+    function showStep(i) {
+        steps.forEach(function (s, idx) { s.classList.toggle("show", idx === i); });
+        cur = i; renderDots();
+        // If this is Q2, (re)build its options from the chosen branch.
+        if (qid(i) === "q2_focus") buildQ2();
+        syncNext();
+    }
+
+    function buildQ2() {
+        var step = steps[cur];
+        var opts = step.querySelector("[data-opts]");
+        var branch = answers.q1_goal || "blended";
+        var set = Q2_BY_BRANCH[branch] || Q2_BY_BRANCH["blended"] || [];
+        // Only rebuild if the rendered set doesn't match the branch (cheap guard).
+        if (opts.dataset.branch === branch) return;
+        opts.dataset.branch = branch;
+        opts.innerHTML = "";
+        set.forEach(function (o) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "ob-opt"; b.dataset.value = o.value;
+            b.innerHTML = '<span class="ob-otext"><span class="ob-olabel">' + o.label + '</span></span>';
+            b.addEventListener("click", function () { pick(step, b, "q2_focus"); });
+            opts.appendChild(b);
+        });
+        // A previously-chosen focus may no longer exist under a new branch.
+        answers.q2_focus = "";
+    }
+
+    function pick(step, btn, key) {
+        step.querySelectorAll(".ob-opt").forEach(function (o) { o.classList.remove("sel"); });
+        btn.classList.add("sel");
+        answers[key] = btn.dataset.value;
+        syncNext();
+    }
+
+    function syncNext() {
+        var step = steps[cur];
+        var next = step.querySelector(".ob-next");
+        // Q2 is skippable-by-write-in; Q1/Q3 need a pick to advance via Next,
+        // but the user can always skip the whole thing. Enable Next once a
+        // choice is made OR (on the write-in question) text is typed.
+        var key = qid(cur);
+        var chosen = !!answers[key];
+        var wi = step.querySelector("[data-writein]");
+        var typed = wi && wi.value.trim().length > 0;
+        next.disabled = !(chosen || typed);
+    }
+
+    function collectWriteIn() {
+        var wi = steps[cur].querySelector("[data-writein]");
+        if (wi && wi.value.trim()) writeIns[qid(cur)] = wi.value.trim();
+    }
+
+    function submit(skip) {
+        var payload = skip ? { skip: true } : {
+            q1_goal: answers.q1_goal,
+            q2_focus: answers.q2_focus,
+            q3_cadence: answers.q3_cadence,
+            write_ins: Object.keys(writeIns).map(function (k) { return writeIns[k]; }),
+        };
+        fetch("/daily/onboarding/", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+            body: JSON.stringify(payload),
+        }).then(function (r) { return r.json(); })
+          .then(function (d) { window.location.href = (d && d.redirect) || "/daily/checkin/"; })
+          .catch(function () { window.location.href = "/daily/checkin/"; });
+    }
+
+    // Wire static (Q1/Q3) option buttons.
+    steps.forEach(function (step) {
+        step.querySelectorAll(".ob-opt").forEach(function (btn) {
+            btn.addEventListener("click", function () { pick(step, btn, step.dataset.qid); });
+        });
+        var wi = step.querySelector("[data-writein]");
+        if (wi) wi.addEventListener("input", syncNext);
+        step.querySelector(".ob-next").addEventListener("click", function () {
+            collectWriteIn();
+            if (cur < steps.length - 1) showStep(cur + 1);
+            else submit(false);
+        });
+        var back = step.querySelector(".ob-back");
+        if (back) back.addEventListener("click", function () { if (cur > 0) showStep(cur - 1); });
+    });
+
+    document.getElementById("ob-skip").addEventListener("click", function () { submit(true); });
+
+    renderDots();
+})();
+</script>
+{% endblock %}

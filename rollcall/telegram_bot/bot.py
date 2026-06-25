@@ -88,6 +88,7 @@ class RollCallTelegramBot:
         
         # Command handlers
         self.application.add_handler(CommandHandler("start", commands.start_command))
+        self.application.add_handler(CommandHandler("app", commands.app_command))
         self.application.add_handler(CommandHandler("help", commands.help_command))
         self.application.add_handler(CommandHandler("status", commands.status_command))
         self.application.add_handler(CommandHandler("view", commands.view_command))

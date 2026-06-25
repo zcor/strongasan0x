@@ -57,6 +57,41 @@ def _get_or_create_warrior_participant(mapping: TelegramUserMapping) -> DailyPar
     return participant
 
 
+def get_or_create_daily_link_for_mapping(mapping: TelegramUserMapping):
+    """Return (link_path, participant, has_history) for a Telegram user's Daily
+    app — minting the participant + an access token if needed. Used by the bot's
+    /start DM flow to hand back a personal link.
+
+    - Reuses the participant (linked to this mapping) and any existing active
+      token, so a repeat /start always returns the SAME link — never rotate a
+      link we may already have shared.
+    - Stamps source='telegram' + a human-readable detail on first creation, so
+      even a stranger/lurker who self-onboards isn't anonymous.
+    - has_history = True if the user has attestations (→ the app already has
+      rich context); False = "naked" (→ the in-app onboarding runs on open).
+
+    Pure side of the seam: returns a path the caller turns into a full URL.
+    """
+    from rollcall.models import Attestation
+
+    from .models import DailyAccessToken
+
+    participant = _get_or_create_warrior_participant(mapping)
+
+    handle = f"@{mapping.telegram_username}" if mapping.telegram_username else f"tg {mapping.telegram_user_id}"
+    if not participant.source:
+        participant.source = "telegram"
+        participant.source_detail = f"{handle} (tg {mapping.telegram_user_id})"
+        participant.save(update_fields=["source", "source_detail", "updated_at"])
+
+    token = participant.access_tokens.filter(revoked_at__isnull=True).first()
+    if token is None:
+        token = DailyAccessToken.objects.create(participant=participant)
+
+    has_history = Attestation.objects.filter(telegram_user=mapping).exists()
+    return f"/daily/c/{token.token}/", participant, has_history
+
+
 def get_participant_for_warrior(request) -> Optional[DailyParticipant]:
     """Resolve a DailyParticipant from an existing rollcall Telegram session."""
     telegram_user_id = get_telegram_user_from_session(request)
