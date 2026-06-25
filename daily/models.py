@@ -48,6 +48,15 @@ class DailyParticipant(models.Model):
     # makes the app's day boundary (today, streak, badge reset) each user's
     # LOCAL day, not the single server tz. See daily/services/tz.py.
     timezone = models.CharField(max_length=64, blank=True, default="")
+    # Where this account came from — so even a stranger who self-onboards isn't
+    # anonymous. source = the on-ramp ("telegram", "onboarding", ...);
+    # source_detail = the human-readable origin (e.g. "@lurker_42 (tg 123)").
+    source = models.CharField(max_length=20, blank=True, default="")
+    source_detail = models.CharField(max_length=200, blank=True, default="")
+    # Set once the user has context — either rich attestation history (stamped
+    # at provision time) or a completed in-app onboarding. NULL = "naked": the
+    # app runs the onboarding questionnaire on their next open. Set = skip it.
+    onboarded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

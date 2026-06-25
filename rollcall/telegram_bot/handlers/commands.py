@@ -35,13 +35,21 @@ async def _reply(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str,
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - also handles login deep links"""
+    """Handle /start command - also handles login deep links and, in a DM,
+    hands back the user's personal Daily app link."""
     # Check if this is a login deep link
     if context.args and len(context.args) > 0:
         arg = context.args[0]
         if arg.startswith('login_'):
             await handle_login_deeplink(update, context, arg[6:])  # Strip 'login_' prefix
             return
+
+    # In a private chat, /start is the Daily-app onboarding door: vend the
+    # user's personal link. (In a group, stay quiet about the app — the public
+    # message tells people to DM; we don't want the bot link-spamming the group.)
+    if update.message and update.message.chat and update.message.chat.type == 'private':
+        await _send_daily_link(update, context, with_welcome=True)
+        return
 
     await _reply(
         update, context,
@@ -53,6 +61,62 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/delete_part <part_number> - Delete a part from your attestation\n"
         "/help - Show this help message"
     )
+
+
+async def app_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /app — hand back the user's personal Daily app link. Private chat
+    only: a personal link must never be posted into the group."""
+    if not (update.message and update.message.chat and update.message.chat.type == 'private'):
+        await _reply(update, context,
+                     "DM me /start and I'll send you your personal app link 👋")
+        return
+    await _send_daily_link(update, context, with_welcome=False)
+
+
+async def _send_daily_link(update: Update, context: ContextTypes.DEFAULT_TYPE, *, with_welcome: bool):
+    """Mint/reuse the caller's Daily token and DM them their personal link.
+    Warriors with attestation history land in an already-personalized app;
+    strangers/lurkers land in the in-app onboarding. Either way they get in."""
+    from django.conf import settings
+    from daily.auth import get_or_create_daily_link_for_mapping
+
+    bot_instance = context.bot_data.get('bot_instance')
+    if not bot_instance:
+        await _reply(update, context, "Bot instance not available. Please try again.", kind=KIND_ERROR)
+        return
+
+    user_mapping, _ = await bot_instance.get_or_create_user_mapping(update.effective_user)
+
+    @sync_to_async
+    def build_link():
+        return get_or_create_daily_link_for_mapping(user_mapping)
+
+    try:
+        path, _participant, has_history = await build_link()
+    except Exception as e:
+        logger.error(f"Error building daily link: {e}")
+        await _reply(update, context,
+                     "Something went wrong creating your link — please try again in a minute.",
+                     kind=KIND_ERROR)
+        return
+
+    base = (getattr(settings, "DAILY_APP_BASE_URL", "") or "https://strongasan0x.com").rstrip("/")
+    url = f"{base}{path}"
+    first = update.effective_user.first_name or "there"
+
+    if with_welcome:
+        intro = (f"Hey {first} 👋 here's your personal link to the Daily app — "
+                 f"your at-a-glance daily check-in.\n\n")
+    else:
+        intro = ""
+    if has_history:
+        body = ("It's already set up from your training history. Open it, then add "
+                "it to your home screen so it's one tap every day:\n\n")
+    else:
+        body = ("Open it and answer a couple of quick taps to set up your "
+                "checklist, then add it to your home screen:\n\n")
+
+    await _reply(update, context, f"{intro}{body}{url}")
 
 
 async def handle_login_deeplink(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):

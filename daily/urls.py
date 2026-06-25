@@ -21,6 +21,8 @@ urlpatterns = [
     # Per-user timezone capture: the browser POSTs its IANA tz on app load so
     # the day boundary (today/streak/badge) is the user's local day.
     path("timezone/", views.set_timezone, name="set_timezone"),
+    # Naked-user onboarding: a few multiple-choice taps → seeded checklist.
+    path("onboarding/", views.submit_onboarding, name="submit_onboarding"),
     # Metrics (Spencer-persona): log a number reading.
     path("metric/", views.save_metric, name="save_metric"),
     # Coach chat: live two-way messaging (successor to the comment box).

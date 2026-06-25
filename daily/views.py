@@ -247,6 +247,14 @@ def _current_streak(participant: DailyParticipant, today: date) -> int:
     return streak
 
 
+def _needs_onboarding(participant) -> bool:
+    """A NAKED user (no context yet) gets the in-app onboarding once. Naked =
+    onboarded_at not set. Warriors with attestation history are stamped
+    onboarded_at at provision time, so they skip straight to their tailored
+    app. The onboarding POST (or skip) sets onboarded_at, so it shows once."""
+    return participant.onboarded_at is None
+
+
 @ensure_csrf_cookie  # page is AJAX-driven; force the csrftoken cookie even with no rendered form
 @require_daily_actor
 @require_http_methods(["GET"])
@@ -254,6 +262,21 @@ def checkin(request):
     participant: DailyParticipant = request.daily_participant
     today = _resolve_today(request)
     backfill = _is_backfill(request)
+
+    # Naked first-timer → onboarding (skip the coach/version work below; there's
+    # nothing to coach yet). A returning naked user who hasn't finished still
+    # sees it until they submit or skip (both stamp onboarded_at).
+    if _needs_onboarding(participant) and not backfill:
+        from .services.onboarding import QUESTIONS
+        # Q2's options are branch-dependent (chosen after Q1); ship them as JSON
+        # for the client to inject. The other questions render server-side.
+        q2 = next((q for q in QUESTIONS if q["id"] == "q2_focus"), {})
+        return render(request, "daily/onboarding.html", {
+            "participant": participant,
+            "questions": QUESTIONS,
+            "q2_branch_json": json.dumps(q2.get("branch_options", {})),
+            "theme": _resolve_theme(request),
+        })
 
     if not backfill:
         # 1. Coach the most recent prior day if it hasn't been (sync,
@@ -1041,3 +1064,57 @@ def set_timezone(request):
         participant.timezone = tz
         participant.save(update_fields=["timezone", "updated_at"])
     return JsonResponse({"ok": True})
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def submit_onboarding(request):
+    """Finish the naked-user onboarding: map the (skippable) multiple-choice
+    answers to a seeded 5-item checklist, stamp onboarded_at so it never shows
+    again, and fold any optional write-ins into a first coach context so the
+    overnight coach refines from the user's own words. A pure skip still stamps
+    onboarded_at and leaves them on the baseline-5."""
+    from .services.onboarding import seed_questions, write_in_summary
+    participant = request.daily_participant
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+
+    # Guard: only an actually-naked user may (re)seed via onboarding. An
+    # already-onboarded user hitting this endpoint (double-submit, direct POST)
+    # must NOT overwrite their personalized checklist — just bounce them home.
+    if not _needs_onboarding(participant):
+        return JsonResponse({"ok": True, "redirect": "/daily/checkin/"})
+
+    if not body.get("skip"):
+        branch = str(body.get("q1_goal", "")).strip() or None
+        focus = str(body.get("q2_focus", "")).strip() or None
+        cadence = str(body.get("q3_cadence", "")).strip() or None
+        questions = seed_questions(branch, focus, cadence)
+
+        # Promote the seeded checklist as the current version (demote any prior).
+        with transaction.atomic():
+            participant.checklist_versions.filter(is_current=True).update(is_current=False)
+            ChecklistVersion.objects.create(
+                participant=participant, questions=questions,
+                source=ChecklistVersion.SOURCE_BASELINE, is_current=True,
+            )
+
+        # Stash write-ins as the day's first chat message so the coach reads
+        # them (build_coach_context pulls recent user chat). Best-effort.
+        write_ins = body.get("write_ins") or []
+        summary = write_in_summary(write_ins if isinstance(write_ins, list) else [])
+        if summary:
+            from .models import CoachChatMessage
+            CoachChatMessage.objects.create(
+                participant=participant, role=CoachChatMessage.ROLE_USER,
+                text=summary, date=_resolve_today(request),
+            )
+
+    if participant.onboarded_at is None:
+        participant.onboarded_at = timezone.now()
+        if not participant.source:
+            participant.source = "onboarding"
+        participant.save(update_fields=["onboarded_at", "source", "updated_at"])
+    return JsonResponse({"ok": True, "redirect": "/daily/checkin/"})
