@@ -173,8 +173,14 @@ def build_caption(roll_call: WeeklyRollCall, ranked) -> str:
     lines = [f"🏆 🐂 Roll Call: {date_str}", "", "Ethereum's toughest warriors:", ""]
     for rank, name, mapping in ranked:
         lines.append(_ordinal_handle(rank, name, mapping.telegram_username if mapping else None))
-    slug = _substack_slug(week_start, week_end)
-    lines.extend(["", "Full ode + details:", f"{SUBSTACK_BASE}/{slug}"])
+    # Prefer the ACTUAL substack URL ingested for this week — the generated slug
+    # guesses a convention (…-june-21-2026) that doesn't always match the real
+    # published slug (…-june-15-june-21), which would post a 404 link. Only fall
+    # back to the generated slug when no URL was ingested.
+    url = (getattr(roll_call, "substack_url", "") or "").strip()
+    if not url:
+        url = f"{SUBSTACK_BASE}/{_substack_slug(week_start, week_end)}"
+    lines.extend(["", "Full ode + details:", url])
     return "\n".join(lines)
 
 

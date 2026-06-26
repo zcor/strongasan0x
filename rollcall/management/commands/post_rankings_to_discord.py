@@ -286,12 +286,14 @@ class Command(BaseCommand):
                     date_url = publication_date.strftime('%Y-%m-%d')
                     website_link = f"https://strongasan0x.com/?date={date_url}"
                     
-                    # Generate Substack link using publication date (format: roll-call-november-3-2025)
-                    month_name = publication_date.strftime('%B').lower()
-                    day = publication_date.day
-                    year = publication_date.year
-                    substack_slug = f"roll-call-{month_name}-{day}-{year}"
-                    substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
+                    # Prefer the ACTUAL ingested Substack URL — the generated
+                    # slug guesses a convention (…-june-21-2026) that often
+                    # doesn't match the real published slug and 404s.
+                    substack_link = (getattr(roll_call, 'substack_url', '') or '').strip()
+                    if not substack_link:
+                        month_name = publication_date.strftime('%B').lower()
+                        substack_slug = f"roll-call-{month_name}-{publication_date.day}-{publication_date.year}"
+                        substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
                     
                     # Use Discord markdown link format: [text](url) with bullet separator
                     # Note: Discord links don't show previews when formatted this way
