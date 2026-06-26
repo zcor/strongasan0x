@@ -248,11 +248,24 @@ def _current_streak(participant: DailyParticipant, today: date) -> int:
 
 
 def _needs_onboarding(participant) -> bool:
-    """A NAKED user (no context yet) gets the in-app onboarding once. Naked =
-    onboarded_at not set. Warriors with attestation history are stamped
-    onboarded_at at provision time, so they skip straight to their tailored
-    app. The onboarding POST (or skip) sets onboarded_at, so it shows once."""
+    """Whether to SHOW the onboarding tour. onboarded_at not set = show it once.
+    Note: showing it and SEEDING from it are different — an attestation-warrior
+    still sees the tour as a welcome, but their checklist is seeded from their
+    logs, not the survey (see submit_onboarding / _has_attestation_history)."""
     return participant.onboarded_at is None
+
+
+def _has_attestation_history(participant) -> bool:
+    """True if this participant's Telegram identity has posted attestations.
+    Attestation history is RICHER than a 3-question survey, so when present it
+    drives the checklist and the survey only lightly steers the coach — the
+    survey must NEVER overwrite an attestation-tailored list with a generic 5."""
+    if not participant.telegram_mapping_id:
+        return False
+    from rollcall.models import Attestation
+    return Attestation.objects.filter(
+        telegram_user_id=participant.telegram_mapping_id
+    ).exists()
 
 
 @ensure_csrf_cookie  # page is AJAX-driven; force the csrftoken cookie even with no rendered form
@@ -1069,12 +1082,15 @@ def set_timezone(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def submit_onboarding(request):
-    """Finish the naked-user onboarding: map the (skippable) multiple-choice
-    answers to a seeded 5-item checklist, stamp onboarded_at so it never shows
-    again, and fold any optional write-ins into a first coach context so the
-    overnight coach refines from the user's own words. A pure skip still stamps
-    onboarded_at and leaves them on the baseline-5."""
-    from .services.onboarding import seed_questions, write_in_summary
+    """Finish onboarding and stamp onboarded_at so it never shows again.
+
+    What the survey answers DO depends on whether we have richer data:
+      - TRUE naked user (no attestations): the answers SEED their 5-item list.
+      - Attestation-warrior: their list is already tailored from their logs, so
+        the survey must NOT overwrite it — it's recorded as a coach note that
+        lightly steers the overnight coach instead.
+    A pure skip just stamps onboarded_at and leaves the current list untouched."""
+    from .services.onboarding import seed_questions, survey_summary
     participant = request.daily_participant
     try:
         body = json.loads(request.body)
@@ -1087,29 +1103,40 @@ def submit_onboarding(request):
     if not _needs_onboarding(participant):
         return JsonResponse({"ok": True, "redirect": "/daily/checkin/"})
 
+    has_history = _has_attestation_history(participant)
+
     if not body.get("skip"):
         branch = str(body.get("q1_goal", "")).strip() or None
         focus = str(body.get("q2_focus", "")).strip() or None
         cadence = str(body.get("q3_cadence", "")).strip() or None
-        questions = seed_questions(branch, focus, cadence)
 
-        # Promote the seeded checklist as the current version (demote any prior).
-        with transaction.atomic():
-            participant.checklist_versions.filter(is_current=True).update(is_current=False)
-            ChecklistVersion.objects.create(
-                participant=participant, questions=questions,
-                source=ChecklistVersion.SOURCE_BASELINE, is_current=True,
-            )
+        # CRUCIAL: attestation history is richer than a 3-question survey. For a
+        # warrior, the checklist is already tailored from their logs (pre-build /
+        # lazy coach) — the survey must NOT overwrite it with a generic seeded 5.
+        # It only LIGHTLY STEERS: we record the answers as a coach note so the
+        # overnight coach can lean that way over time. Only a TRUE naked user
+        # (no attestations) has their 5 seeded from the survey.
+        if not has_history:
+            questions = seed_questions(branch, focus, cadence)
+            with transaction.atomic():
+                participant.checklist_versions.filter(is_current=True).update(is_current=False)
+                ChecklistVersion.objects.create(
+                    participant=participant, questions=questions,
+                    source=ChecklistVersion.SOURCE_BASELINE, is_current=True,
+                )
 
-        # Stash write-ins as the day's first chat message so the coach reads
-        # them (build_coach_context pulls recent user chat). Best-effort.
+        # Log the survey (answers + any write-ins) as the day's first user chat
+        # message so build_coach_context surfaces it — for a warrior this is the
+        # gentle steer on top of their attestation-tailored list; for a stranger
+        # it's extra colour beside the seeded 5. Best-effort.
         write_ins = body.get("write_ins") or []
-        summary = write_in_summary(write_ins if isinstance(write_ins, list) else [])
-        if summary:
+        note = survey_summary(branch, focus, cadence,
+                              write_ins if isinstance(write_ins, list) else [])
+        if note:
             from .models import CoachChatMessage
             CoachChatMessage.objects.create(
                 participant=participant, role=CoachChatMessage.ROLE_USER,
-                text=summary, date=_resolve_today(request),
+                text=note, date=_resolve_today(request),
             )
 
     if participant.onboarded_at is None:
