@@ -113,9 +113,18 @@ def build_tweet1(roll_call: WeeklyRollCall, ranked) -> str:
     return "\n".join(lines)
 
 
+def _substack_url(roll_call: WeeklyRollCall) -> str:
+    """Prefer the ACTUAL ingested URL — the generated slug guesses a convention
+    (…-june-21-2026) that often doesn't match the real published slug and 404s.
+    Fall back to the generated slug only when no URL was ingested."""
+    url = (getattr(roll_call, "substack_url", "") or "").strip()
+    if url:
+        return url
+    return f"{SUBSTACK_BASE}/{_substack_slug(roll_call.week_start_date, roll_call.week_end_date)}"
+
+
 def build_tweet2_full(roll_call: WeeklyRollCall) -> str:
-    slug = _substack_slug(roll_call.week_start_date, roll_call.week_end_date)
-    substack_url = f"{SUBSTACK_BASE}/{slug}"
+    substack_url = _substack_url(roll_call)
     return (
         f"Are you strong as an 0x?   We invite recruits to submit a weekly health attestation:  {FORMS_URL}\n"
         f"\n"
@@ -129,10 +138,9 @@ def build_tweet2_full(roll_call: WeeklyRollCall) -> str:
 
 def build_tweet2_trimmed(roll_call: WeeklyRollCall) -> str:
     """Fallback if the full version is rejected for length."""
-    slug = _substack_slug(roll_call.week_start_date, roll_call.week_end_date)
     return (
         f"Submit a weekly health attestation: {FORMS_URL}\n\n"
-        f"Top ten weekly: {SUBSTACK_BASE}/{slug}\n\n"
+        f"Top ten weekly: {_substack_url(roll_call)}\n\n"
         f"Discord: {DISCORD_URL} | {WEBSITE_URL}"
     )
 
