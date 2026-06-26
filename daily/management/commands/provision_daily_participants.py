@@ -63,6 +63,17 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         dry = opts["dry_run"]
+
+        # FIRST, protect every EXISTING engaged user (warrior OR external) from
+        # the naked-user onboarding. Onboarding replaces a participant's current
+        # checklist with a generic seeded set — for Amy that wipes her live list,
+        # for a warrior it throws away the attestation-tailored checklist. So any
+        # participant who already has activity must be stamped onboarded_at, even
+        # if they have no Telegram attestations (the warrior loop below misses
+        # externals like Amy). Onboarding then shows ONLY to brand-new accounts.
+        if opts["mapping"] is None:  # the targeted --mapping run skips this global pass
+            self._protect_existing_users(dry)
+
         mappings = (
             TelegramUserMapping.objects
             .filter(attestations__isnull=False, is_active=True)
@@ -130,6 +141,46 @@ class Command(BaseCommand):
             f"Done. {verb}provisioned={provisioned} tokened={tokened} "
             f"coached={coached} skipped={skipped}"
         ))
+
+    # An existing user counts as "established" (→ protect from onboarding) once
+    # they've genuinely engaged. Answered-item count is the clean discriminator:
+    # it separates real users (Amy 22, CurveCap 45, Spencer 121, Battman 49) from
+    # barely-there accounts (a lone empty check-in) that are better off going
+    # through onboarding / fresh tailoring than being frozen half-set-up.
+    PROTECT_MIN_ANSWERED = 10
+
+    def _protect_existing_users(self, dry) -> int:
+        """Stamp onboarded_at on every ESTABLISHED participant (warrior OR
+        external) so the naked-user onboarding never wipes a live checklist.
+        Engagement = answered ≥ PROTECT_MIN_ANSWERED items. Idempotent: only
+        touches participants whose onboarded_at is still NULL."""
+        from django.db.models import Count, Q
+        from daily.models import DailyCheckInAnswer
+
+        candidates = (
+            DailyParticipant.objects
+            .filter(onboarded_at__isnull=True)
+            .annotate(answered=Count(
+                "checkins__answers",
+                filter=~Q(checkins__answers__state=DailyCheckInAnswer.STATE_PENDING),
+            ))
+            .filter(answered__gte=self.PROTECT_MIN_ANSWERED)
+        )
+        n = 0
+        for p in candidates:
+            n += 1
+            if dry:
+                self.stdout.write(f"[dry-run] PROTECT {p.display_name} "
+                                  f"({p.answered} answered) → would set onboarded_at")
+            else:
+                p.onboarded_at = timezone.now()
+                if not p.source:
+                    p.source = "existing"
+                p.save(update_fields=["onboarded_at", "source", "updated_at"])
+                self.stdout.write(f"  PROTECT {p.display_name} ({p.answered} answered) → onboarded_at set")
+        if not n:
+            self.stdout.write("  (no unprotected established users — all good)")
+        return n
 
     def _maybe_tailor(self, participant, mapping, name, dry) -> bool:
         """If the participant is still on the bare baseline, derive a stretch

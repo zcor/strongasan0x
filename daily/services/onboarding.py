@@ -258,3 +258,44 @@ def write_in_summary(write_ins: List[str]) -> str:
     coach context (so the overnight coach acts on the user's own words)."""
     cleaned = [w.strip() for w in (write_ins or []) if w and w.strip()]
     return " · ".join(cleaned)
+
+
+# Human-readable labels for the coach note (the model reads plain language,
+# not our internal slugs).
+_BRANCH_LABEL = {
+    BRANCH_STRENGTH: "getting stronger (strength focus)",
+    BRANCH_HOLISTIC: "feeling better overall (holistic health)",
+    BRANCH_BLENDED: "a blend of strength and holistic health",
+}
+_FOCUS_LABEL = {
+    "recovery": "recovery", "nutrition": "nutrition", "consistency": "consistency",
+    "mobility": "mobility", "sleep": "better sleep", "movement": "more movement",
+    "fuel": "hydration & food", "calm": "stress & calm",
+}
+_CADENCE_LABEL = {
+    CADENCE_LIGHT: "keeping it light most days",
+    CADENCE_MEDIUM: "a solid daily effort",
+    CADENCE_HEAVY: "going all in",
+}
+
+
+def survey_summary(branch, focus, cadence, write_ins: List[str]) -> str:
+    """Render the onboarding answers (+ write-ins) as a short, natural coach
+    note. This is the LIGHT STEER for users whose checklist comes from richer
+    data (attestation history): the coach reads it as the user's stated intent
+    and can lean that way over time, without it ever overwriting their list.
+    Returns '' if the user answered nothing."""
+    parts = []
+    if branch in _BRANCH_LABEL:
+        parts.append(f"In onboarding I said I'm here for {_BRANCH_LABEL[branch]}")
+    if focus in _FOCUS_LABEL:
+        parts.append(f"want to make progress on {_FOCUS_LABEL[focus]}")
+    if cadence in _CADENCE_LABEL:
+        parts.append(_CADENCE_LABEL[cadence])
+    wi = write_in_summary(write_ins)
+    base = ", ".join(parts)
+    if base and wi:
+        return f"{base}. Also noted: {wi}."
+    if base:
+        return base + "."
+    return wi
