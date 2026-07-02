@@ -12,6 +12,7 @@ on DailyParticipant.telegram_mapping. See plan greedy-sprouting-puppy.md.
 """
 import uuid
 
+from django.core.validators import MaxValueValidator
 from django.db import models
 
 
@@ -49,6 +50,23 @@ class DailyParticipant(models.Model):
     # makes the app's day boundary (today, streak, badge reset) each user's
     # LOCAL day, not the single server tz. See daily/services/tz.py.
     timezone = models.CharField(max_length=64, blank=True, default="")
+    # Manual override for "smart morning timing": the LOCAL hour (0-23) at
+    # which this participant's overnight coach note + badge push should land.
+    # NULL = learn it from their activity history (daily/services/tz.py,
+    # target_morning_hour). Hours 20-23 mean "the evening BEFORE": the badge
+    # job fires that evening FOR the participant's next local day (e.g. 23 =
+    # an 11pm push for someone who wakes ~1am). Set via admin; never seeded.
+    morning_target_hour = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(23)],
+        help_text=(
+            "Manual override (local hour, 0-23) for the morning coach-note/"
+            "badge push — overrides the learned wake-hour estimate. 20-23 = "
+            "push the evening before, for the next local day. Blank = learn "
+            "from activity history (fallback 6am)."
+        ),
+    )
     # Where this account came from — so even a stranger who self-onboards isn't
     # anonymous. source = the on-ramp ("telegram", "onboarding", ...);
     # source_detail = the human-readable origin (e.g. "@lurker_42 (tg 123)").
