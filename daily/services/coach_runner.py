@@ -15,14 +15,86 @@ and there's exactly one coach implementation to reason about.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import date, timedelta
 
-from .ai_coach import build_coach_context, generate_suggestion
+from .ai_coach import build_coach_context, distill_profile, generate_suggestion
 
 logger = logging.getLogger(__name__)
 
 RECENT_DAYS = 7  # how many days of history the coach reads as context
+
+
+def refresh_coach_profile(participant, force: bool = False) -> bool:
+    """Ensure `participant` has an up-to-date distilled CoachProfile from their
+    Roll Call attestation history — the coach's long-term memory.
+
+    Hash-guarded: reads the warrior's attestations, hashes the set, and only
+    calls the (paid) distillation model when the set has CHANGED since the last
+    build (or force=True). So calling this before every nightly coach run costs
+    an extra LLM call ONLY when there's genuinely new attestation material —
+    the common case (nothing new) is a couple of cheap queries and a no-op.
+
+    Fail-safe: never raises. Returns True iff the profile was (re)built with a
+    live model call. A participant with no telegram identity / no attestations
+    gets no profile and the coach falls back to its no-profile behavior.
+    """
+    from ..models import CoachProfile
+
+    try:
+        mapping_id = getattr(participant, "telegram_mapping_id", None)
+        if not mapping_id:
+            return False  # external / no attestations → no profile
+
+        from rollcall.models import Attestation
+
+        # Oldest-to-newest so the distilled trajectory reads chronologically.
+        atts = list(
+            Attestation.objects
+            .filter(telegram_user_id=mapping_id, is_hidden=False)
+            .order_by("posted_at")
+            .values_list("id", "raw_text", "updated_at")
+        )
+        if not atts:
+            return False
+
+        # Hash the identity+mtime of the set: any add, edit, or delete flips it.
+        digest = hashlib.sha256(
+            "|".join(f"{aid}:{updated.isoformat()}" for aid, _, updated in atts).encode()
+        ).hexdigest()
+
+        existing = CoachProfile.objects.filter(participant=participant).first()
+        if existing and existing.source_hash == digest and not force:
+            return False  # unchanged → no LLM call
+
+        attestation_text = "\n\n---\n\n".join(rt for _, rt, _ in atts if (rt or "").strip())
+        if not attestation_text.strip():
+            return False
+
+        result = distill_profile(participant.display_name, attestation_text)
+        if result is None:
+            return False  # model/parse failure → keep any existing profile
+        profile_text, model_name, cost_usd = result
+
+        CoachProfile.objects.update_or_create(
+            participant=participant,
+            defaults={
+                "profile_text": profile_text,
+                "source_hash": digest,
+                "attestation_count": len(atts),
+                "model_name": model_name,
+                "cost_usd": cost_usd,
+            },
+        )
+        logger.info(
+            "daily.coach_runner: refreshed profile for %s (%d attestations, $%s)",
+            participant.display_name, len(atts), cost_usd,
+        )
+        return True
+    except Exception as exc:  # never let profile refresh break a coach run
+        logger.exception("daily.coach_runner.refresh_coach_profile failed: %s", exc)
+        return False
 
 
 def run_coach(check_in_id: int, refinement: str = "") -> bool:
@@ -47,6 +119,9 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
         return False
 
     participant = check_in.participant
+    # Refresh the warrior's distilled attestation profile before building
+    # context (hash-guarded — a real LLM call only when attestations changed).
+    refresh_coach_profile(participant)
     since = check_in.date - timedelta(days=RECENT_DAYS)
     recent = list(
         DailyCheckIn.objects

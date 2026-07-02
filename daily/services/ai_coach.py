@@ -39,6 +39,7 @@ class CoachContext(TypedDict):
     current_questions: list  # list[{"key", "label"}]
     today: CheckInSummary
     recent: list  # list[CheckInSummary]
+    profile_text: str  # distilled attestation-history memory ("" if none)
 
 
 SYSTEM_PROMPT = """You are a brief, encouraging daily fitness coach.
@@ -303,6 +304,118 @@ def derive_stretch_item(
     return {"key": key, "label": label}
 
 
+# Hard cap on the distilled profile the coach reads every night. This is the
+# whole point of distillation: the coach's context stays this size no matter how
+# many attestations a warrior accumulates. ~700 output tokens ≈ 2800 chars —
+# enough for all five sections on a rich logger without clipping mid-thought.
+PROFILE_MAX_TOKENS = 700
+
+PROFILE_PROMPT = """You are the memory of Coach Jamie, a fitness coach. You are
+reading a warrior's full history of weekly training/health attestations (their
+own words, posted week after week) and distilling it into a COMPACT STANDING
+PROFILE the coach will re-read every night before adjusting their daily
+checklist. This profile is the coach's long-term memory of who this person is.
+
+Your output is NOT shown to the user. It is context for the coach. Write it
+densely and factually — no greeting, no fluff, no advice, just what's true.
+
+# What to capture (only what the attestations actually support)
+
+1. TRAINING PATTERN — how they train: split, weekly cadence, the lifts/
+   modalities they actually do, typical volume. Are they a structured
+   self-programmer or more freeform?
+2. TRAJECTORY — what's changed over time: PRs, loads climbing or holding,
+   bodyweight trend, consistency trend. Cite the concrete evidence briefly
+   (e.g. "SLDL noted as a PR early June"; "protein routinely logged ~160g").
+3. RECURRING GAPS — what's consistently UNDER-invested or absent in their own
+   logs (sleep, mobility/prep, recovery, hydration, measurement). These are the
+   coach's lane. Be specific about what's missing vs. present.
+4. DECLARED INTENT & CONSTRAINTS — any goals, phases (bulk/cut), injuries, or
+   limits they've stated ("knee floor at 60g fat", "on vacation", "bulking
+   till July"). These override generic coaching.
+5. TONE READ — how they talk about their training (data-driven optimizer,
+   dopamine/encouragement-seeking, terse, self-critical), so the coach matches
+   them.
+
+# Hard rules
+
+- GROUND EVERYTHING IN THE TEXT. Never invent a number, a lift, a date, or a
+  fact not present in the attestations. If something is unknown, omit it — do
+  NOT guess. A single fabricated detail poisons the coach's trust with this
+  user. When in doubt, leave it out.
+- Attribute trends to the LOGS, not to certainties about the person ("logs show
+  no prep work" — not "you never warm up").
+- Be concise. This must fit in a small context budget: 5 short labeled
+  sections, tight prose or terse bullets, under ~2500 characters total.
+- PRIORITY IF SPACE IS TIGHT: sections 3-5 (gaps, declared intent/constraints,
+  tone) are the most useful to the coach — never sacrifice them to add more
+  detail to sections 1-2. Trim trajectory/pattern detail first. Always finish
+  with a TONE READ; never clip mid-section.
+- No markdown headers larger than a short label; no code fences; plain text.
+
+# Output format
+
+A compact plain-text profile with the five labeled areas above (skip any area
+the logs don't support). Nothing else."""
+
+
+def distill_profile(
+    participant_name: str,
+    attestation_text: str,
+) -> Optional[Tuple[str, str, Decimal]]:
+    """Condense a warrior's full attestation history into a bounded standing
+    profile the overnight coach reads as long-term memory. Returns
+    (profile_text, model_name, cost_usd) or None on any failure (caller then
+    leaves any existing profile untouched and the coach falls back to no
+    profile). Grounded ONLY in `attestation_text`; the prompt forbids invention.
+    """
+    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
+    if not api_key:
+        logger.warning("daily.ai_coach.distill_profile: DEEPSEEK_API_KEY not configured")
+        return None
+    if not (attestation_text or "").strip():
+        return None
+    try:
+        import openai
+    except ImportError:
+        logger.error("daily.ai_coach.distill_profile: openai SDK not installed")
+        return None
+
+    user_msg = (
+        f"Warrior: {participant_name}\n\n"
+        f"Their full weekly attestation history (oldest to newest):\n\n"
+        f"{attestation_text}"
+    )
+    model = "deepseek-chat"
+    try:
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": PROFILE_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=PROFILE_MAX_TOKENS,
+            temperature=0.3,  # low: this is factual distillation, not creativity
+        )
+    except Exception as exc:
+        logger.exception("daily.ai_coach.distill_profile failed: %s", exc)
+        return None
+
+    text = (resp.choices[0].message.content or "").strip()
+    if not text:
+        return None
+
+    usage = getattr(resp, "usage", None)
+    it = getattr(usage, "prompt_tokens", None) if usage else _estimate_tokens(PROFILE_PROMPT + user_msg)
+    ot = getattr(usage, "completion_tokens", None) if usage else _estimate_tokens(text)
+    cost = Decimal(str(
+        (it / 1_000_000) * DEEPSEEK_INPUT_USD_PER_1M
+        + (ot / 1_000_000) * DEEPSEEK_OUTPUT_USD_PER_1M
+    )).quantize(Decimal("0.000001"))
+    return text, model, cost
+
+
 ONE_BONUS_PROMPT = """You are Coach Jamie. The user has been knocking out
 their daily checklist and wants MORE — an extra-credit bonus challenge for
 today. Generate ONE fresh bonus habit.
@@ -481,17 +594,40 @@ def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     except Exception:
         chat_requests = []
 
+    # The distilled attestation-history profile — the coach's long-term memory
+    # of who this warrior is (kept fresh by services.coach_runner). "" when the
+    # participant has no attestations (external users) or no profile yet.
+    profile_text = ""
+    try:
+        prof = getattr(participant, "coach_profile", None)
+        if prof is not None:
+            profile_text = (prof.profile_text or "").strip()
+    except Exception:
+        profile_text = ""
+
     return {
         "participant_name": participant.display_name,
         "current_questions": list(check_in.checklist_version.questions),
         "today": _summarize(check_in),
         "recent": [_summarize(ci) for ci in recent_checkins if ci.id != check_in.id],
         "chat_requests": chat_requests,
+        "profile_text": profile_text,
     }
 
 
 def _format_user_prompt(context: CoachContext, refinement: Optional[str] = None) -> str:
     lines = [f"Participant: {context['participant_name']}", ""]
+    profile = (context.get("profile_text") or "").strip()
+    if profile:
+        lines.append(
+            "WHAT YOU KNOW ABOUT THIS WARRIOR FROM THEIR TRAINING HISTORY "
+            "(your standing memory, distilled from their weekly attestations — "
+            "use it to coach like you know them; it is grounded in their real "
+            "logs, so trust it, but the checklist states + comments below are "
+            "what happened MOST RECENTLY and take precedence on any conflict):"
+        )
+        lines.append(profile)
+        lines.append("")
     lines.append("Today's checklist (the one they answered):")
     for q in context["current_questions"]:
         lines.append(f"  - {q['key']}: {q['label']}")

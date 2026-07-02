@@ -407,6 +407,51 @@ class DailyMetricReading(models.Model):
         return f"{self.metric.label} {self.date}{('/' + self.slot) if self.slot else ''}: {self.value}"
 
 
+class CoachProfile(models.Model):
+    """A compact, LLM-distilled summary of a warrior's weekly Roll Call
+    attestation history — the standing context the overnight coach reads so it
+    coaches like it knows them, not from 5 checkboxes alone.
+
+    Why distilled, not raw: attestation history grows without bound (the
+    heaviest warrior is already ~19k tokens of logs). Injecting it raw would
+    make every nightly prompt bigger and costlier forever. Instead we condense
+    it ONCE per change into a bounded ~500-token profile the coach reads every
+    run at a FIXED size. This is the piece that lets attestation grounding scale
+    in-group: every warrior arrives from Roll Call already legible, and stays
+    legible as they keep logging — with no per-user setup and flat prompt cost.
+
+    Refresh is hash-guarded (see services: refresh_coach_profile): the profile
+    is rebuilt only when the underlying attestation set actually changes, so a
+    nightly coach run costs an extra LLM call only when there's new material.
+
+    External / no-telegram participants have no attestations and thus no
+    profile row — the coach falls back to today's behavior for them.
+    """
+
+    participant = models.OneToOneField(
+        DailyParticipant,
+        on_delete=models.CASCADE,
+        related_name="coach_profile",
+    )
+    # The distilled summary the coach reads. Bounded by design (~500 tokens);
+    # grounded ONLY in the warrior's real attestation text (no invention).
+    profile_text = models.TextField()
+    # Hash of the attestation set this profile was built from — lets the refresh
+    # service no-op (skip the LLM call) when nothing has changed.
+    source_hash = models.CharField(max_length=64, blank=True, default="")
+    # How many attestations were distilled (for admin visibility / debugging).
+    attestation_count = models.IntegerField(default=0)
+
+    model_name = models.CharField(max_length=100, blank=True)
+    cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"CoachProfile for {self.participant.display_name} ({self.attestation_count} atts)"
+
+
 class CoachChatMessage(models.Model):
     """One message in the live coach chat — the bidirectional successor to the
     old comment box (the #1 feedback channel). User messages are now THE way
