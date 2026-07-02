@@ -55,7 +55,7 @@
              {% if intro_replayable and not first_visit %}style="display:none"{% endif %}>
             <div class="intro-title">How this works</div>
             <ol>
-                <li>These five daily habits were picked <em>for you</em>, from your own training data.</li>
+                <li>These three daily habits were picked <em>for you</em>, from your own training data.</li>
                 <li>Tap each one when you've done it — it saves itself.</li>
                 <li>Tap the <strong>💬 coach</strong> anytime to log notes, numbers, or ask for changes — it talks back.</li>
             </ol>
@@ -76,7 +76,7 @@
     </div>
 
 
-    {% comment %}Bonus zone always present (may start empty) so live-generated items can slide in. Hidden until revealed (>=3 core done or any bonus exists).{% endcomment %}
+    {% comment %}Bonus zone always present (may start empty) so live-generated items can slide in. Hidden until revealed (bonus_reveal_at core done or any bonus exists).{% endcomment %}
     <div id="bonus-section" class="{% if not bonus_revealed %}hidden{% endif %}">
         <div class="bonus-header">BONUS · optional, keep going as long as you like</div>
         <div id="bonus-items">
@@ -123,7 +123,7 @@
             <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" style="display:inline;">
                 {% csrf_token %}
                 <button type="submit" style="background:none;border:none;color:var(--text-faint);text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:4px 0;margin-top:4px;">
-                    Reset to original 5 questions
+                    Reset to original 3 questions
                 </button>
             </form>
         {% endif %}
@@ -162,6 +162,11 @@
                 {% empty %}
                     <div class="coach-empty">Tell me anything — a note, your numbers, or ask for a change to your list.</div>
                 {% endfor %}
+            </div>
+            {# Quiet actions row: evening planning + wrap-up live IN the chat, not on the main screen. #}
+            <div class="coach-chips" id="coach-chips">
+                <button type="button" class="coach-chip" id="chip-plan">🌅 Plan tomorrow</button>
+                <button type="button" class="coach-chip" id="chip-wrap">Wrap up my day</button>
             </div>
             <form class="coach-input" id="coach-input" onsubmit="return false;">
                 <textarea id="coach-text" rows="1" placeholder="Message your coach…"></textarea>
@@ -588,6 +593,23 @@
         .msg-time { font-size: 0.66rem; color: var(--text-faint); margin-top: 3px; padding: 0 4px; }
         .msg.typing .msg-bubble { color: var(--text-dim); font-style: italic; }
 
+        /* Quiet chip row above the input — subtle, opt-in depth. */
+        .coach-chips {
+            display: flex; gap: 8px; padding: 8px 12px 0; flex-shrink: 0;
+        }
+        .coach-chip {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+            color: var(--text-dim); border-radius: 999px; padding: 6px 12px;
+            font-size: 0.78rem; font-family: inherit; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .coach-chip:hover { color: var(--accent); border-color: rgba(255,217,122,0.4); }
+        .coach-chip:disabled { opacity: 0.4; cursor: default; }
+        .coach-chips.planning #chip-plan {
+            color: var(--accent); border-color: rgba(255,217,122,0.5);
+            background: rgba(255,217,122,0.08);
+        }
+
         .coach-input {
             display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
             padding-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -645,6 +667,8 @@
             var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
             var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
             var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+            // Core count fallback when the DOM query returns 0 (mid-swap, etc.).
+            var CORE_TOTAL = {{ core_items|length }} || {{ checklist_size }};
             var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "#87ceeb", "var(--accent-2)", "#ffffff"];
 
             function postItem(key, state, onOk) {
@@ -714,7 +738,7 @@
             var ringCaption = document.getElementById("ring-caption");
             function updateStatus() {
                 if (!ringArc) return;
-                var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                var total = document.querySelectorAll('.question[data-core="1"]').length || CORE_TOTAL;
                 var n = ringCredit(total);
                 ringArc.style.strokeDashoffset = String(RING_C * (1 - n / total));
                 if (n >= total) {
@@ -813,7 +837,7 @@
                     // Celebrate when the RING fills — whether by the last core
                     // item or by a bonus covering a missed core slot. Fire once,
                     // on the tap that crosses the line.
-                    var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                    var total = document.querySelectorAll('.question[data-core="1"]').length || CORE_TOTAL;
                     if (next === "done" && ringCredit(total) >= total && (ringCredit(total) - 1) < total
                         && !ringEl.dataset.celebrated) {
                         ringEl.dataset.celebrated = "1";
@@ -975,28 +999,45 @@
                 return h + ":" + (m < 10 ? "0" : "") + m + " " + ap;
             }
 
-            function sendCoach() {
-                var text = (coachText.value || "").trim();
-                if (!text) return;
+            // Evening planning ("Plan tomorrow"): while ON, every message goes
+            // to the coach's planning mode (frog-first 3-item flow). The server
+            // replies {planned: true} once the plan is genuinely queued — only
+            // then do we drop out of planning mode.
+            var planningMode = false;
+            var coachChips = document.getElementById("coach-chips");
+            function setPlanning(on) {
+                planningMode = on;
+                if (coachChips) coachChips.classList.toggle("planning", on);
+            }
+
+            function postChat(text) {
                 addMsg("user", text, nowTime());
-                coachText.value = ""; coachText.style.height = "auto";
                 coachSend.disabled = true;
                 var typing = addMsg("coach", "typing…", "");
                 typing.classList.add("typing");
                 fetch("/daily/chat/" + qs, {
                     method: "POST", credentials: "same-origin",
                     headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
-                    body: JSON.stringify({ text: text }),
+                    body: JSON.stringify({ text: text, planning: planningMode }),
                 }).then(function (r) { return r.json(); })
                   .then(function (d) {
                       typing.remove(); coachSend.disabled = false;
-                      if (d && d.ok && d.reply) { addMsg("coach", d.reply.text, nowTime()); }
+                      if (d && d.ok && d.reply) {
+                          addMsg("coach", d.reply.text, nowTime());
+                          if (d.planned) setPlanning(false);  // plan queued — back to normal chat
+                      }
                       else { addMsg("coach", "Saved your note. (Coach is offline right now.)", nowTime()); }
-                      // A reply may have changed the checklist — refresh to reflect it.
                   }).catch(function () {
                       typing.remove(); coachSend.disabled = false;
                       addMsg("coach", "Couldn't reach the coach — your note is saved, try again in a sec.", nowTime());
                   });
+            }
+
+            function sendCoach() {
+                var text = (coachText.value || "").trim();
+                if (!text) return;
+                coachText.value = ""; coachText.style.height = "auto";
+                postChat(text);
             }
             if (coachForm) coachForm.addEventListener("submit", function (e) { e.preventDefault(); sendCoach(); });
             if (coachText) {
@@ -1010,6 +1051,44 @@
                 });
             }
 
+            // "Plan tomorrow" chip: enter planning mode and open with a canned
+            // user message — the coach asks for the frog and shapes the 3.
+            var chipPlan = document.getElementById("chip-plan");
+            if (chipPlan) chipPlan.addEventListener("click", function (e) {
+                e.stopPropagation();
+                if (planningMode) return;
+                setPlanning(true);
+                postChat("Let's plan tomorrow.");
+            });
+
+            // "Wrap up my day" chip: seal today via the coach (POST /daily/wrap/),
+            // render its wrap-up reply, and — if the coach invited planning —
+            // switch to planning mode so the user's answer flows straight in.
+            var chipWrap = document.getElementById("chip-wrap");
+            if (chipWrap) chipWrap.addEventListener("click", function (e) {
+                e.stopPropagation();
+                chipWrap.disabled = true;
+                var typing = addMsg("coach", "wrapping up…", "");
+                typing.classList.add("typing");
+                fetch("/daily/wrap/" + qs, {
+                    method: "POST", credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+                    body: "{}",
+                }).then(function (r) { return r.json(); })
+                  .then(function (d) {
+                      typing.remove(); chipWrap.disabled = false;
+                      if (d && d.ok && d.reply) {
+                          addMsg("coach", d.reply, nowTime());
+                          if (d.invite_planning) setPlanning(true);
+                      } else {
+                          addMsg("coach", "Couldn't wrap the day just now — try again in a bit.", nowTime());
+                      }
+                  }).catch(function () {
+                      typing.remove(); chipWrap.disabled = false;
+                      addMsg("coach", "Couldn't wrap the day just now — try again in a bit.", nowTime());
+                  });
+            });
+
             // Load modal → "Got it" genies the card down into the FAB.
             var modal = document.getElementById("coach-modal");
             var modalOk = document.getElementById("coach-modal-ok");
@@ -1021,7 +1100,8 @@
             }
 
             // Bootstrap: if the user already crossed the threshold (e.g.
-            // loaded the page at 5/5) and has no open bonus, fetch one now.
+            // loaded the page with the core already swept) and has no open
+            // bonus, fetch one now.
             function openBonusCount() {
                 return document.querySelectorAll('.question.bonus.pending, .question.bonus[data-state="pending"]').length;
             }
@@ -1084,7 +1164,7 @@
             window.__syncBadge = function () {
                 if (!window.__setBadge) return;
                 var n = coreDoneCount();
-                var total = document.querySelectorAll('.question[data-core="1"]').length || 5;
+                var total = document.querySelectorAll('.question[data-core="1"]').length || CORE_TOTAL;
                 window.__setBadge(Math.max(0, total - n));
             };
 

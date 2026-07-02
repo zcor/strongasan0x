@@ -200,7 +200,8 @@ class Command(BaseCommand):
             self.stdout.write(f"[dry-run] {name}: WOULD AI-tailor checklist from {len(atts)} attestations")
             return True
 
-        base = list(BASELINE_QUESTIONS[:4])
+        # Two baseline anchors + one personalized stretch = the core THREE.
+        base = list(BASELINE_QUESTIONS[:2])
         stretch = derive_stretch_item(name, att_text, existing_items=base) \
             or {"key": "q_mobility", "label": "Did 10 minutes of mobility"}
         questions = base + [stretch]
@@ -245,7 +246,7 @@ def _is_baseline(questions) -> bool:
 def _welcome_note(name, questions, att_text, stretch):
     """Generate a 2-3 sentence first-open welcome grounded in the user's logs.
     Returns (text, cost). Falls back to a generic note if AI is unavailable."""
-    fallback = (f"Welcome, {name}. These five are your starting point — tap each "
+    fallback = (f"Welcome, {name}. These three are your starting point — tap each "
                 f"as you go, and tell the coach anything you want changed.")
     api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
     if not api_key:
@@ -257,7 +258,7 @@ def _welcome_note(name, questions, att_text, stretch):
     qlist = "\n".join(f"  - {q['label']}" for q in questions)
     wp = (
         f"You are Coach Jamie. {name} is opening their personalized daily "
-        f"checklist for the first time. Their 5 items are:\n{qlist}\n\n"
+        f"checklist for the first time. Their 3 items are:\n{qlist}\n\n"
         f"The last item — \"{stretch['label']}\" — is a coach-picked stretch to "
         f"improve their health. Write a 2-3 sentence welcome referencing SPECIFIC "
         f"real details from their logs below and briefly say why you added "

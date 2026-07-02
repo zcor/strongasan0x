@@ -131,18 +131,35 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
         .order_by("-date")
     )
 
+    # A USER-AUTHORED evening plan ("Plan tomorrow" chat flow) on this check-in
+    # takes precedence over anything the coach would invent: the coach writes
+    # its morning note AROUND the plan and must not propose a competing list.
+    plan = _pending_evening_plan(check_in)
+    plan_items = list(plan.proposed_questions) if plan else None
+
     context = build_coach_context(participant, check_in, recent)
-    result = generate_suggestion(context, refinement=refinement or None)
+    result = generate_suggestion(
+        context, refinement=refinement or None, evening_plan=plan_items,
+    )
     if result is None:
         return False
     suggestion_text, proposed_questions, proposed_bonus, model_name, cost_usd = result
+
+    rationale = f"refinement: {refinement}" if refinement else ""
+    if plan_items:
+        # Code-enforce the user's plan — never trust the model to have copied
+        # it verbatim. The plan suggestion applies first (older created_at);
+        # this note then no-ops on core (same list), so no double mutation —
+        # it exists to be the supportive morning note + optional fresh bonus.
+        proposed_questions = plan_items
+        rationale = CoachSuggestion.RATIONALE_EVENING_PLAN_NOTE
 
     CoachSuggestion.objects.create(
         check_in=check_in,
         suggestion_text=suggestion_text,
         proposed_questions=proposed_questions,
         proposed_bonus=proposed_bonus,
-        rationale=f"refinement: {refinement}" if refinement else "",
+        rationale=rationale,
         status=CoachSuggestion.STATUS_PENDING,
         model_name=model_name,
         cost_usd=cost_usd,
@@ -150,14 +167,38 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
     return True
 
 
+def _pending_evening_plan(check_in):
+    """The still-pending user-authored evening plan on `check_in`, or None.
+    (Once auto-apply promotes it its status is APPLIED and this returns None —
+    so a re-run after the morning can't re-anchor on a stale plan.)"""
+    from ..models import CoachSuggestion
+
+    return (
+        check_in.suggestions
+        .filter(
+            rationale=CoachSuggestion.RATIONALE_EVENING_PLAN,
+            status=CoachSuggestion.STATUS_PENDING,
+            proposed_questions__isnull=False,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+
 def coach_prior_day(participant, today: date) -> bool:
     """If the most recent check-in BEFORE `today` has no coach suggestion,
     run the coach for it (once). Only the most recent — we don't burn API
     calls coaching a backlog of missed days.
 
+    A USER-AUTHORED evening plan alone doesn't count as "already coached":
+    the coach still runs once to write the morning note AROUND the plan
+    (run_coach detects the pending plan, keeps the user's list, and stamps
+    the note RATIONALE_EVENING_PLAN_NOTE — which DOES count afterwards, so
+    this can't loop).
+
     Returns True if a coach run happened (caller may want to log).
     """
-    from ..models import DailyCheckIn
+    from ..models import CoachSuggestion, DailyCheckIn
 
     prior = (
         DailyCheckIn.objects
@@ -165,6 +206,8 @@ def coach_prior_day(participant, today: date) -> bool:
         .order_by("-date")
         .first()
     )
-    if prior is None or prior.suggestions.exists():
+    if prior is None or prior.suggestions.exclude(
+        rationale=CoachSuggestion.RATIONALE_EVENING_PLAN
+    ).exists():
         return False
     return run_coach(prior.id)

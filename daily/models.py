@@ -15,11 +15,12 @@ import uuid
 from django.db import models
 
 
+# The core is exactly THREE items now (was five). Three, chosen the night
+# before, led by the frog — calm by default. Nutrition/supplements are no
+# longer default anchors; the coach can add them per user as bonuses or swaps.
 BASELINE_QUESTIONS = [
     {"key": "q_water", "label": "Drank a gallon of water"},
-    {"key": "q_supplements", "label": "Took vitamins / supplements"},
     {"key": "q_exercise", "label": "Got 45 minutes of exercise"},
-    {"key": "q_nutrition", "label": "Met my nutrition goal"},
     {"key": "q_wins", "label": "Celebrated 2 wins"},
 ]
 
@@ -264,6 +265,16 @@ class CoachSuggestion(models.Model):
         (STATUS_DISMISSED, "Dismissed"),
         (STATUS_APPLIED, "Mutation applied"),
     ]
+
+    # Well-known `rationale` values (rationale is free text; these two are
+    # markers the code branches on — no schema change needed):
+    #   RATIONALE_EVENING_PLAN — the USER authored tomorrow's list in the
+    #     evening "Plan tomorrow" chat flow (frog first). The overnight coach
+    #     must not compete with it; auto-apply promotes it in the morning.
+    #   RATIONALE_EVENING_PLAN_NOTE — the overnight coach's supportive morning
+    #     note written AROUND a user-authored plan (list forced to the user's).
+    RATIONALE_EVENING_PLAN = "evening_plan"
+    RATIONALE_EVENING_PLAN_NOTE = "evening_plan_note"
 
     check_in = models.ForeignKey(
         DailyCheckIn,

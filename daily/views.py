@@ -39,13 +39,17 @@ from .models import (
     DailyCheckInAnswer,
     DailyParticipant,
 )
+from .services.ai_coach import CHECKLIST_SIZE
 from .services.checklist import apply_pending_mutations, revert_to_baseline
 from .services.coach_runner import coach_prior_day, run_coach
 from .services.tz import participant_today
 
 logger = logging.getLogger(__name__)
 
-BONUS_REVEAL_AT = 3  # bonus section appears once this many core items are done
+# Bonus section appears once this many core items are done. Proportional to the
+# 3-item core (was 3-of-5; now 2-of-3) — you reveal the bonus zone with one core
+# item left to go, so it never competes with an unfinished list.
+BONUS_REVEAL_AT = 2
 
 
 def _real_today(request) -> date:
@@ -188,9 +192,9 @@ def _get_or_create_today(participant: DailyParticipant, today: date, version: Ch
 # punishing a beginner (Amy just shows up → showing up IS her streak).
 #
 # Floor = 1 so the lowest-engagement users keep a streak simply by using the
-# app daily. Cap = 5 so the bar never exceeds a full core sweep.
+# app daily. Cap = 3 so the bar never exceeds a full core sweep (the core is 3).
 STREAK_FLOOR = 1
-STREAK_CAP = 5
+STREAK_CAP = 3
 
 
 def _day_done_count(ci: DailyCheckIn) -> int:
@@ -201,8 +205,8 @@ def _day_done_count(ci: DailyCheckIn) -> int:
 def _streak_bar(done_counts: list) -> int:
     """The per-user threshold: what this person reliably hits on a normal day.
     Use the MEDIAN of their recent daily done-counts (robust to one big/zero
-    day), clamped to [FLOOR, CAP]. A user who routinely does 5 gets a bar of 5;
-    one who routinely does 1-2 gets a bar of 1-2."""
+    day), clamped to [FLOOR, CAP]. A user who routinely sweeps all 3 gets a bar
+    of 3; one who routinely does 1-2 gets a bar of 1-2."""
     if not done_counts:
         return STREAK_FLOOR
     s = sorted(done_counts)
@@ -259,7 +263,8 @@ def _has_attestation_history(participant) -> bool:
     """True if this participant's Telegram identity has posted attestations.
     Attestation history is RICHER than a 3-question survey, so when present it
     drives the checklist and the survey only lightly steers the coach — the
-    survey must NEVER overwrite an attestation-tailored list with a generic 5."""
+    survey must NEVER overwrite an attestation-tailored list with a generic
+    seeded set."""
     if not participant.telegram_mapping_id:
         return False
     from rollcall.models import Attestation
@@ -317,7 +322,7 @@ def checkin(request):
         if note and note.status == CoachSuggestion.STATUS_PENDING:
             note.status = CoachSuggestion.STATUS_SHOWN
             note.save(update_fields=["status"])
-        # "checklist updated" + Undo only when the CORE 5 actually changed
+        # "checklist updated" + Undo only when the CORE items actually changed
         # (bonus-only version churn reads as a plain note).
         if note and note.status == CoachSuggestion.STATUS_APPLIED and note.applied_version_id:
             parent = note.applied_version.derived_from
@@ -398,7 +403,7 @@ def checkin(request):
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         ci = by_date.get(d)
-        total = len(ci.checklist_version.questions) if ci else 5
+        total = len(ci.checklist_version.questions) if ci else CHECKLIST_SIZE
         done = ci.score if ci else 0
         week.append({
             "label": d.strftime("%a")[0],
@@ -432,6 +437,7 @@ def checkin(request):
         # already has a state (don't hide items the user interacted with).
         "bonus_revealed": bool(bonus_items) and (done_count >= BONUS_REVEAL_AT or bonus_done),
         "bonus_reveal_at": BONUS_REVEAL_AT,
+        "checklist_size": CHECKLIST_SIZE,
         "done_count": done_count,
         "streak": _current_streak(participant, today) if not backfill else 0,
         "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
@@ -637,7 +643,12 @@ def wrap_day(request):
     seals the morning note. Re-pressing after more taps re-wraps:
     unapplied suggestions are dismissed and the coach re-reads the day.
     Entirely optional — users who never press it get the lazy morning
-    coach as before."""
+    coach as before.
+
+    The wrap-up reply lives in the coach CHAT and invites evening planning
+    (the frog-first "Plan tomorrow" flow) — unless the user already planned,
+    in which case it says so honestly instead."""
+    from .models import CoachChatMessage
     participant = request.daily_participant
     today = _resolve_today(request)
     if _is_backfill(request):
@@ -646,16 +657,49 @@ def wrap_day(request):
     version = participant.get_or_create_current_checklist()
     check_in = _get_or_create_today(participant, today, version)
 
-    # Re-wrap: clear any prior un-applied reflection for today.
+    # Re-wrap: clear any prior un-applied reflection for today — but NEVER a
+    # user-authored evening plan (wrapping after planning must not destroy it;
+    # the coach run below writes its note AROUND the plan instead).
     check_in.suggestions.exclude(
         status__in=[CoachSuggestion.STATUS_APPLIED, CoachSuggestion.STATUS_DISMISSED]
+    ).exclude(
+        rationale=CoachSuggestion.RATIONALE_EVENING_PLAN
     ).update(status=CoachSuggestion.STATUS_DISMISSED, responded_at=timezone.now())
 
     _run_coach(check_in.id)
     ready = check_in.suggestions.exclude(
         status=CoachSuggestion.STATUS_DISMISSED
     ).exists()
-    return JsonResponse({"ok": True, "note_ready": ready})
+
+    plan = check_in.suggestions.filter(
+        rationale=CoachSuggestion.RATIONALE_EVENING_PLAN,
+        status=CoachSuggestion.STATUS_PENDING,
+        proposed_questions__isnull=False,
+    ).order_by("-created_at").first()
+
+    invite_planning = False
+    if plan:
+        frog = plan.proposed_questions[0]["label"]
+        reply = f'Day wrapped. Tomorrow is already planned — "{frog}" first. Rest up.'
+    elif ready:
+        reply = (
+            "Day wrapped — your morning note is set. Want to set up tomorrow? "
+            "What's the ONE thing you've been putting off that would matter most?"
+        )
+        invite_planning = True
+    else:
+        reply = (
+            "I couldn't wrap the day just now (coach is offline). Your taps "
+            "are saved — tell me anything here and I'll fold it in overnight."
+        )
+    CoachChatMessage.objects.create(
+        participant=participant, role=CoachChatMessage.ROLE_COACH,
+        text=reply, date=today,
+    )
+    return JsonResponse({
+        "ok": True, "note_ready": ready,
+        "reply": reply, "invite_planning": invite_planning,
+    })
 
 
 @require_daily_actor
@@ -752,7 +796,7 @@ def _revert_applied_suggestion(participant, suggestion):
 def reset_to_baseline_view(request):
     participant = request.daily_participant
     revert_to_baseline(participant)
-    messages.success(request, "Checklist reset to the original 5 questions.")
+    messages.success(request, "Checklist reset to the original 3 questions.")
     return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 
@@ -813,9 +857,17 @@ def _chat_history(participant, limit=40):
 @require_http_methods(["POST"])
 def chat_send(request):
     """User sends a chat message → save it, notify admin, generate + save a
-    live coach reply, return the reply."""
+    live coach reply, return the reply.
+
+    planning=true in the body switches the coach to the evening "Plan
+    tomorrow" mode: it shapes a frog-first 3-item list for tomorrow and, once
+    settled, emits it as JSON. We parse that here and queue it as a pending
+    CoachSuggestion on today's check-in — the SAME auto-apply path every coach
+    mutation already rides — and only then does the reply claim "locked in"
+    (the confirmation line is appended by THIS code after the queue genuinely
+    succeeded, never by the model)."""
     from .models import CoachChatMessage
-    from .services.ai_coach import chat_reply
+    from .services.ai_coach import chat_reply, parse_planned_list
     participant = request.daily_participant
     today = _resolve_today(request)
     try:
@@ -823,6 +875,7 @@ def chat_send(request):
     except json.JSONDecodeError:
         return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
     text = str(body.get("text", "")).strip()
+    planning = bool(body.get("planning"))
     if not text:
         return JsonResponse({"ok": False, "error": "empty"}, status=400)
     if len(text) > 2000:
@@ -851,20 +904,85 @@ def chat_send(request):
     result = chat_reply(
         participant.display_name, list(version.questions), states,
         _metrics_summary(participant), recent_summary, history,
+        planning=planning,
     )
+    planned = False
     if result is None:
         reply_text = "Got it — logged. (Coach is offline right now, but I saved your note.)"
         model = ""
     else:
         reply_text, model, _cost = result
+        if planning:
+            display, items = parse_planned_list(reply_text)
+            had_json = display != reply_text.strip()
+            if items is not None and _queue_evening_plan(participant, today, items, model):
+                planned = True
+                confirm = (
+                    f'Locked in for tomorrow morning — "{items[0]["label"]}" '
+                    "leads, then the other two. You'll see it when you open "
+                    "the app."
+                )
+                reply_text = f"{display}\n\n{confirm}".strip() if display else confirm
+            elif had_json:
+                # The model tried to emit a plan but it didn't validate/queue.
+                # Never show raw JSON, never claim success — say so honestly.
+                miss = "(I couldn't lock that in — give me the three again and I'll retry.)"
+                reply_text = f"{display}\n\n{miss}".strip() if display else miss
+            # else: still conversing (no JSON yet) — pass the reply through.
     coach_msg = CoachChatMessage.objects.create(
         participant=participant, role=CoachChatMessage.ROLE_COACH,
         text=reply_text, date=today,
     )
     return JsonResponse({
         "ok": True,
+        "planned": planned,
         "reply": {"text": coach_msg.text, "at": coach_msg.created_at.isoformat()},
     })
+
+
+def _queue_evening_plan(participant, today, items, model_name=""):
+    """Queue a user-authored evening plan as a pending CoachSuggestion on
+    TODAY's check-in — proposed_questions = their 3 items, frog first. The
+    EXISTING auto-apply machinery (apply_pending_mutations, which only touches
+    suggestions from days BEFORE "today") promotes it tomorrow morning; the
+    overnight coach sees the pending plan and writes its note around it
+    instead of competing (see coach_runner.run_coach).
+
+    Supersedes any other queued-but-unapplied mutation on today's check-in
+    (an earlier plan tonight, a wrap-generated mutation) so exactly one
+    mutation is ever pending — double-application can't happen.
+
+    suggestion_text doubles as the fallback morning note if the overnight
+    note-around-the-plan run never happens. Returns the suggestion (truthy)
+    or None.
+    """
+    if not items:
+        return None
+    version = participant.get_or_create_current_checklist()
+    check_in = _get_or_create_today(participant, today, version)
+    check_in.suggestions.filter(
+        proposed_questions__isnull=False,
+    ).exclude(
+        status__in=[
+            CoachSuggestion.STATUS_APPLIED,
+            CoachSuggestion.STATUS_DISMISSED,
+            CoachSuggestion.STATUS_SHOWN,  # already-evaluated no-ops can't apply
+        ]
+    ).update(status=CoachSuggestion.STATUS_DISMISSED, responded_at=timezone.now())
+
+    frog = items[0]["label"]
+    note = (
+        f'Your plan, set last night: "{frog}" comes first — that\'s the frog, '
+        "eat it while you're fresh. The other two are there to back it up."
+    )
+    return CoachSuggestion.objects.create(
+        check_in=check_in,
+        suggestion_text=note,
+        proposed_questions=list(items),
+        rationale=CoachSuggestion.RATIONALE_EVENING_PLAN,
+        status=CoachSuggestion.STATUS_PENDING,
+        model_name=model_name or "",
+    )
 
 
 # --- PWA (installable home-screen app) -------------------------------------
@@ -960,9 +1078,9 @@ self.addEventListener('notificationclick', (event) => {
 # --- Web Push: morning badge -----------------------------------------------
 
 def remaining_core_today(participant: DailyParticipant, today: date) -> int:
-    """How many CORE items the participant still has to do today (0..5). This
-    is the number the home-screen badge shows. A day with no check-in yet =
-    the full core count of their current checklist."""
+    """How many CORE items the participant still has to do today (0..core
+    size). This is the number the home-screen badge shows. A day with no
+    check-in yet = the full core count of their current checklist."""
     version = participant.get_or_create_current_checklist()
     total = len(version.questions)
     ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
@@ -1085,7 +1203,7 @@ def submit_onboarding(request):
     """Finish onboarding and stamp onboarded_at so it never shows again.
 
     What the survey answers DO depends on whether we have richer data:
-      - TRUE naked user (no attestations): the answers SEED their 5-item list.
+      - TRUE naked user (no attestations): the answers SEED their 3-item list.
       - Attestation-warrior: their list is already tailored from their logs, so
         the survey must NOT overwrite it — it's recorded as a coach note that
         lightly steers the overnight coach instead.
@@ -1112,10 +1230,10 @@ def submit_onboarding(request):
 
         # CRUCIAL: attestation history is richer than a 3-question survey. For a
         # warrior, the checklist is already tailored from their logs (pre-build /
-        # lazy coach) — the survey must NOT overwrite it with a generic seeded 5.
-        # It only LIGHTLY STEERS: we record the answers as a coach note so the
-        # overnight coach can lean that way over time. Only a TRUE naked user
-        # (no attestations) has their 5 seeded from the survey.
+        # lazy coach) — the survey must NOT overwrite it with a generic seeded
+        # set. It only LIGHTLY STEERS: we record the answers as a coach note so
+        # the overnight coach can lean that way over time. Only a TRUE naked user
+        # (no attestations) has their list seeded from the survey.
         if not has_history:
             questions = seed_questions(branch, focus, cadence)
             with transaction.atomic():
@@ -1128,7 +1246,7 @@ def submit_onboarding(request):
         # Log the survey (answers + any write-ins) as the day's first user chat
         # message so build_coach_context surfaces it — for a warrior this is the
         # gentle steer on top of their attestation-tailored list; for a stranger
-        # it's extra colour beside the seeded 5. Best-effort.
+        # it's extra colour beside the seeded list. Best-effort.
         write_ins = body.get("write_ins") or []
         note = survey_summary(branch, focus, cadence,
                               write_ins if isinstance(write_ins, list) else [])
