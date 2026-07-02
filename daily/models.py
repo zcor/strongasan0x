@@ -67,6 +67,23 @@ class DailyParticipant(models.Model):
             "from activity history (fallback 6am)."
         ),
     )
+    # OPT-IN for the evening "Plan tomorrow" nudge push (see
+    # daily/management/commands/send_evening_plan_nudge.py). NULL = this
+    # participant gets NO evening nudge; a set hour = nudge at that local hour.
+    # There is deliberately no blanket default (10pm was wrong for night-owl
+    # users) — the nudge is strictly opt-in per person. Unlike
+    # morning_target_hour there is no learned estimate and no cross-midnight
+    # semantics: it's a fixed, user-chosen reminder time.
+    evening_nudge_hour = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(23)],
+        help_text=(
+            "Opt-in local hour (0-23) for the evening 'Plan tomorrow' nudge "
+            "push. Blank = no evening nudge for this participant (there is no "
+            "default hour; the nudge is opt-in per person)."
+        ),
+    )
     # Where this account came from — so even a stranger who self-onboards isn't
     # anonymous. source = the on-ramp ("telegram", "onboarding", ...);
     # source_detail = the human-readable origin (e.g. "@lurker_42 (tg 123)").
@@ -364,6 +381,13 @@ class PushSubscription(models.Model):
     # OWN timezone and uses this to push exactly once per local day (so a
     # non-Pacific user's badge resets on THEIR morning, not the server's).
     last_badge_date = models.DateField(null=True, blank=True)
+    # The participant's LOCAL date we last sent the evening "Plan tomorrow"
+    # nudge for (see send_evening_plan_nudge.py). Deliberately a SEPARATE
+    # field from last_badge_date: the morning badge and the evening nudge are
+    # independent jobs that must never suppress each other. Sharing one date
+    # field would mean whichever job ran first each day silently blocked the
+    # other for that same local date.
+    last_evening_nudge_date = models.DateField(null=True, blank=True)
     # Soft fail counter — a few transient errors are fine; many = prune.
     fail_count = models.IntegerField(default=0)
 

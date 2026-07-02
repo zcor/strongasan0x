@@ -38,3 +38,13 @@
 # push lands just before they wake. --hourly = fire per-user at their target
 # hour, once per local day. Runs AFTER the coach job (see ORDER note above).
 10 * * * * zcor mkdir -p /var/www/ox/strongasan0x/logs && /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py send_daily_badges --hourly >> /var/www/ox/strongasan0x/logs/cron-badges.log 2>&1
+
+# Evening "Plan tomorrow" nudge: OPT-IN per user. Fires only for participants
+# who have DailyParticipant.evening_nudge_hour set, at that local hour, once
+# per local day, inviting them to set tomorrow's 3 items via the "Plan
+# tomorrow" chat flow. A null override = no nudge (no blanket default — 10pm
+# was wrong for night owls). Fully independent of the badge job above — its
+# own dedupe field (PushSubscription.last_evening_nudge_date), so neither job
+# can suppress the other. Skips anyone who already planned tomorrow. Offset
+# to :20 so it doesn't contend with the coach (:00) / badge (:10) jobs.
+20 * * * * zcor mkdir -p /var/www/ox/strongasan0x/logs && /var/www/ox/strongasan0x/ox-env/bin/python /var/www/ox/strongasan0x/manage.py send_evening_plan_nudge --hourly >> /var/www/ox/strongasan0x/logs/cron-evening-nudge.log 2>&1

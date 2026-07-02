@@ -1040,9 +1040,27 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 // N (today's remaining to-dos) WITHOUT opening the app. iOS requires us to
 // also show a notification on each push, so we show a quiet one whose body
 // just states the count — it doubles as the morning nudge.
+//
+// --- Web Push: the evening "Plan tomorrow" nudge ---
+// A separate, independent push (send_evening_plan_nudge.py) carries
+// {kind: 'evening_nudge', title, body} instead of {count}. It never touches
+// the app badge — it's a plain reminder notification, distinguished by
+// `kind` so this one handler can serve both jobs without either stepping on
+// the other's payload shape.
 self.addEventListener('push', (event) => {
-  let count = 0;
-  try { count = (event.data && event.data.json().count) || 0; } catch (e) {}
+  let data = {};
+  try { data = (event.data && event.data.json()) || {}; } catch (e) {}
+
+  if (data.kind === 'evening_nudge') {
+    event.waitUntil(self.registration.showNotification(data.title || 'Plan tomorrow', {
+      body: data.body || "Set tomorrow's 3 before you sleep.",
+      badge: '/static/daily/icons/icon-192.png',
+      icon: '/static/daily/icons/icon-192.png', tag: 'daily-evening-nudge', renotify: false,
+    }));
+    return;
+  }
+
+  const count = data.count || 0;
   event.waitUntil((async () => {
     try {
       if (navigator.setAppBadge) {
