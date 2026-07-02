@@ -14,7 +14,7 @@ from .models import (
 @admin.register(DailyParticipant)
 class DailyParticipantAdmin(admin.ModelAdmin):
     list_display = ("display_name", "kind", "is_active", "morning_target_hour",
-                    "telegram_mapping", "created_at")
+                    "evening_nudge_hour", "telegram_mapping", "created_at")
     list_filter = ("kind", "is_active")
     search_fields = ("display_name",)
     raw_id_fields = ("telegram_mapping",)
