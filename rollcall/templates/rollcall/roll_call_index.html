@@ -1,0 +1,60 @@
+{% extends "rollcall/base.html" %}
+
+{% block title %}Roll Calls{% endblock %}
+
+{% block header_title %}Strong as an 0x{% endblock %}
+{% block header_subtitle %}Every Roll Call, week by week{% endblock %}
+
+{% block extra_css %}
+<style>
+    .rc-index {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 10px 4px 30px;
+        font-family: Arial, sans-serif;
+    }
+    .rc-index-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .rc-index-list li {
+        border-bottom: 1px solid #eee;
+    }
+    .rc-index-list a {
+        display: block;
+        padding: 16px 10px;
+        color: #b06a1e;
+        text-decoration: none;
+        font-size: 1.1em;
+    }
+    .rc-index-list a:hover {
+        background: #f8f2e4;
+    }
+    .rc-index-empty {
+        padding: 30px 10px;
+        color: #666;
+        text-align: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rc-index">
+    <p><a href="{% url 'landing' %}">&larr; Back to Rankings</a></p>
+
+    {% if roll_calls %}
+    <ul class="rc-index-list">
+        {% for rc in roll_calls %}
+        <li>
+            <a href="{% url 'roll_call_detail' week_end_date=rc.week_end_date|date:'Y-m-d' %}">
+                Week of {{ rc.week_start_date|date:"F j" }} &ndash; {{ rc.week_end_date|date:"F j, Y" }}
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="rc-index-empty">No roll calls published yet.</p>
+    {% endif %}
+</div>
+{% endblock %}
