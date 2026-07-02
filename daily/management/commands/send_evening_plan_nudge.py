@@ -1,6 +1,13 @@
-"""Send each subscribed device a gentle Web Push at ~10pm local inviting the
-user to open the app and plan tomorrow's 3 items via the "Plan tomorrow" chat
-flow ("What's tomorrow's frog?").
+"""Send an opted-in device a gentle Web Push at that participant's chosen
+local hour inviting them to plan tomorrow's 3 items via the "Plan tomorrow"
+chat flow ("What's tomorrow's frog?").
+
+OPT-IN ONLY: the nudge fires ONLY for participants whose
+DailyParticipant.evening_nudge_hour override is SET. A null override means
+"no evening nudge for this person" — there is NO blanket default hour. (An
+earlier design defaulted everyone to 10pm local, but for the night-owl users
+we dogfood with, 10pm is early afternoon — a fixed default is wrong. Opt-in
+lets us roll out per user.)
 
 This is a SEPARATE job from send_daily_badges — same robustness pattern
 (hourly, per-participant-tz, once-per-local-day, dead-subscription pruning,
@@ -16,7 +23,7 @@ daily/views.py:wrap_day) — the nudge is skipped. Nudging someone who already
 did the thing the nudge asks for is just noise.
 
 Usage:
-    python manage.py send_evening_plan_nudge                  # push everyone now
+    python manage.py send_evening_plan_nudge                  # push every OPTED-IN user now
     python manage.py send_evening_plan_nudge --hourly         # per-user-tz evening push (cron mode)
     python manage.py send_evening_plan_nudge --participant 11 # one person (testing)
     python manage.py send_evening_plan_nudge --dry-run        # compute, don't send
@@ -38,11 +45,6 @@ from daily.services.tz import participant_local_hour, participant_today
 logger = logging.getLogger(__name__)
 
 MAX_FAILS = 5  # prune a subscription after this many consecutive failures
-# Default local hour for the evening nudge (10pm). Overridable per participant
-# via DailyParticipant.evening_nudge_hour (admin-set; NULL = this default).
-# No learned/cross-midnight variant like morning_target_hour — this is a
-# fixed reminder time, not a wake-time prediction.
-EVENING_NUDGE_HOUR = 22
 
 NUDGE_TITLE = "Plan tomorrow \U0001f305"
 NUDGE_BODY = (
@@ -51,14 +53,15 @@ NUDGE_BODY = (
 )
 
 
-def evening_nudge_hour(participant) -> int:
+def evening_nudge_hour(participant):
     """The local HOUR (0-23) at which this participant's evening 'Plan
-    tomorrow' nudge should fire. Admin override (DailyParticipant.
-    evening_nudge_hour) wins; otherwise the module default."""
-    override = getattr(participant, "evening_nudge_hour", None)
-    if override is not None:
-        return override
-    return EVENING_NUDGE_HOUR
+    tomorrow' nudge should fire, or None if they have NOT opted in.
+
+    Opt-in is expressed by setting DailyParticipant.evening_nudge_hour; a null
+    override means "no evening nudge for this person" — there is no default
+    hour. No learned/cross-midnight variant like morning_target_hour: this is
+    a fixed, user-chosen reminder time, not a wake-time prediction."""
+    return getattr(participant, "evening_nudge_hour", None)
 
 
 def already_planned_tomorrow(participant, today) -> bool:
@@ -109,15 +112,21 @@ class Command(BaseCommand):
         if opts["participant"] is not None:
             qs = qs.filter(participant_id=opts["participant"])
 
-        sent = pruned = skipped = held = already_planned = 0
+        sent = pruned = skipped = held = already_planned = opted_out = 0
         for sub in qs:
+            # OPT-IN GATE (both modes): no override set = no evening nudge for
+            # this person. Null means "off", not "nudge at some default hour".
+            target = evening_nudge_hour(sub.participant)
+            if target is None:
+                opted_out += 1
+                continue
+
             # Each user's "today" is resolved in THEIR timezone, same as the
             # badge job — this is the local day the "Plan tomorrow" flow
             # writes its suggestion onto.
             local_today = participant_today(sub.participant)
 
             if hourly:
-                target = evening_nudge_hour(sub.participant)
                 if participant_local_hour(sub.participant) != target:
                     held += 1
                     continue
@@ -187,5 +196,5 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"Done. sent={sent} pruned={pruned} skipped={skipped} held={held} "
-            f"already_planned={already_planned}"
+            f"already_planned={already_planned} opted_out={opted_out}"
         ))

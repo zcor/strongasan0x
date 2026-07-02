@@ -32,7 +32,12 @@ WAKE_LOOKBACK_DAYS = 21     # how much history to scan for "first activity"
 WAKE_MIN_DAYS = 5           # minimum days-with-data required to trust the estimate
 WAKE_QUANTILE = 0.20        # low quantile of first-activity hour (robust to insomnia outliers)
 WAKE_CLAMP_MIN_HOUR = 0.0   # sane local-hour window an estimate must fall inside
-WAKE_CLAMP_MAX_HOUR = 11.0
+# Widened 11 -> 14 (2pm): a genuine late-morning/midday first-touch (e.g. a
+# warrior whose p20 first-activity is 12:18pm) is a real wake signal, not noise
+# — the old ceiling of 11 discarded it (returned None) and fell back to 6am.
+# Only affects users WITHOUT a morning_target_hour override (target_morning_hour
+# short-circuits overrides first), so it can't disturb admin-set hours.
+WAKE_CLAMP_MAX_HOUR = 14.0
 FALLBACK_MORNING_HOUR = 6   # local hour used when there isn't enough signal to estimate
 
 

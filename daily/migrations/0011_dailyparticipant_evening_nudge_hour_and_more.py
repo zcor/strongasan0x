@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name="evening_nudge_hour",
             field=models.PositiveSmallIntegerField(
                 blank=True,
-                help_text="Manual override (local hour, 0-23) for the evening 'Plan tomorrow' nudge push. Blank = default (22 / 10pm local).",
+                help_text="Opt-in local hour (0-23) for the evening 'Plan tomorrow' nudge push. Blank = no evening nudge for this participant (there is no default hour; the nudge is opt-in per person).",
                 null=True,
                 validators=[django.core.validators.MaxValueValidator(23)],
             ),

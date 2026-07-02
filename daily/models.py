@@ -67,19 +67,21 @@ class DailyParticipant(models.Model):
             "from activity history (fallback 6am)."
         ),
     )
-    # Manual override for the evening "Plan tomorrow" nudge push (see
-    # daily/management/commands/send_evening_plan_nudge.py). NULL = use the
-    # module default (EVENING_NUDGE_HOUR = 22, i.e. 10pm local). Unlike
-    # morning_target_hour there is no learned estimate here — the nudge is a
-    # fixed reminder, not a wake-time prediction — so this is a plain
-    # override-or-default, no cross-midnight semantics to encode.
+    # OPT-IN for the evening "Plan tomorrow" nudge push (see
+    # daily/management/commands/send_evening_plan_nudge.py). NULL = this
+    # participant gets NO evening nudge; a set hour = nudge at that local hour.
+    # There is deliberately no blanket default (10pm was wrong for night-owl
+    # users) — the nudge is strictly opt-in per person. Unlike
+    # morning_target_hour there is no learned estimate and no cross-midnight
+    # semantics: it's a fixed, user-chosen reminder time.
     evening_nudge_hour = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
         validators=[MaxValueValidator(23)],
         help_text=(
-            "Manual override (local hour, 0-23) for the evening 'Plan "
-            "tomorrow' nudge push. Blank = default (22 / 10pm local)."
+            "Opt-in local hour (0-23) for the evening 'Plan tomorrow' nudge "
+            "push. Blank = no evening nudge for this participant (there is no "
+            "default hour; the nudge is opt-in per person)."
         ),
     )
     # Where this account came from — so even a stranger who self-onboards isn't
