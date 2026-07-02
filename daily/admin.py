@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     ChecklistVersion,
+    CoachProfile,
     CoachSuggestion,
     DailyAccessToken,
     DailyCheckIn,
@@ -60,3 +61,11 @@ class CoachSuggestionAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="mutation")
     def has_mutation(self, obj):
         return bool(obj.proposed_questions)
+
+
+@admin.register(CoachProfile)
+class CoachProfileAdmin(admin.ModelAdmin):
+    list_display = ("participant", "attestation_count", "model_name", "cost_usd", "updated_at")
+    search_fields = ("participant__display_name",)
+    raw_id_fields = ("participant",)
+    readonly_fields = ("source_hash", "attestation_count", "model_name", "cost_usd", "created_at", "updated_at")
