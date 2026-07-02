@@ -50,15 +50,21 @@ class Command(BaseCommand):
                 today = participant_today(participant)
 
                 if opts["dry_run"]:
+                    from daily.models import CoachSuggestion
                     prior = (
                         DailyCheckIn.objects
                         .filter(participant=participant, date__lt=today)
                         .order_by("-date")
                         .first()
                     )
+                    # Mirror coach_prior_day: a user-authored evening plan
+                    # alone doesn't count as coached (the note-around-the-plan
+                    # run still happens).
                     if prior is None:
                         self.stdout.write(f"[dry-run] {participant.display_name}: no prior check-in — skip")
-                    elif prior.suggestions.exists():
+                    elif prior.suggestions.exclude(
+                        rationale=CoachSuggestion.RATIONALE_EVENING_PLAN
+                    ).exists():
                         self.stdout.write(f"[dry-run] {participant.display_name}: {prior.date} already coached — skip")
                     else:
                         self.stdout.write(f"[dry-run] {participant.display_name}: WOULD coach {prior.date}")

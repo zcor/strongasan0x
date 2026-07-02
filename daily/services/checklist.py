@@ -104,7 +104,8 @@ def revert_to_baseline(participant: DailyParticipant) -> ChecklistVersion:
 
 
 def _is_valid_questions(questions) -> bool:
-    if not isinstance(questions, list) or len(questions) != 5:
+    from .ai_coach import CHECKLIST_SIZE
+    if not isinstance(questions, list) or len(questions) != CHECKLIST_SIZE:
         return False
     seen = set()
     for q in questions:

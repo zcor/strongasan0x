@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 DEEPSEEK_INPUT_USD_PER_1M = 0.14
 DEEPSEEK_OUTPUT_USD_PER_1M = 0.28
 
-CHECKLIST_SIZE = 5  # Always exactly 5. Substitute, don't expand.
+CHECKLIST_SIZE = 3  # Always exactly 3. Substitute, don't expand.
 
 
 class CheckInSummary(TypedDict):
@@ -48,7 +48,7 @@ a note they will read tomorrow morning when they open the app.
 
 # Item states (important)
 
-Each of yesterday's 5 items ended in one of three states:
+Each of yesterday's items ended in one of three states:
 - done — they did it.
 - skip — they DELIBERATELY opted out (tapped skip). This is a signal:
   repeated skips of the same item mean it's a candidate for
@@ -126,10 +126,17 @@ DO NOT mutate the list just because:
 
 # Strict mechanical rules for tomorrow's JSON
 
-- EXACTLY 5 items. Never more, never fewer.
+- EXACTLY 3 items. Never more, never fewer.
 - SUBSTITUTE, DO NOT EXPAND. If the user asks for "more exercise",
   change the existing exercise label (e.g. "45 min" → "60 min"). DO
-  NOT add a second exercise bullet. The total stays at 5.
+  NOT add a second exercise bullet. The total stays at 3.
+- TRANSITION (legacy lists): if yesterday's checklist has MORE than 3
+  items (a legacy 5-item list), select the 3 most essential for THIS
+  user — prioritize what they actually complete and what serves their
+  stated goals — and briefly explain the trim in the note (e.g.
+  "simplified your list to the essential 3 — the others can return as
+  bonuses"). Demote up to 2 of the dropped items to bonus items if they
+  still serve the user (put them in the bonus JSON array below).
 - Keep keys STABLE for questions you preserve. Generate new keys
   (lowercase_with_underscores, short) only when replacing entirely.
 - Labels are concise past-tense phrases the user will see ticked off
@@ -163,8 +170,8 @@ flattery — but never fabricate the win itself.
 
 # Bonus items (extra credit) + daily novelty
 
-After the core 5, offer BONUS items for tomorrow — small optional extras
-revealed in the app after the user has done several core items.
+After the core 3, offer BONUS items for tomorrow — small optional extras
+revealed in the app after the user has done most of their core items.
 
 DAILY NOVELTY MATTERS: each morning should contain something fresh to
 discover. Aim for 1-2 NEW bonus items every day — new themes, not
@@ -175,7 +182,7 @@ engaged user opening the app should regularly find something they
 haven't seen before.
 
 Rules:
-- If the user is struggling to finish even the core 5, offer just 1
+- If the user is struggling to finish even the core 3, offer just 1
   gentle bonus rather than piling on — but rarely offer zero.
 - Bonus items are extra credit: small, low-friction, grounded in their
   data (same no-invention rule). Fresh nudges, NOT restatements of
@@ -191,7 +198,7 @@ Rules:
 ```json
 [
   {"key": "...", "label": "..."},
-  ...exactly 5 items total...
+  ...exactly 3 items total...
 ]
 ```
 
@@ -441,7 +448,7 @@ Rules:
 
 
 CORE_SWAP_PROMPT = """You are Coach Jamie. The user just tapped "swap" on
-one of their 5 core daily habits — they're NOT INTERESTED in that item.
+one of their 3 core daily habits — they're NOT INTERESTED in that item.
 Generate ONE replacement core habit for today.
 
 THE APP'S LANE (most important rule): if their logs show structured,
@@ -615,7 +622,11 @@ def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     }
 
 
-def _format_user_prompt(context: CoachContext, refinement: Optional[str] = None) -> str:
+def _format_user_prompt(
+    context: CoachContext,
+    refinement: Optional[str] = None,
+    evening_plan: Optional[List[dict]] = None,
+) -> str:
     lines = [f"Participant: {context['participant_name']}", ""]
     profile = (context.get("profile_text") or "").strip()
     if profile:
@@ -661,6 +672,23 @@ def _format_user_prompt(context: CoachContext, refinement: Optional[str] = None)
         lines.append("THE USER HAS REFINED THEIR REQUEST FOR TOMORROW:")
         lines.append(f"  {refinement}")
         lines.append("Apply this refinement to tomorrow's checklist.")
+    if evening_plan:
+        lines.append("")
+        lines.append(
+            "THE USER PLANNED TOMORROW THEMSELVES (last night, in the app's "
+            "\"Plan tomorrow\" flow). Their list, in THEIR order — the first "
+            "item is their \"frog\": the hardest, highest-value task they've "
+            "been putting off:"
+        )
+        for i, q in enumerate(evening_plan, 1):
+            lines.append(f"  {i}. {q['label']}")
+        lines.append(
+            "Their plan OVERRIDES all of your list-choosing rules above: "
+            "output THEIR list UNCHANGED as the core JSON (same keys, same "
+            "labels, same order). Write the note SUPPORTING their plan — "
+            "brief, specific encouragement, and why leading with the frog "
+            "matters today. You may still offer fresh bonus items."
+        )
     lines.append("")
     lines.append("Now respond with the note + tomorrow's core JSON checklist + bonus JSON array.")
     return "\n".join(lines)
@@ -698,7 +726,7 @@ def _clean_items(parsed, max_items, seen_keys=None) -> Optional[List[dict]]:
 def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]], Optional[List[dict]]]:
     """Split raw response into (prose, core_questions|None, bonus|None).
 
-    First fenced ```json array = tomorrow's core 5; second (optional)
+    First fenced ```json array = tomorrow's core 3; second (optional)
     = bonus items (0-3). Bonus is best-effort: any doubt → None.
     """
     matches = list(_FENCED_JSON_RE.finditer(raw))
@@ -742,12 +770,19 @@ def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]], Optional[List[
 def generate_suggestion(
     context: CoachContext,
     refinement: Optional[str] = None,
+    evening_plan: Optional[List[dict]] = None,
 ) -> Optional[Tuple[str, Optional[List[dict]], Optional[List[dict]], str, Decimal]]:
     """Returns (suggestion_text, proposed_questions|None, proposed_bonus|None,
     model_name, cost_usd) or None on failure.
 
     If `refinement` is provided, it is added to the prompt as the user's
     follow-up tweak for tomorrow ("swap exercise for stretching", etc.).
+
+    If `evening_plan` is provided (the user authored tomorrow's list in the
+    evening "Plan tomorrow" flow), the coach is told to write its note AROUND
+    the plan and output the list unchanged. NOTE: the caller (coach_runner)
+    still code-enforces proposed_questions = the plan — never trust the model
+    to copy a list verbatim.
     """
     api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
     if not api_key:
@@ -760,7 +795,7 @@ def generate_suggestion(
         logger.error("daily.ai_coach: openai SDK not installed")
         return None
 
-    user_prompt = _format_user_prompt(context, refinement=refinement)
+    user_prompt = _format_user_prompt(context, refinement=refinement, evening_plan=evening_plan)
     model = "deepseek-chat"
 
     try:
@@ -816,21 +851,31 @@ What the chat is for:
 # CHECKLIST CHANGES — be scrupulously honest (this is critical)
 
 You CANNOT edit the checklist from this chat in real time. You have NO button,
-no live access to change their list right now. The overnight coach reads this
-conversation and updates the list for the NEXT day.
+no tool, no live access — nothing you SAY changes the list. The overnight coach
+reads this conversation and updates the list for the NEXT day. That is the only
+path your words travel.
 
 So when they ask for a change:
-- Say you've NOTED it and their list will update with tomorrow's check-in.
-  e.g. "Got it — I'll swap that in for tomorrow." / "Noted. Your list updates
-  overnight and you'll see it in the morning."
-- NEVER say "it's updated now", "I just made the change", "it's done", "refresh
-  to see it", or "I confirmed the swap". Those are FALSE — nothing changes
-  instantly, and claiming it did destroys trust.
-- If they say "I don't see it" / "did you do it?": tell the truth — "It won't
-  show until tomorrow's list; it's queued, not instant." Do NOT pretend to
-  "check on your end" or "push it through now." You have no such ability.
-- They can change an item RIGHT NOW themselves with the "swap" button on any
-  checklist item — point them there if they want it immediately.
+- The ONLY honest framing is FUTURE TENSE: "Noted — your list will show it
+  tomorrow morning." / "That'll be on tomorrow's list." Say you've noted it and
+  when it will appear; never that it has happened.
+- NEVER use past-tense success language about a checklist change — no "done",
+  "added", "changed", "fixed", "updated", "swapped it in", "it's there now",
+  "refresh to see it", "I confirmed the swap". A change is only real when the
+  APP applied it in code; you have no way to do that from here, so any such
+  claim from you is FALSE and destroys trust.
+- If they say "I don't see it" / "did you do it?" / "where is it?": tell the
+  truth — "It won't show until tomorrow's list; it's queued, not instant." Do
+  NOT pretend to "check on your end" or "push it through now." You have no such
+  ability. Apologize once for the confusion, restate when it lands, move on.
+- If they ask for something the app cannot do at all (timed reminders, alarms,
+  editing another day from chat, etc.), say so plainly — "the app can't do
+  that" — and offer the nearest REAL alternative. Never imply a missing
+  feature exists.
+- What they CAN do right now, themselves: the "swap" button on any checklist
+  item replaces it instantly, and the "Plan tomorrow" button in this chat lets
+  them lock in tomorrow's 3 items tonight (frog first). Point them there when
+  they want certainty instead of an overnight promise.
 
 Never invent facts, numbers, or actions. If you don't know, say so.
 
@@ -841,11 +886,94 @@ measurement, sun, stress) and being a thoughtful sounding board.
 Keep it human and short. This is a text thread, not an essay."""
 
 
+PLANNING_SYSTEM_PROMPT = """You are Coach Jamie in a LIVE evening chat, helping
+the user PLAN TOMORROW — the "Plan tomorrow" flow. Tonight they decide what
+tomorrow's 3-item checklist will be, and it must be LED BY THE FROG.
+
+# The frog (the whole point)
+
+Tomorrow's FIRST item is the frog: the ONE highest-ROI, hardest task they've
+been avoiding or putting off — the thing that would matter most if they
+actually did it. Not a routine habit. If their message doesn't name it yet,
+ask ONE short question: what's the ONE thing you've been putting off that
+would matter most tomorrow? Don't ask anything else first.
+
+# The flow
+
+1. Get the frog. Help them sharpen it into something concrete and finishable
+   in a day ("worked 1 focused hour on the grant application", not "made
+   progress on stuff").
+2. Then shape up to 2 SUPPORTING items — smaller wins that back the frog up.
+   Draw from their current list and their own words; the user's choices win.
+   One frog is enough: if they don't offer more, fill the other two slots
+   with the most valuable habits from their current list.
+3. When the plan is settled — a frog plus two supporters — output it as a
+   fenced JSON array, EXACTLY 3 items, the FROG FIRST:
+
+```json
+[
+  {"key": "...", "label": "..."},
+  {"key": "...", "label": "..."},
+  {"key": "...", "label": "..."}
+]
+```
+
+- Keep the stable key of any item carried over from their current list;
+  give new items new short lowercase_with_underscores keys.
+- Labels: concise past-tense checkable phrases, max 60 chars.
+- Emit the JSON ONLY when the plan is genuinely settled — never while you're
+  still asking questions. One JSON block, nothing after it.
+
+# Honesty (critical — same rules as always)
+
+You cannot change anything yourself. When you emit the JSON, the APP queues it
+and applies it tomorrow morning — and the app will confirm that to the user
+separately. So alongside the JSON keep your prose to one short sentence about
+the plan itself, and do NOT claim it's locked/done/applied/set — no "locked
+in", no "it's set", no "done". If the app fails to queue it, a false claim
+from you would be a lie the user discovers tomorrow.
+
+Keep it human and short. This is a text thread, not an essay."""
+
+
+def parse_planned_list(raw: str) -> Tuple[str, Optional[List[dict]]]:
+    """Extract the planned 3-item list from a planning-mode chat reply.
+
+    Returns (display_text, items|None): `display_text` is the reply with any
+    JSON block stripped (never show raw JSON in the chat bubble); `items` is
+    the validated list of exactly CHECKLIST_SIZE {key,label} dicts, frog
+    first, or None on ANY structural doubt — the caller must then not create
+    a suggestion and must not claim success.
+    """
+    m = _FENCED_JSON_RE.search(raw)
+    if m is None:
+        m = _BARE_JSON_RE.search(raw)
+    if m is None:
+        return raw.strip(), None
+    display = (raw[: m.start()].rstrip() + "\n" + raw[m.end():].lstrip()).strip()
+    # If the model used a plain ``` fence (bare-regex path), scrub the stray
+    # fence markers left around the removed array.
+    display = re.sub(r"```[a-zA-Z]*", "", display).strip()
+    try:
+        parsed = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        return display, None
+    if not isinstance(parsed, list) or len(parsed) != CHECKLIST_SIZE:
+        return display, None
+    items = _clean_items(parsed, CHECKLIST_SIZE)
+    return display, items
+
+
 def chat_reply(participant_name, checklist, today_states, metrics_summary,
-               recent_summary, history):
+               recent_summary, history, planning=False):
     """Generate a live coach chat reply. `history` is a list of
     {"role": "user"|"coach", "text": str} in chronological order (the last item
-    is the user's new message). Returns (reply_text, model, cost) or None."""
+    is the user's new message). Returns (reply_text, model, cost) or None.
+
+    planning=True switches to the evening "Plan tomorrow" system prompt: the
+    coach shapes a frog-first 3-item list and, once settled, emits it as JSON
+    (the caller parses it with parse_planned_list and queues the suggestion —
+    the model itself never claims success)."""
     api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
     if not api_key:
         return None
@@ -857,7 +985,7 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
     context_lines = [f"User: {participant_name}", "", "Today's checklist:"]
     for q in checklist:
         st = today_states.get(q["key"], "untouched")
-        context_lines.append(f"  [{st}] {q['label']}")
+        context_lines.append(f"  [{st}] {q['key']}: {q['label']}")
     if metrics_summary:
         context_lines += ["", "Their logged metrics (recent):", metrics_summary]
     if recent_summary:
@@ -865,7 +993,7 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
     context = "\n".join(context_lines)
 
     messages = [
-        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+        {"role": "system", "content": PLANNING_SYSTEM_PROMPT if planning else CHAT_SYSTEM_PROMPT},
         {"role": "system", "content": "Context for this conversation:\n" + context},
     ]
     # Map our roles to OpenAI roles (coach → assistant).
@@ -879,7 +1007,10 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
     try:
         client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         resp = client.chat.completions.create(
-            model=model, messages=messages, max_tokens=220, temperature=0.7,
+            model=model, messages=messages,
+            # Planning replies may carry a 3-item JSON block on top of prose.
+            max_tokens=420 if planning else 220,
+            temperature=0.7,
         )
     except Exception as exc:
         logger.exception("daily.ai_coach.chat_reply failed: %s", exc)

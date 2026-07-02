@@ -14,7 +14,7 @@ The flow:
   Q3  cadence        — the daily floor (light / medium / heavy) → calibrates
                        how ambitious the seeded items are.
 
-Answers map to a hand-written top-5 from SEED_LIBRARY (branch × focus × cadence,
+Answers map to a hand-written top-3 from SEED_LIBRARY (branch × focus × cadence,
 with sensible fallbacks). Any write-in text is returned separately so the caller
 can fold it into the user's first coach context — the overnight coach then
 refines from the user's own words on day one.
@@ -41,7 +41,7 @@ _CADENCES = {CADENCE_LIGHT, CADENCE_MEDIUM, CADENCE_HEAVY}
 # --- The questionnaire (rendered by the template; validated by the view) ----
 # Each question: id, prompt, and 2-4 options. Every option carries the answer
 # value(s) it sets. `allow_write_in` adds an optional text field. The whole
-# thing is skippable — a user who skips lands on the baseline-5.
+# thing is skippable — a user who skips lands on the baseline-3.
 #
 # Q2's options depend on Q1's branch, so the template shows the right set after
 # Q1 is chosen; QUESTIONS lists every branch's Q2 variant keyed by branch.
@@ -99,10 +99,12 @@ QUESTIONS: List[dict] = [
 ]
 
 
-# --- The seeded top-5 library ----------------------------------------------
+# --- The seeded top-3 library ----------------------------------------------
 # Hand-written sets keyed by (branch, focus). Cadence tunes the quantitative
 # targets via _scale_for_cadence so a "light" user isn't handed a "heavy" bar.
-# Every set is exactly 5 items (keys stable, labels past-tense ≤60 chars).
+# Every set is exactly 3 items (keys stable, labels past-tense ≤60 chars).
+# The FIRST item is the anchor/frog — the highest-leverage habit for that
+# branch × focus; the other two support it. Three, chosen deliberately.
 
 def _q(key: str, label: str) -> dict:
     return {"key": key, "label": label}
@@ -116,91 +118,67 @@ _MOVE = _q("q_move", "Moved my body 20+ minutes")
 _WINS = _q("q_wins", "Noted a win for the day")
 
 SEED_LIBRARY: Dict[Tuple[str, str], List[dict]] = {
-    # --- Strength branch ---
+    # --- Strength branch (frog = the training session) ---
     (BRANCH_STRENGTH, "recovery"): [
         _q("q_train", "Hit my training session"),
-        _q("q_protein", "Hit my protein target"),
-        _SLEEP,
         _q("q_mobility", "Did 10 minutes of mobility"),
-        _OUTSIDE,
+        _SLEEP,
     ],
     (BRANCH_STRENGTH, "nutrition"): [
         _q("q_train", "Hit my training session"),
         _q("q_protein", "Hit my protein target"),
-        _q("q_nutrition", "Stayed dialed on nutrition"),
         _WATER,
-        _SLEEP,
     ],
     (BRANCH_STRENGTH, "consistency"): [
         _q("q_train", "Hit my training session"),
         _q("q_protein", "Hit my protein target"),
-        _MOVE,
-        _SLEEP,
         _WINS,
     ],
     (BRANCH_STRENGTH, "mobility"): [
         _q("q_train", "Hit my training session"),
         _q("q_mobility", "Did 10 minutes of mobility"),
-        _q("q_protein", "Hit my protein target"),
         _SLEEP,
-        _OUTSIDE,
     ],
-    # --- Holistic branch ---
+    # --- Holistic branch (frog = the focus habit) ---
     (BRANCH_HOLISTIC, "sleep"): [
         _SLEEP,
         _q("q_winddown", "Wound down screen-free before bed"),
-        _WATER,
-        _MOVE,
         _WINS,
     ],
     (BRANCH_HOLISTIC, "movement"): [
         _MOVE,
         _OUTSIDE,
-        _WATER,
-        _SLEEP,
         _WINS,
     ],
     (BRANCH_HOLISTIC, "fuel"): [
-        _WATER,
         _q("q_nutrition", "Met my nutrition goal"),
+        _WATER,
         _q("q_veg", "Ate vegetables with a meal"),
-        _MOVE,
-        _SLEEP,
     ],
     (BRANCH_HOLISTIC, "calm"): [
         _q("q_calm", "Took 5 minutes to de-stress"),
         _OUTSIDE,
-        _SLEEP,
-        _MOVE,
         _WINS,
     ],
-    # --- Blended branch ---
+    # --- Blended branch (frog = the workout) ---
     (BRANCH_BLENDED, "recovery"): [
         _q("q_train", "Got my workout in"),
-        _SLEEP,
         _q("q_mobility", "Did 10 minutes of mobility"),
-        _WATER,
-        _WINS,
+        _SLEEP,
     ],
     (BRANCH_BLENDED, "nutrition"): [
         _q("q_train", "Got my workout in"),
         _q("q_nutrition", "Met my nutrition goal"),
-        _q("q_protein", "Hit my protein target"),
         _WATER,
-        _SLEEP,
     ],
     (BRANCH_BLENDED, "sleep"): [
         _q("q_train", "Got my workout in"),
         _SLEEP,
-        _WATER,
-        _OUTSIDE,
         _WINS,
     ],
     (BRANCH_BLENDED, "movement"): [
         _MOVE,
         _q("q_train", "Got my workout in"),
-        _WATER,
-        _SLEEP,
         _WINS,
     ],
 }
@@ -238,19 +216,20 @@ def _scale_for_cadence(items: List[dict], cadence: str) -> List[dict]:
 
 
 def seed_questions(branch: Optional[str], focus: Optional[str], cadence: Optional[str]) -> List[dict]:
-    """Map onboarding answers → a 5-item seeded checklist. Tolerant of skips:
+    """Map onboarding answers → a 3-item seeded checklist. Tolerant of skips:
     a missing branch → blended default; a missing/unknown focus → the branch
-    fallback; a missing cadence → no scaling. Always returns exactly 5 items."""
+    fallback; a missing cadence → no scaling. Always returns exactly 3 items."""
+    from .ai_coach import CHECKLIST_SIZE
     branch = branch if branch in (BRANCH_STRENGTH, BRANCH_HOLISTIC, BRANCH_BLENDED) else BRANCH_BLENDED
     items = SEED_LIBRARY.get((branch, focus or "")) or _BRANCH_FALLBACK.get(branch) or _DEFAULT
     items = _scale_for_cadence(items, cadence or "")
-    # Defensive: guarantee 5 distinct-keyed items.
+    # Defensive: guarantee distinct-keyed items, capped at the core size.
     seen, result = set(), []
     for it in items:
         if it["key"] not in seen:
             seen.add(it["key"])
             result.append(it)
-    return result[:5]
+    return result[:CHECKLIST_SIZE]
 
 
 def write_in_summary(write_ins: List[str]) -> str:
