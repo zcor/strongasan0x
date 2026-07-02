@@ -183,10 +183,21 @@ def target_morning_hour(participant) -> int:
     badge push should land for this participant: just before they typically
     wake, so the app is the first thing on their phone.
 
-    = floor(estimated wake hour) - 1, clamped at 0 (never wraps to the
-    previous day). Falls back to FALLBACK_MORNING_HOUR when there isn't
+    A manually set `participant.morning_target_hour` (admin override, 0-23)
+    wins outright — no estimation, no clamps. This is how a target in the
+    20-23 range is expressed: "push the evening BEFORE, for the next local
+    day" (e.g. 23 = an 11pm push for someone who wakes ~1am — a moment the
+    learned path can't produce, since its estimate clamps to 0-11). The badge
+    job (send_daily_badges --hourly) owns the cross-midnight semantics of
+    evening targets.
+
+    Otherwise: floor(estimated wake hour) - 1, clamped at 0 (never wraps to
+    the previous day). Falls back to FALLBACK_MORNING_HOUR when there isn't
     enough activity history to estimate a wake time (see estimated_wake_hour).
     """
+    override = getattr(participant, "morning_target_hour", None)
+    if override is not None:
+        return override
     wake = estimated_wake_hour(participant)
     if wake is None:
         return FALLBACK_MORNING_HOUR

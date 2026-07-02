@@ -17,6 +17,18 @@ Two modes:
     daily.services.tz.target_morning_hour), minus one — so the badge lands
     just BEFORE they wake instead of at a fixed 6am. Falls back to 6am local
     for participants without enough activity history to estimate a wake time.
+    An admin-set participant.morning_target_hour overrides the learned value.
+
+    Cross-midnight targets: a target hour of 20-23 (only reachable via the
+    admin override) means "this push is FOR TOMORROW, fired the evening
+    before" — e.g. target 23 for someone who wakes ~1am gets their next-day
+    badge at 11pm. In that case the day being badged is local_today + 1: the
+    count pushed is TOMORROW's full core count (nothing can be done yet, so
+    it's simply the size of the current checklist's core list), and
+    last_badge_date is stamped with the BADGED day (tomorrow) so the dedupe
+    guarantee stays "one badge per badged local day per subscription" — it
+    can't fire at 23:00 and again the next morning. Targets 0-19 keep the
+    plain same-day behavior.
 
 Usage:
     python manage.py send_daily_badges                    # push everyone now
@@ -30,6 +42,7 @@ never raises out of the loop, so one bad device can't break everyone's morning.
 """
 import json
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -46,6 +59,9 @@ from daily.views import remaining_core_today
 logger = logging.getLogger(__name__)
 
 MAX_FAILS = 5  # prune a subscription after this many consecutive failures
+# A target hour at or past this is an EVENING push for the NEXT local day
+# (admin-override territory — the learned estimate clamps to 0-11).
+EVENING_TARGET_MIN = 20
 
 
 class Command(BaseCommand):
@@ -84,26 +100,47 @@ class Command(BaseCommand):
             # Each user's "today" is resolved in THEIR timezone (fixes the badge
             # reflecting the prior, already-cleared day for non-Pacific users).
             local_today = participant_today(sub.participant)
+            # The local day this badge is FOR. Same as local_today except for
+            # evening targets (below), where the push is for TOMORROW.
+            badged_day = local_today
 
-            # In hourly mode, only this participant's own TARGET hour (learned
-            # wake hour minus one, falling back to 6am local) fires, and only
-            # once per their local day. Outside that window, hold.
-            if hourly and (
-                participant_local_hour(sub.participant) != target_morning_hour(sub.participant)
-                or sub.last_badge_date == local_today
-            ):
-                held += 1
-                continue
+            if hourly:
+                # Only this participant's own TARGET hour fires (admin override
+                # if set, else learned wake hour minus one, else 6am local).
+                # There is exactly ONE target hour per participant, so someone
+                # with an evening override can never ALSO match a same-day
+                # morning hour.
+                target = target_morning_hour(sub.participant)
+                if participant_local_hour(sub.participant) != target:
+                    held += 1
+                    continue
+                if target >= EVENING_TARGET_MIN:
+                    # Evening push FOR tomorrow (e.g. target 23 for a ~1am
+                    # waker): badge and dedupe against the NEXT local day.
+                    badged_day = local_today + timedelta(days=1)
+                # Once per BADGED local day. For evening targets the stamp is
+                # tomorrow's date, so the next hourly runs (which resolve the
+                # same badged_day until the following evening) all hold.
+                if sub.last_badge_date == badged_day:
+                    held += 1
+                    continue
 
             try:
-                count = remaining_core_today(sub.participant, local_today)
+                if badged_day == local_today:
+                    count = remaining_core_today(sub.participant, local_today)
+                else:
+                    # Tomorrow: nothing can be done yet, so the badge is simply
+                    # the full core size of the current checklist version.
+                    count = len(sub.participant.get_or_create_current_checklist().questions)
             except Exception as exc:  # never let one bad participant break the run
                 logger.exception("send_daily_badges: count failed for %s: %s", sub.participant_id, exc)
                 skipped += 1
                 continue
 
             if opts["dry_run"]:
-                self.stdout.write(f"[dry-run] {sub.participant.display_name}: badge={count}")
+                self.stdout.write(
+                    f"[dry-run] {sub.participant.display_name}: badge={count} for {badged_day}"
+                )
                 continue
 
             try:
@@ -118,7 +155,7 @@ class Command(BaseCommand):
                     timeout=10,
                 )
                 sub.last_pushed_at = timezone.now()
-                sub.last_badge_date = local_today  # mark this local day done (hourly dedupe)
+                sub.last_badge_date = badged_day  # mark the BADGED day done (hourly dedupe)
                 sub.fail_count = 0
                 sub.save(update_fields=["last_pushed_at", "last_badge_date", "fail_count"])
                 sent += 1
