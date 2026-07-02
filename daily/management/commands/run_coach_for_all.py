@@ -1,8 +1,21 @@
 """Run the overnight coach for every active participant's most recent
-un-coached day. This is the REAL overnight coach: a nightly cron runs it so
+un-coached day. This is the REAL overnight coach: cron runs it every HOUR so
 the coach's "your list updates overnight" promise is true — chat requests the
 user typed during the day get read and applied for the next day, without them
 having to reopen the app first.
+
+Safe to run hourly (confirmed): each call resolves `participant_today()` in
+THAT participant's own timezone, and `coach_prior_day` only acts when the
+most recent check-in before today has no suggestion yet. So of the 24 hourly
+ticks a day, only the single tick right after a participant's local midnight
+finds un-coached work; the other 23 are a no-op query per participant. Two
+crons racing (or a lazy in-request coach firing in between) can't double
+-coach — the "does a suggestion already exist" check is the same guard either
+way. This hourly cadence is what lets "smart morning timing" (see
+daily.services.tz.target_morning_hour) push the badge as early as a
+participant's local midnight: the coach job is scheduled to run just before
+the badge job each hour (see deploy/crontab.ox) so that day's note and any
+checklist mutation are ready before the badge push reads them.
 
 The lazy in-request path (daily/views.ensure_prior_day_coached) still exists as
 a belt-and-suspenders for users whose day boundary the cron just missed; both

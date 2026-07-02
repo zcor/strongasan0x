@@ -6,10 +6,17 @@ Two modes:
   - default: push EVERY subscription right now (manual/testing, or a single
     fixed-time daily cron in a one-timezone world).
   - --hourly: the production mode. Run this every hour; it pushes a given
-    device only when it's the MORNING hour in THAT participant's own timezone,
-    and only once per their local day. So a non-Pacific user's badge resets to
-    the fresh count on THEIR morning, not the server's. (Fixes the 06:30-UTC
-    bug where the badge reflected the prior, already-cleared day.)
+    device only when the local hour in THAT participant's own timezone has
+    reached their personal TARGET hour, and only once per their local day.
+    So a non-Pacific user's badge resets to the fresh count on THEIR morning,
+    not the server's. (Fixes the 06:30-UTC bug where the badge reflected the
+    prior, already-cleared day.)
+
+    The target hour is "smart morning timing": each participant's typical
+    wake hour, learned from their own activity history (see
+    daily.services.tz.target_morning_hour), minus one — so the badge lands
+    just BEFORE they wake instead of at a fixed 6am. Falls back to 6am local
+    for participants without enough activity history to estimate a wake time.
 
 Usage:
     python manage.py send_daily_badges                    # push everyone now
@@ -29,13 +36,16 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from daily.models import PushSubscription
-from daily.services.tz import participant_local_hour, participant_today
+from daily.services.tz import (
+    participant_local_hour,
+    participant_today,
+    target_morning_hour,
+)
 from daily.views import remaining_core_today
 
 logger = logging.getLogger(__name__)
 
 MAX_FAILS = 5  # prune a subscription after this many consecutive failures
-MORNING_HOUR = 6  # local hour at which the once-a-day morning badge fires
 
 
 class Command(BaseCommand):
@@ -75,10 +85,11 @@ class Command(BaseCommand):
             # reflecting the prior, already-cleared day for non-Pacific users).
             local_today = participant_today(sub.participant)
 
-            # In hourly mode, only the morning hour in this user's tz fires, and
-            # only once per their local day. Outside that window, hold.
+            # In hourly mode, only this participant's own TARGET hour (learned
+            # wake hour minus one, falling back to 6am local) fires, and only
+            # once per their local day. Outside that window, hold.
             if hourly and (
-                participant_local_hour(sub.participant) != MORNING_HOUR
+                participant_local_hour(sub.participant) != target_morning_hour(sub.participant)
                 or sub.last_badge_date == local_today
             ):
                 held += 1
