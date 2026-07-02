@@ -49,7 +49,7 @@ MAX_FAILS = 5  # prune a subscription after this many consecutive failures
 NUDGE_TITLE = "Plan tomorrow \U0001f305"
 NUDGE_BODY = (
     "What's the one thing you've been putting off? "
-    "Set tomorrow's 3 before you sleep."
+    "Set tomorrow's 3 and wake up ready to win."
 )
 
 
