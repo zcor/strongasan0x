@@ -94,17 +94,17 @@
                                 <p style="font-family: 'Dancing Script', cursive;">
                                     {{ weekly_roll_call.full_text|linebreaks|truncatewords:100 }}
                                 </p>
-                                {% if weekly_roll_call.substack_url %}
                                 <p style="margin-top: 10px; text-align: center; font-family: 'Dancing Script', cursive;">
-                                    <a href="{{ weekly_roll_call.substack_url }}" target="_blank" rel="noopener noreferrer" class="footer-link">Read Full Post &rarr;</a>
+                                    <a href="{% url 'roll_call_detail' week_end_date=weekly_roll_call.week_end_date|date:'Y-m-d' %}" class="footer-link">Read Full Post &rarr;</a>
                                 </p>
-                                {% endif %}
                             </div>
                             {% endif %}
 
                             <!-- Footer -->
                             <p class="scroll-footer" style="font-family: 'Dancing Script', cursive;">
                                 <a href="{% url 'landing' %}" class="footer-link">The Roll Call</a>
+                                <span style="margin: 0 10px;">&middot;</span>
+                                <a href="{% url 'roll_call_index' %}" class="footer-link">All Roll Calls</a>
                             </p>
                         </div>
                     </div>

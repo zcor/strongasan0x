@@ -1,11 +1,27 @@
-from django.urls import path, include
+from django.urls import path, include, register_converter
 from . import views
+
+
+class IsoDateConverter:
+    """Matches a YYYY-MM-DD path segment (e.g. the roll call week_end_date)."""
+    regex = r'\d{4}-\d{2}-\d{2}'
+
+    def to_python(self, value):
+        return value
+
+    def to_url(self, value):
+        return str(value)
+
+
+register_converter(IsoDateConverter, 'isodate')
 
 urlpatterns = [
     # Warrior Dashboard (public, Telegram auth)
     path('warrior/', include('rollcall.warrior.urls')),
 
     path('', views.landing, name='landing'),
+    path('roll-call/', views.roll_call_index, name='roll_call_index'),
+    path('roll-call/<isodate:week_end_date>/', views.roll_call_detail, name='roll_call_detail'),
     path('telegram/webhook/', views.telegram_webhook, name='telegram_webhook'),
     path('account/', views.account, name='account'),
     path('account/link-discord/', views.link_discord, name='link_discord'),

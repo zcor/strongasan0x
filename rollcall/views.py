@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
@@ -15,6 +15,7 @@ from .models import (
     DiscordUserMapping, TelegramUserMapping, Attestation
 )
 from rollcall.utils.rollcalls import get_active_roll_call
+from rollcall.services.roll_call_markdown import render_roll_call_markdown
 
 
 def get_week_monday(date):
@@ -682,3 +683,47 @@ def add_manual_attestation(request):
     messages.success(request, f"Attestation added for {user_name}")
 
     return redirect(f"{request.path.replace('/add/', '/')}?week={week.week_end_date}")
+
+
+# =============================================================================
+# Self-hosted Roll Call post pages (replaces Substack as the post is migrated)
+# =============================================================================
+
+def roll_call_index(request):
+    """Reverse-chronological list of published roll call posts."""
+    roll_calls = WeeklyRollCall.objects.filter(is_published=True).order_by('-week_end_date')
+    context = {
+        'roll_calls': roll_calls,
+    }
+    return render(request, 'rollcall/roll_call_index.html', context)
+
+
+def roll_call_detail(request, week_end_date):
+    """Render a single week's roll call post (full_text) as HTML.
+
+    Published weeks are visible to everyone. Unpublished weeks are only
+    visible as a staff preview (so the operator can sanity-check a post
+    before flipping is_published) -- everyone else gets a clean 404.
+    """
+    from datetime import date
+
+    try:
+        parsed_date = date.fromisoformat(week_end_date)
+    except ValueError:
+        # URL shape matched \d{4}-\d{2}-\d{2} but isn't a real calendar date
+        # (e.g. 2026-13-40) -- 404 cleanly rather than raising in the ORM.
+        raise Http404("Roll call not found")
+
+    roll_call = get_object_or_404(WeeklyRollCall, week_end_date=parsed_date)
+
+    if not roll_call.is_published and not request.user.is_staff:
+        raise Http404("Roll call not found")
+
+    content_html = render_roll_call_markdown(roll_call.full_text)
+
+    context = {
+        'roll_call': roll_call,
+        'content_html': content_html,
+        'is_preview': not roll_call.is_published,
+    }
+    return render(request, 'rollcall/roll_call_detail.html', context)
