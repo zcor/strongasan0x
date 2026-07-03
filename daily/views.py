@@ -27,6 +27,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from .auth import (
+    DAILY_TOKEN_COOKIE,
+    DAILY_TOKEN_COOKIE_MAX_AGE,
     login_with_token,
     require_daily_actor,
     warrior_session_keys_set,
@@ -119,7 +121,16 @@ def token_login(request, token):
 
     # Apply ?theme= here so it survives the redirect to /daily/checkin/.
     _resolve_theme(request)
-    return redirect(f"/daily/checkin/{_as_of_query(request)}")
+    resp = redirect(f"/daily/checkin/{_as_of_query(request)}")
+    # Drop a long-lived cookie with the token so an expired session silently
+    # re-authenticates (require_daily_actor reads it) instead of dead-ending at
+    # the warrior login — the fix that keeps re-engagement links working weeks on.
+    resp.set_cookie(
+        DAILY_TOKEN_COOKIE, str(token),
+        max_age=DAILY_TOKEN_COOKIE_MAX_AGE,
+        secure=True, httponly=True, samesite="Lax",
+    )
+    return resp
 
 
 def ensure_prior_day_coached(participant: DailyParticipant, today: date) -> bool:

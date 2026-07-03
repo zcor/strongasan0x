@@ -35,6 +35,14 @@ from .models import DailyAccessToken, DailyParticipant
 
 SESSION_DAILY_PARTICIPANT_ID = "daily_participant_id"
 
+# Long-lived cookie holding the token UUID, so a token (external) user whose
+# Django session has expired is silently re-authenticated instead of being
+# bounced to a login wall they can't even use. Set at token_login; read by
+# require_daily_actor. This is what keeps a re-engagement link working weeks
+# later when the session is long gone.
+DAILY_TOKEN_COOKIE = "daily_token"
+DAILY_TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # 1 year
+
 
 def _get_or_create_warrior_participant(mapping: TelegramUserMapping) -> DailyParticipant:
     display_name = (
@@ -115,9 +123,26 @@ def get_participant_for_token_session(request) -> Optional[DailyParticipant]:
         return None
 
 
+def get_participant_from_token_cookie(request) -> Optional[DailyParticipant]:
+    """Re-authenticate a token user from the long-lived DAILY_TOKEN_COOKIE when
+    their session has expired. On success, REBUILD the session so subsequent
+    requests use the fast session path again. Returns None if there's no cookie
+    or it's invalid/revoked (caller then falls through to the login flow)."""
+    token_uuid = request.COOKIES.get(DAILY_TOKEN_COOKIE)
+    if not token_uuid:
+        return None
+    participant = login_with_token(request, token_uuid)  # sets the session too
+    return participant
+
+
 def get_current_participant(request) -> Optional[DailyParticipant]:
-    """Try warrior path first, then token-session path."""
-    return get_participant_for_warrior(request) or get_participant_for_token_session(request)
+    """Try warrior path, then token-session, then the persistent token cookie
+    (silent re-auth for an expired token session)."""
+    return (
+        get_participant_for_warrior(request)
+        or get_participant_for_token_session(request)
+        or get_participant_from_token_cookie(request)
+    )
 
 
 def login_with_token(request, token_uuid) -> Optional[DailyParticipant]:
