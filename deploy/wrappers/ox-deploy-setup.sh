@@ -200,11 +200,11 @@ REPO="${REPO}"
 PY="\$REPO/ox-env/bin/python"
 CMD="\${1:-}"; shift || true
 case "\$CMD" in
-    send_daily_badges|backfill_metrics|backfill_chat|add_conditional_bonus|run_coach_for_all|provision_daily_participants)
+    send_daily_badges|send_evening_plan_nudge|backfill_metrics|backfill_chat|add_conditional_bonus|run_coach_for_all|provision_daily_participants)
         ;;   # allowed: badge push + idempotent backfills + overnight coach + participant pre-build
     *)
         echo "ERROR: '\$CMD' is not an allowlisted command" >&2
-        echo "Allowed: send_daily_badges, backfill_metrics, backfill_chat, add_conditional_bonus, run_coach_for_all, provision_daily_participants" >&2
+        echo "Allowed: send_daily_badges, send_evening_plan_nudge, backfill_metrics, backfill_chat, add_conditional_bonus, run_coach_for_all, provision_daily_participants" >&2
         exit 1 ;;
 esac
 exec sudo -u ${REPO_OWNER} "\$PY" "\$REPO/manage.py" "\$CMD" "\$@"
