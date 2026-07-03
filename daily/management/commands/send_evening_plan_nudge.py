@@ -165,6 +165,7 @@ class Command(BaseCommand):
                         "kind": "evening_nudge",
                         "title": NUDGE_TITLE,
                         "body": NUDGE_BODY,
+                        "day": local_today.isoformat(),
                     }),
                     vapid_private_key=priv,
                     vapid_claims={"sub": subject},

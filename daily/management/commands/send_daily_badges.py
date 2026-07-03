@@ -149,7 +149,7 @@ class Command(BaseCommand):
                         "endpoint": sub.endpoint,
                         "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                     },
-                    data=json.dumps({"count": count}),
+                    data=json.dumps({"count": count, "day": badged_day.isoformat()}),
                     vapid_private_key=priv,
                     vapid_claims={"sub": subject},
                     timeout=10,

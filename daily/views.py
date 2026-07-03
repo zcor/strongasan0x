@@ -1052,10 +1052,14 @@ self.addEventListener('push', (event) => {
   try { data = (event.data && event.data.json()) || {}; } catch (e) {}
 
   if (data.kind === 'evening_nudge') {
+    // Unique per-day tag + renotify so it always alerts fresh and iOS never
+    // silently REPLACES a same-tag notification from a prior day (that silent
+    // swap is why a fixed-tag push can arrive without ever alerting).
     event.waitUntil(self.registration.showNotification(data.title || 'Plan tomorrow', {
-      body: data.body || "Set tomorrow's 3 before you sleep.",
+      body: data.body || "Set tomorrow's 3 and wake up ready to win.",
       badge: '/static/daily/icons/icon-192.png',
-      icon: '/static/daily/icons/icon-192.png', tag: 'daily-evening-nudge', renotify: false,
+      icon: '/static/daily/icons/icon-192.png',
+      tag: 'daily-evening-nudge-' + (data.day || ''), renotify: true,
     }));
     return;
   }
@@ -1069,11 +1073,14 @@ self.addEventListener('push', (event) => {
     } catch (e) {}
     // iOS will not deliver a silent push reliably — a visible notification is
     // required. Keep it minimal and on-message (it IS the daily counter).
+    // Per-day tag + renotify:true so each morning's badge alerts fresh instead
+    // of silently replacing the prior day's same-tag notification.
     const title = count > 0 ? (count + ' to-do' + (count === 1 ? '' : 's') + ' today') : 'All done for today';
     const body = count > 0 ? 'Open Daily and fill your rings.' : 'Nice work — see you tomorrow.';
     await self.registration.showNotification(title, {
       body: body, badge: '/static/daily/icons/icon-192.png',
-      icon: '/static/daily/icons/icon-192.png', tag: 'daily-badge', renotify: false,
+      icon: '/static/daily/icons/icon-192.png',
+      tag: 'daily-badge-' + (data.day || ''), renotify: true,
     });
   })());
 });
