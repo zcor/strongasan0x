@@ -21,13 +21,13 @@ from rollcall. Views, services, templates, and models.py stay clean.
 from functools import wraps
 from typing import Optional
 
-from django.http import HttpResponseForbidden
 from django.shortcuts import render
 from django.utils import timezone
 
 from rollcall.models import TelegramUserMapping
 from rollcall.warrior.auth import (
     SESSION_TELEGRAM_USER_ID,
+    clear_telegram_session,
     get_telegram_user_from_session,
 )
 
@@ -175,6 +175,40 @@ def warrior_session_keys_set(request) -> bool:
     return bool(request.session.get(SESSION_TELEGRAM_USER_ID))
 
 
+def token_belongs_to_current_warrior(request, token_uuid) -> bool:
+    """True when the request carries a warrior session AND the given daily
+    token belongs to that SAME warrior's participant.
+
+    A warrior who logged into the warrior dashboard carries a lingering
+    Telegram session. Since a PWA install has no incognito escape hatch, that
+    warrior tapping THEIR OWN daily link must just work — not hit the
+    "token conflict" refusal, which only exists to stop a logged-in warrior
+    from acting as a DIFFERENT person's token participant. This lets
+    token_login distinguish "same person, allow" from "different person,
+    conflict."
+    """
+    warrior_participant = get_participant_for_warrior(request)
+    if warrior_participant is None:
+        return False
+    try:
+        token = DailyAccessToken.objects.select_related("participant").get(token=token_uuid)
+    except (DailyAccessToken.DoesNotExist, ValueError, TypeError):
+        return False
+    return token.participant_id == warrior_participant.id
+
+
+def clear_warrior_session(request):
+    """Drop the rollcall warrior session keys from this request's session.
+
+    Used to recover from a STALE/orphan warrior session (e.g. a Telegram id
+    with no usable mapping) that would otherwise hard-brick the daily app by
+    making get_participant_for_warrior fail while warrior_session_keys_set
+    stays true. Clearing lets the token/cookie path (or the signed-out page)
+    take over. Delegates to rollcall's own clearer so the key list stays in
+    one place."""
+    clear_telegram_session(request)
+
+
 def clear_daily_session(request):
     request.session.pop(SESSION_DAILY_PARTICIPANT_ID, None)
 
@@ -190,9 +224,13 @@ def require_daily_actor(view_func):
     def wrapper(request, *args, **kwargs):
         participant = get_current_participant(request)
         if participant is None:
-            # Edge case: a warrior session exists but has no mapping row.
+            # A STALE/orphan warrior session (a Telegram id with no usable
+            # mapping) would otherwise hard-brick the daily app: get_current_
+            # participant can't resolve it, yet warrior_session_keys_set stays
+            # true. Clear it so it can't wedge the app, then fall through to the
+            # friendly signed-out page (a fresh token tap recovers cleanly).
             if warrior_session_keys_set(request):
-                return HttpResponseForbidden("No participant linked to this session.")
+                clear_warrior_session(request)
             # The Daily app is a TOKEN app: its home-screen PWA icon opens
             # /daily/checkin/ with no token. A user whose session has lapsed and
             # who has no re-auth cookie yet (e.g. installed the PWA before the

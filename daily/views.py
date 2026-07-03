@@ -31,6 +31,7 @@ from .auth import (
     DAILY_TOKEN_COOKIE_MAX_AGE,
     login_with_token,
     require_daily_actor,
+    token_belongs_to_current_warrior,
     warrior_session_keys_set,
 )
 from .models import (
@@ -107,7 +108,13 @@ def _as_of_query(request) -> str:
 
 
 def token_login(request, token):
-    if warrior_session_keys_set(request):
+    # A warrior who logged into the warrior dashboard carries a lingering
+    # Telegram session. Only REFUSE the token login (409) if the token belongs
+    # to a DIFFERENT participant — a genuine "someone else's link on my logged-in
+    # browser" conflict. A warrior tapping THEIR OWN daily link must just work;
+    # a PWA install has no incognito escape hatch, so refusing it would brick
+    # them (this was Spencer's bug).
+    if warrior_session_keys_set(request) and not token_belongs_to_current_warrior(request, token):
         return render(
             request,
             "daily/token_conflict.html",
