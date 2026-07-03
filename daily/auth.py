@@ -22,7 +22,7 @@ from functools import wraps
 from typing import Optional
 
 from django.http import HttpResponseForbidden
-from django.shortcuts import redirect
+from django.shortcuts import render
 from django.utils import timezone
 
 from rollcall.models import TelegramUserMapping
@@ -190,12 +190,16 @@ def require_daily_actor(view_func):
     def wrapper(request, *args, **kwargs):
         participant = get_current_participant(request)
         if participant is None:
-            # Warriors should bounce through their existing login flow;
-            # external participants need a fresh token URL.
+            # Edge case: a warrior session exists but has no mapping row.
             if warrior_session_keys_set(request):
-                # Edge case: session has telegram id but no mapping row.
                 return HttpResponseForbidden("No participant linked to this session.")
-            return redirect("warrior:login")
+            # The Daily app is a TOKEN app: its home-screen PWA icon opens
+            # /daily/checkin/ with no token. A user whose session has lapsed and
+            # who has no re-auth cookie yet (e.g. installed the PWA before the
+            # cookie fix, or cleared storage) lands here. Do NOT send them to the
+            # rollcall/Telegram warrior login — a token/external user (Amy) can't
+            # use it. Show a friendly "open your personal link" page instead.
+            return render(request, "daily/signed_out.html", status=401)
         request.daily_participant = participant
         return view_func(request, *args, **kwargs)
 
