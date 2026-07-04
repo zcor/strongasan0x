@@ -667,6 +667,18 @@
             var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
             var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
             var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+            // iOS standalone-PWA self-heal: a home-screen PWA has its OWN storage
+            // jar, separate from Safari. We're logged in RIGHT NOW, so stash this
+            // participant's token in the PWA's localStorage. If the session later
+            // dies, signed_out.html reads it and re-auths INSIDE this jar — so the
+            // app icon never dead-ends at "session expired" again.
+            try {
+                var __selfTok = "{{ self_token }}";
+                if (__selfTok) localStorage.setItem("daily_self_token", __selfTok);
+                // We're logged in, so clear the signed-out recovery loop-guard;
+                // a FUTURE expiry is then free to self-heal again.
+                sessionStorage.removeItem("daily_reauth_attempt");
+            } catch (e) {}
             // Core count fallback when the DOM query returns 0 (mid-swap, etc.).
             var CORE_TOTAL = {{ core_items|length }} || {{ checklist_size }};
             var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "#87ceeb", "var(--accent-2)", "#ffffff"];

@@ -107,6 +107,21 @@ def _as_of_query(request) -> str:
     return ""
 
 
+def _active_token(participant):
+    """The participant's current (non-revoked) access token UUID, or None.
+    Used to hand the token to the page's JS so the PWA can persist it to its
+    own localStorage for iOS-standalone self-healing re-auth."""
+    from .models import DailyAccessToken
+    tok = (
+        DailyAccessToken.objects
+        .filter(participant=participant, revoked_at__isnull=True)
+        .order_by("-created_at")
+        .values_list("token", flat=True)
+        .first()
+    )
+    return tok
+
+
 def token_login(request, token):
     # A warrior who logged into the warrior dashboard carries a lingering
     # Telegram session. Only REFUSE the token login (409) if the token belongs
@@ -456,6 +471,14 @@ def checkin(request):
         "bonus_revealed": bool(bonus_items) and (done_count >= BONUS_REVEAL_AT or bonus_done),
         "bonus_reveal_at": BONUS_REVEAL_AT,
         "checklist_size": CHECKLIST_SIZE,
+        # The participant's own active token, so the page can persist it to the
+        # PWA's OWN localStorage. On iOS a standalone (home-screen) PWA has a
+        # SEPARATE cookie/storage jar from Safari: a token link tapped in Safari
+        # logs in Safari, but the installed app icon never sees that session. By
+        # stashing the token in the PWA's localStorage on a successful load, the
+        # signed-out page can self-heal by re-hitting the token URL INSIDE the
+        # PWA jar (where the cookie then sticks). See daily/templates signed_out.
+        "self_token": str(_active_token(participant) or ""),
         "done_count": done_count,
         "streak": _current_streak(participant, today) if not backfill else 0,
         "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
