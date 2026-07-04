@@ -23,6 +23,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.utils import timezone
+from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
@@ -329,6 +330,14 @@ def _render_checkin(request, from_token=""):
     we're rendering AT the token URL: the page then links a per-token manifest
     so an iOS "Add to Home Screen" captures a token-bearing launch URL. The
     caller must have set request.daily_participant."""
+    # Guarantee the csrftoken cookie on EVERY render path (the page is
+    # AJAX-driven; all its POSTs read the cookie). The `checkin` view gets this
+    # from @ensure_csrf_cookie, but token_login calls us directly and bypasses
+    # that decorator — without this, a freshly-installed token user (baseline or
+    # naked/onboarding, whose templates don't render a {% csrf_token %} tag) has
+    # NO cookie and every button POSTs 403. get_token() forces it here so the
+    # guarantee lives with the render, not incidentally on a form tag.
+    get_token(request)
     participant: DailyParticipant = request.daily_participant
     today = _resolve_today(request)
     backfill = _is_backfill(request)
