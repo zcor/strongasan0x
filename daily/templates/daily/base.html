@@ -7,7 +7,9 @@
     <title>{% block title %}Daily Check-In{% endblock %}</title>
 
     {# --- PWA: installable home-screen app --- #}
-    <link rel="manifest" href="{% url 'daily:manifest' %}">
+    {# On a token page, link a per-token manifest so an iOS "Add to Home Screen" #}
+    {# captures a token-bearing start_url (icon cold-launches authenticated). #}
+    {% if from_token %}<link rel="manifest" href="{% url 'daily:manifest' %}?t={{ from_token }}">{% else %}<link rel="manifest" href="{% url 'daily:manifest' %}">{% endif %}
     {# iOS ignores the manifest's display/icons — it needs these legacy tags. #}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">

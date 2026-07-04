@@ -4,14 +4,50 @@
 
 {% block content %}
     <h1>Welcome back, warrior</h1>
-    <p>
+    <p id="signed-out-msg">
+        Reconnecting you&hellip;
+    </p>
+    <p id="signed-out-fallback" style="display:none;">
         Your session has expired. To pick up where you left off, open the
-        personal link you were sent — it signs you straight back in, and
+        personal link you were sent &mdash; it signs you straight back in, and
         after that this app will remember you.
     </p>
-    <p>
-        Your link came from <strong>@StrongAsAn0xBot</strong> on Telegram.
-        Open a chat with it and send <strong>/start</strong> to get a fresh
-        link any time.
-    </p>
+
+    <script>
+        (function () {
+            "use strict";
+            // iOS standalone-PWA self-heal. When the PWA was last logged in,
+            // checkin.html stashed this participant's token in THIS jar's
+            // localStorage. If we're here, the session died — but the token is
+            // still local. Re-hit the token URL to rebuild the session/cookie
+            // INSIDE the PWA's own jar (the one Safari's login can't reach).
+            var tok = null;
+            try { tok = localStorage.getItem("daily_self_token"); } catch (e) {}
+
+            // Guard against a redirect loop: only auto-recover once per load.
+            var LOOP_KEY = "daily_reauth_attempt";
+            var attempted = null;
+            try { attempted = sessionStorage.getItem(LOOP_KEY); } catch (e) {}
+
+            if (tok && !attempted) {
+                try { sessionStorage.setItem(LOOP_KEY, "1"); } catch (e) {}
+                window.location.replace("/daily/c/" + tok + "/");
+                return;
+            }
+
+            // No stored token (never logged in on this device) OR the recovery
+            // already failed this load — show the human-readable fallback.
+            var msg = document.getElementById("signed-out-msg");
+            var fb = document.getElementById("signed-out-fallback");
+            if (msg) msg.style.display = "none";
+            if (fb) fb.style.display = "";
+        })();
+    </script>
+
+    <noscript>
+        <p>
+            Your session has expired. Open the personal link you were sent to
+            sign back in.
+        </p>
+    </noscript>
 {% endblock %}

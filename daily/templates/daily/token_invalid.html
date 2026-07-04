@@ -8,4 +8,14 @@
         That check-in link is unknown or has been revoked. If you think
         it should work, ask whoever sent it to you for a fresh one.
     </p>
+    <script>
+        // If the self-heal (signed_out.html) bounced us here with a STALE token
+        // stored in this PWA jar's localStorage, clear it — otherwise every
+        // future signed-out load would loop back to this dead end. Also clear
+        // the loop-guard so a fresh valid token can self-heal later.
+        try {
+            localStorage.removeItem("daily_self_token");
+            sessionStorage.removeItem("daily_reauth_attempt");
+        } catch (e) {}
+    </script>
 {% endblock %}
