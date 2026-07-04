@@ -141,9 +141,16 @@ def token_login(request, token):
     if participant is None:
         return render(request, "daily/token_invalid.html", status=404)
 
-    # Apply ?theme= here so it survives the redirect to /daily/checkin/.
     _resolve_theme(request)
-    resp = redirect(f"/daily/checkin/{_as_of_query(request)}")
+    # Render check-in IN PLACE at /daily/c/<token>/ — do NOT redirect to the
+    # tokenless /daily/checkin/. On iOS a standalone PWA has its own cookie/
+    # storage jar; when a user does "Add to Home Screen" from this page, iOS
+    # captures the CURRENT (token-bearing) URL + this page's per-token manifest
+    # as the launch URL, so the installed icon cold-starts authenticated inside
+    # its own jar. A redirect here would strip the token from the captured URL
+    # and re-create the broken tokenless icon (Spencer's bug).
+    request.daily_participant = participant
+    resp = _render_checkin(request, from_token=str(token))
     # Drop a long-lived cookie with the token so an expired session silently
     # re-authenticates (require_daily_actor reads it) instead of dead-ending at
     # the warrior login — the fix that keeps re-engagement links working weeks on.
@@ -310,6 +317,18 @@ def _has_attestation_history(participant) -> bool:
 @require_daily_actor
 @require_http_methods(["GET"])
 def checkin(request):
+    """The /daily/checkin/ page. @require_daily_actor has resolved the
+    participant; render the page (no per-token manifest — this URL is
+    tokenless)."""
+    return _render_checkin(request, from_token="")
+
+
+def _render_checkin(request, from_token=""):
+    """Shared check-in page render. Called by `checkin` (tokenless URL) and by
+    `token_login` (in-place at /daily/c/<token>/). `from_token` non-empty means
+    we're rendering AT the token URL: the page then links a per-token manifest
+    so an iOS "Add to Home Screen" captures a token-bearing launch URL. The
+    caller must have set request.daily_participant."""
     participant: DailyParticipant = request.daily_participant
     today = _resolve_today(request)
     backfill = _is_backfill(request)
@@ -479,6 +498,11 @@ def checkin(request):
         # signed-out page can self-heal by re-hitting the token URL INSIDE the
         # PWA jar (where the cookie then sticks). See daily/templates signed_out.
         "self_token": str(_active_token(participant) or ""),
+        # Non-empty ONLY when rendering AT the token URL (/daily/c/<token>/).
+        # Drives a per-token <link rel=manifest> whose start_url is the token
+        # URL, so an iOS "Add to Home Screen" from here installs a token-bearing
+        # icon that cold-launches authenticated in the PWA's own jar.
+        "from_token": from_token,
         "done_count": done_count,
         "streak": _current_streak(participant, today) if not backfill else 0,
         "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
@@ -1034,12 +1058,33 @@ def _queue_evening_plan(participant, today, items, model_name=""):
 # daily session authenticates — no token in the manifest.
 
 def manifest(request):
-    """Web app manifest. Served from /daily/ so its scope covers the app."""
+    """Web app manifest. Served from /daily/ so its scope covers the app.
+
+    If a valid ?t=<token> is present (the manifest linked from a token page),
+    start_url becomes that token URL. iOS captures start_url at "Add to Home
+    Screen" time, so installing from a token page yields an icon that
+    cold-launches authenticated inside the PWA's own cookie jar — the fix for
+    iOS standalone-PWA cookie isolation (a tokenless start_url can't log in the
+    installed app). The token is validated so a bogus ?t= can't poison it."""
+    start_url = "/daily/checkin/"
+    token = request.GET.get("t", "")
+    if token:
+        import uuid as _uuid
+        from .models import DailyAccessToken
+        try:
+            _uuid.UUID(str(token))  # reject non-UUID ?t= before it hits the ORM
+            valid = DailyAccessToken.objects.filter(
+                token=token, revoked_at__isnull=True
+            ).exists()
+        except (ValueError, TypeError):
+            valid = False
+        if valid:
+            start_url = f"/daily/c/{token}/"
     data = {
         "name": "Strong as an 0x — Daily",
         "short_name": "Daily",
         "description": "Your daily check-in. Fill the ring.",
-        "start_url": "/daily/checkin/",
+        "start_url": start_url,
         "scope": "/daily/",
         "display": "standalone",
         "orientation": "portrait",
