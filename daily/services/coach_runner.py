@@ -119,6 +119,15 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
         return False
 
     participant = check_in.participant
+    # Beta support-only Jamie (mutations off) never runs the overnight
+    # list-rewriting engine. Gating here covers every caller at once:
+    # wrap_day, the nightly cron, and the lazy morning catch-up.
+    if participant.beta and not participant.ai_mutations_enabled:
+        logger.info(
+            "daily.coach_runner: %s is beta support-only; skipping coach run",
+            participant.display_name,
+        )
+        return False
     # Refresh the warrior's distilled attestation profile before building
     # context (hash-guarded — a real LLM call only when attestations changed).
     refresh_coach_profile(participant)

@@ -1,0 +1,271 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Your wins · {{ participant.display_name }}{% endblock %}
+
+{% block content %}
+{% comment %}
+The "your list" door (see daily/CLIMB_REFRAME_PLAN.md section 2b). The ONE place
+the full pile is shown: north stars with their stepping stones and a count, plus
+one-off wins. The daily surface never advertises size; this page does. Shares the
+Climb card language (squared cards, hairline borders, gold/green, thin type).
+{% endcomment %}
+
+<div class="wedit">
+
+    <header class="wehead">
+        <a class="weback" href="/daily/checkin/" aria-label="Back to today">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+            Today
+        </a>
+        <div class="wetitle">Your wins</div>
+        <div class="wesub">One-off things or bigger goals broken into small steps. Only the next step ever shows up on your daily screen.</div>
+    </header>
+
+    {# ===== Working toward: north stars with their stepping stones ===== #}
+    <div class="card" id="goals-card">
+        <div class="card-body">
+            <div class="eyebrow">Working toward{% if has_achieved %}<a class="eyelink" href="/daily/wins/achieved/">Achieved ›</a>{% endif %}</div>
+            <div id="goals">
+                {% for g in goals %}
+                    <div class="goal" data-goal-id="{{ g.goal.id }}">
+                        <div class="goalhead">
+                            <span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>
+                            <span class="gtitle">{{ g.goal.text }}</span>
+                            <span class="gcount" data-count>{{ g.stones|length }} left</span>
+                            <button class="gremove" type="button" data-remove="{{ g.goal.id }}" aria-label="Delete this goal">✕</button>
+                        </div>
+                        <div class="stones">
+                            {% for s in g.stones %}
+                                <div class="stone" data-stone-id="{{ s.id }}">
+                                    <span class="dot" aria-hidden="true"></span>
+                                    <span class="rlabel">{{ s.text }}</span>
+                                    <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Remove step">✕</button>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <button class="addstone" type="button" data-add-stone="{{ g.goal.id }}">Add a step</button>
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="empty{% if goals %} is-hidden{% endif %}" id="goals-empty">No goals yet. A goal is a north star you chip away at, one step per day.</div>
+        </div>
+        <div class="card-foot">
+            <button class="act gold" id="add-goal-btn" type="button">Add a north star</button>
+        </div>
+    </div>
+
+    {# ===== One-off wins ===== #}
+    <div class="card" id="singles-card">
+        <div class="card-body">
+            <div class="eyebrow">One-off wins</div>
+            <div id="singles">
+                {% for s in singles %}
+                    <div class="single" data-stone-id="{{ s.id }}">
+                        <span class="dot" aria-hidden="true"></span>
+                        <span class="rlabel">{{ s.text }}</span>
+                        <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Remove win">✕</button>
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="empty{% if singles %} is-hidden{% endif %}" id="singles-empty">Nothing here. One-off wins are single things you want to knock out.</div>
+        </div>
+        <div class="card-foot">
+            <button class="act gold" id="add-single-btn" type="button">Add a win</button>
+        </div>
+    </div>
+
+    <a class="win-ask" href="/daily/checkin/?ask=win">Not sure what to add? <span>Jamie can help ›</span></a>
+
+</div>
+
+{# --- North-star composer (modal-ish card, revealed by "Add a north star") --- #}
+<div class="ncomposer is-hidden" id="ncomposer">
+    <div class="ncard">
+        <div class="card-body">
+            <div class="eyebrow gold">New north star</div>
+            <input type="text" id="ncomp-goal" class="composer-input" maxlength="200"
+                   placeholder="The big thing, e.g. Get a new job" autocomplete="off">
+            <div class="nc-steps-label">Break it into small steps</div>
+            <div id="ncomp-steps">
+                <input type="text" class="composer-input nc-step" maxlength="200" placeholder="First step, e.g. Update your resume" autocomplete="off">
+                <input type="text" class="composer-input nc-step" maxlength="200" placeholder="Next step (optional)" autocomplete="off">
+            </div>
+            <button type="button" class="addstep-more" id="ncomp-more">Another step</button>
+            <div class="composer-msg is-hidden" id="ncomp-msg"></div>
+        </div>
+        <div class="card-foot">
+            <button class="act" id="ncomp-cancel" type="button">Cancel</button>
+            <button class="act gold" id="ncomp-save" type="button">Create</button>
+        </div>
+    </div>
+</div>
+
+{% include "daily/_climb_core.html" %}
+{% include "daily/_wins_chrome.html" %}
+<style>
+    /* "Jamie can help" link: sits at the page bottom, under the wins cards. Opens
+       Jamie on the check-in screen, primed to help elicit a win (the chat panel
+       lives there, not on this page). */
+    .win-ask { color: var(--text-faint); text-decoration: none; font-size: .84rem; padding: 2px 2px; }
+    .win-ask span { color: var(--accent); white-space: nowrap; }
+    .win-ask:hover { color: var(--text-dim); }
+
+    /* Card system comes from _climb_core.html; this page runs slightly
+       tighter body padding for its list-heavy cards. */
+    .card-body { padding: 18px 16px; }
+
+    .gremove, .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
+    .gremove { margin-left: 10px; }
+    .gremove:hover, .sremove:hover { color: #e0a672; }
+    .sremove { margin-left: auto; }
+
+    .single { display: flex; align-items: center; gap: 11px; padding: 12px 0; }
+    .single + .single { border-top: 1px solid var(--line-soft); }
+    .single .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); flex: none; }
+    .single .rlabel { font-size: 1rem; }
+    .single .sremove { margin-left: auto; }
+
+    .addstone { display: block; background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 8px 0 4px 26px; }
+    .addstone:hover { opacity: .8; }
+
+    .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
+
+    /* inline stone composer (added by JS); the 26px left margin lines it up
+       with a goal's stones. The one-off composer (#single-inline) has no
+       ladder to align with, so it runs the card's full width. */
+    .stone-inline { display: flex; gap: 8px; margin: 8px 0 4px 26px; }
+    #single-inline { margin-left: 0; }
+    .stone-inline input { flex: 1; }
+    .stone-inline .mini { flex: none; background: none; border: 1px solid var(--line); color: var(--accent); font: inherit; font-size: .82rem; padding: 0 12px; cursor: pointer; }
+
+    /* north-star composer overlay */
+    .ncomposer { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+    .ncard { width: 100%; max-width: 480px; background: var(--bg-solid); border-top: 1px solid var(--line); }
+    .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-faint); margin: 16px 0 10px; }
+    .addstep-more { background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 10px 0 2px; }
+    @media (min-width: 520px) { .ncomposer { align-items: center; } .ncard { border: 1px solid var(--line); } }
+</style>
+
+<script>
+(function () {
+    "use strict";
+    var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    var $ = function (id) { return document.getElementById(id); };
+    try { var t = "{{ self_token }}"; if (t) localStorage.setItem("daily_self_token", t); } catch (e) {}
+
+    function post(url, body, onOk, onErr) {
+        fetch(url, {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+            body: JSON.stringify(body || {}),
+        }).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+          .then(function (res) { if (res.d && res.d.ok) { onOk && onOk(res.d); } else { onErr && onErr(res); } })
+          .catch(function () { onErr && onErr({ status: 0 }); });
+    }
+
+    function goalCount(goalEl) {
+        var n = goalEl.querySelectorAll(".stone").length;
+        var c = goalEl.querySelector("[data-count]");
+        if (c) c.textContent = n + " left";
+    }
+    function syncEmpty() {
+        var ge = $("goals-empty"); if (ge) ge.classList.toggle("is-hidden", $("goals").children.length > 0);
+        var se = $("singles-empty"); if (se) se.classList.toggle("is-hidden", $("singles").children.length > 0);
+    }
+
+    // ---- remove (goal, stone, or one-off) ----
+    document.addEventListener("click", function (e) {
+        var rm = e.target.closest("[data-remove]");
+        if (!rm) return;
+        var id = rm.getAttribute("data-remove");
+        post("/daily/win/remove/", { id: id }, function () {
+            var goalEl = rm.closest(".goal");
+            var row = rm.closest(".stone, .single, .goal");
+            // If removing the goal head's ✕, drop the whole goal block.
+            if (rm.classList.contains("gremove")) { if (goalEl) goalEl.remove(); }
+            else if (row) { row.remove(); if (goalEl) goalCount(goalEl); }
+            syncEmpty();
+        });
+    });
+
+    // ---- add a step to an existing goal ----
+    document.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-add-stone]");
+        if (!btn) return;
+        var goalId = btn.getAttribute("data-add-stone");
+        var goalEl = btn.closest(".goal");
+        if (goalEl.querySelector(".stone-inline")) { goalEl.querySelector(".stone-inline input").focus(); return; }
+        var wrap = document.createElement("div"); wrap.className = "stone-inline";
+        var inp = document.createElement("input"); inp.type = "text"; inp.maxLength = 200;
+        inp.className = "composer-input"; inp.placeholder = "e.g. Ask Dana for a referral"; inp.autocomplete = "off";
+        var add = document.createElement("button"); add.type = "button"; add.className = "mini"; add.textContent = "Add";
+        wrap.appendChild(inp); wrap.appendChild(add);
+        btn.parentNode.insertBefore(wrap, btn);
+        inp.focus();
+        function submit() {
+            var text = inp.value.trim(); if (!text) { inp.focus(); return; }
+            post("/daily/win/stone/add/", { goal_id: goalId, text: text }, function (d) {
+                var s = document.createElement("div"); s.className = "stone"; s.setAttribute("data-stone-id", d.stone.id);
+                s.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span><button class="sremove" type="button" data-remove="' + d.stone.id + '" aria-label="Remove step">✕</button>';
+                s.querySelector(".rlabel").textContent = d.stone.text;
+                goalEl.querySelector(".stones").appendChild(s);
+                goalCount(goalEl); inp.value = ""; inp.focus();   // stay open for a run
+            });
+        }
+        add.onclick = submit;
+        inp.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); submit(); } else if (ev.key === "Escape") { wrap.remove(); } };
+    });
+
+    // ---- add a one-off win (inline) ----
+    var singleBtn = $("add-single-btn");
+    if (singleBtn) singleBtn.onclick = function () {
+        var host = $("singles");
+        if (document.getElementById("single-inline")) { document.querySelector("#single-inline input").focus(); return; }
+        var wrap = document.createElement("div"); wrap.className = "stone-inline"; wrap.id = "single-inline";
+        var inp = document.createElement("input"); inp.type = "text"; inp.maxLength = 200;
+        inp.className = "composer-input"; inp.placeholder = "e.g. Book the dentist"; inp.autocomplete = "off";
+        var add = document.createElement("button"); add.type = "button"; add.className = "mini"; add.textContent = "Add";
+        wrap.appendChild(inp); wrap.appendChild(add);
+        host.parentNode.insertBefore(wrap, host.nextSibling);
+        inp.focus();
+        function submit() {
+            var text = inp.value.trim(); if (!text) { inp.focus(); return; }
+            post("/daily/win/add/", { text: text }, function () {
+                // The add endpoint returns the surfaced win, not the row; re-render
+                // by reloading the list is heavy — append a row directly instead.
+                // We don't get the new id back, so reload to stay consistent.
+                location.reload();
+            });
+        }
+        add.onclick = submit;
+        inp.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); submit(); } else if (ev.key === "Escape") { wrap.remove(); } };
+    };
+    // Arriving from the daily screen's "Add a win" (?add=1): open the one-off win
+    // input right away and focus it, so it feels like the old inline quick-add.
+    // The "Add a north star" button sits just above, so goals are reachable too.
+    try { if (singleBtn && new URLSearchParams(location.search).get("add") === "1") singleBtn.onclick(); } catch (e) {}
+
+    // ---- north-star composer ----
+    var comp = $("ncomposer"), goalInp = $("ncomp-goal"), stepsHost = $("ncomp-steps"), msg = $("ncomp-msg");
+    function openComp() { comp.classList.remove("is-hidden"); goalInp.value = ""; stepsHost.querySelectorAll(".nc-step").forEach(function (s, i) { if (i < 2) s.value = ""; }); msg.classList.add("is-hidden"); goalInp.focus(); }
+    function closeComp() { comp.classList.add("is-hidden"); }
+    if ($("add-goal-btn")) $("add-goal-btn").onclick = openComp;
+    if ($("ncomp-cancel")) $("ncomp-cancel").onclick = closeComp;
+    if (comp) comp.addEventListener("click", function (e) { if (e.target === comp) closeComp(); });
+    if ($("ncomp-more")) $("ncomp-more").onclick = function () {
+        var i = document.createElement("input"); i.type = "text"; i.maxLength = 200;
+        i.className = "composer-input nc-step"; i.placeholder = "Next step (optional)"; i.autocomplete = "off";
+        stepsHost.appendChild(i); i.focus();
+    };
+    if ($("ncomp-save")) $("ncomp-save").onclick = function () {
+        var goal = goalInp.value.trim();
+        var stones = Array.prototype.slice.call(stepsHost.querySelectorAll(".nc-step")).map(function (s) { return s.value.trim(); }).filter(Boolean);
+        if (!goal) { msg.textContent = "Give your north star a name."; msg.classList.remove("is-hidden"); goalInp.focus(); return; }
+        if (!stones.length) { msg.textContent = "Add at least one step."; msg.classList.remove("is-hidden"); return; }
+        post("/daily/win/goal/add/", { goal: goal, stones: stones }, function () {
+            location.reload();   // simplest correct refresh of the list
+        }, function () { msg.textContent = "Couldn't create that, try again."; msg.classList.remove("is-hidden"); });
+    };
+})();
+</script>
+{% endblock %}

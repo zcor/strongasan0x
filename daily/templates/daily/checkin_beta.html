@@ -1,0 +1,1269 @@
+{% extends "daily/base.html" %}
+
+{% block title %}The Climb · {{ participant.display_name }}{% endblock %}
+
+{% block content %}
+{% comment %}
+The Climb — beta daily screen. Design source: the settled artifact (455a6069):
+squared cards with hairline borders and a divided action footer, thin type, the
+gold/green palette, the week strip carrying progress (no top ring). See
+daily/CLIMB_REFRAME_PLAN.md section 2c.
+{% endcomment %}
+
+<div class="climb">
+
+    {# --- Greeting: "Hi, [name]." in the gold gradient, date beneath --- #}
+    <header class="appbar">
+        <div class="brand">Hi, {{ participant.display_name }}!</div>
+        <div class="datestr">{{ today|date:"D, M j" }}</div>
+    </header>
+
+    {% comment %} Week strip: 7 ring-circles, last 7 days. Arcs painted by JS
+    from done/total (today's fills live as items are checked). {% endcomment %}
+    <div class="weekstrip" aria-label="Last 7 days, tap a day to view or fill it in">
+        {% if streak >= 2 %}
+            <div class="wstreak" id="streak-chip" aria-label="{{ streak }} day streak">
+                <span class="wstreak-flame">🔥</span><span class="wstreak-num">{{ streak }}</span>
+            </div>
+        {% endif %}
+        {% for d in week %}
+            <a class="wday{% if d.is_today %} today{% endif %}" href="{{ d.href }}"
+               data-done="{{ d.done }}" data-total="{{ d.total }}"{% if d.is_today %} data-today="1"{% endif %}>
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                    <circle class="wtrack" cx="16" cy="16" r="13" fill="none" stroke-width="3"/>
+                    <circle class="warc" cx="16" cy="16" r="13" fill="none" stroke-width="3"
+                            stroke-linecap="round" transform="rotate(-90 16 16)"
+                            stroke-dasharray="81.68" stroke-dashoffset="81.68"/>
+                </svg>
+                {% if d.north_star %}<span class="wstar" aria-label="finished a goal"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>{% endif %}
+                <span class="wlabel">{{ d.label }}</span>
+            </a>
+        {% endfor %}
+    </div>
+
+    {% if backfill %}
+        <div class="backfill-banner">
+            Filling in <strong>{{ today|date:"l" }}</strong>: tap anything you did that day.
+            <a href="/daily/checkin/">Back to today</a>
+        </div>
+    {% endif %}
+
+    <div class="scroll">
+
+        {% if not backfill %}
+        {# ===== Today's win (crown) — squared card, elevated on top ===== #}
+        <div class="card win{% if not todays_win %} is-hidden{% endif %}" id="win-crown"
+             {% if todays_win %}data-win-id="{{ todays_win.id }}"{% endif %}>
+            <div class="card-body">
+                <div class="eyebrow">Today's win
+                    <a class="wins-link" href="/daily/wins/">Your wins ›</a>
+                </div>
+                <button class="row solo" id="win-row" type="button">
+                    <span class="check"></span>
+                    <span>
+                        <span class="rlabel" id="win-title">{{ todays_win.title }}</span>
+                        <span class="sub{% if not todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{{ todays_win.goal }}</span></span>
+                    </span>
+                </button>
+                <div class="win-again is-hidden" id="win-again">Want another one?</div>
+            </div>
+            <div class="card-foot" id="win-foot">
+                <button class="act" id="win-nottoday" type="button">Not today</button>
+                <button class="act gold" id="win-didit" type="button">Did it</button>
+            </div>
+            {% comment %} Post-completion prompt footer: shown after "Did it"
+            instead of auto-serving another win. "Sure" surfaces the held next win. {% endcomment %}
+            <div class="card-foot is-hidden" id="win-foot-again">
+                <button class="act" id="win-again-no" type="button">Not today</button>
+                <button class="act gold" id="win-again-yes" type="button">Sure</button>
+            </div>
+        </div>
+
+        {# Slim invitation (no surfaced win). Dismissible + remembered. #}
+        <div class="card{% if todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
+            <div class="card-body">
+                <div class="eyebrow">Today's win</div>
+                <div class="invite">
+                    <span id="invite-long">Got something you keep putting off? Maybe a hobby you never find time for, or a task that keeps nagging at the back of your mind. Name it here and let's turn it into a win.</span>
+                    <span id="invite-short" class="is-hidden">Got something you keep putting off?</span>
+                </div>
+            </div>
+            <div class="card-foot">
+                <button class="act" id="win-invite-x" type="button" aria-label="Dismiss">Not now</button>
+                <button class="act gold" id="win-invite-open" type="button">Add a win</button>
+            </div>
+        </div>
+
+        {% endif %}
+
+        {# ===== Habits ===== #}
+        {% if core_items or not backfill %}
+        <div class="card" id="habits-card">
+            <div class="card-body">
+                <div class="eyebrow">Habits <span class="cnt" id="habit-count"></span></div>
+                <div class="rows" id="items">
+                    {% for q in core_items %}
+                        {% comment %} A habit wraps its own row plus a collapsible
+                        drawer of sub-items. A habit WITH sub-items derives its check
+                        from them (tap the row to expand); the "···" menu adds a
+                        sub-item or swaps the habit. {% endcomment %}
+                        <div class="habit{% if q.items %} has-subs{% endif %}" data-hkey="{{ q.key }}">
+                            <button class="row{% if q.state == 'done' %} done{% endif %}{% if q.state == 'skip' %} skip{% endif %}"
+                                    data-check data-key="{{ q.key }}" data-core="1" data-state="{{ q.state }}" type="button">
+                                <span class="check"></span>
+                                <span class="rlabel">{{ q.label }}</span>
+                                <span class="subtag" aria-hidden="true"></span>
+                                <span class="chev" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                                </span>
+                                <span class="more" role="button" aria-haspopup="true" aria-label="More actions for {{ q.label }}">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+                                </span>
+                            </button>
+                            <div class="subwrap">
+                                <div class="subrows">
+                                    {% for s in q.items %}
+                                        <button class="subrow{% if s.state == 'done' %} done{% endif %}"
+                                                data-subcheck data-key="{{ s.key }}" data-parent="{{ q.key }}" data-state="{{ s.state }}" type="button">
+                                            <span class="check sm"></span>
+                                            <span class="rlabel">{{ s.label }}</span>
+                                            <span class="subx" role="button" aria-label="Remove {{ s.label }}">✕</span>
+                                        </button>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% if not backfill %}
+            <div class="card-foot" id="add-habit-foot">
+                <button class="act gold" id="add-item-btn" type="button">Add habit</button>
+            </div>
+            {% comment %} Add-habit composer (revealed by "Add habit"): input in
+            the body, actions in the footer, mirroring the win composer. {% endcomment %}
+            <div class="is-hidden" id="add-item-composer">
+                <div class="card-body">
+                    <div class="eyebrow">Name your habit</div>
+                    <input type="text" id="add-item-input" class="composer-input" maxlength="60"
+                           placeholder="e.g. Walk 20 min, or Drink water" autocomplete="off">
+                </div>
+                <div class="card-foot">
+                    <button class="act" id="add-item-cancel" type="button">Cancel</button>
+                    <button class="act" id="add-item-auto" type="button" title="Let Jamie suggest one">Auto</button>
+                    <button class="act gold" id="add-item-save" type="button">Add</button>
+                </div>
+            </div>
+            <div class="add-msg is-hidden" id="add-item-msg"></div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% comment %} Slim win link: collapsed state of the invite (after "Not
+        now"). Always reachable, never a big nag. Shown by JS when collapsed. {% endcomment %}
+        {% if not backfill %}
+        <button type="button" class="win-slim is-hidden" id="win-slim">
+            Got something you keep putting off? <span>Add a win ›</span>
+        </button>
+        {% endif %}
+
+        {# ===== Bonus (optional, revealed after core threshold) ===== #}
+        <div class="card {% if not bonus_revealed %}is-hidden{% endif %}" id="bonus-card">
+            <div class="card-body">
+                <div class="eyebrow">Bonus <span class="cnt">optional</span></div>
+                <div class="rows" id="bonus-items">
+                    {% for q in bonus_items %}
+                        <button class="row{% if q.state == 'done' %} done{% endif %}{% if q.unlock_after and not q.unlocked %} locked{% endif %}"
+                                data-check data-key="{{ q.key }}" data-core="0" data-state="{{ q.state }}"
+                                {% if q.unlock_after %}data-unlock-after="{{ q.unlock_after }}"{% endif %} type="button">
+                            <span class="check"></span>
+                            <span class="rlabel">{{ q.label }}</span>
+                            <span class="swap" role="button" aria-label="Swap {{ q.label }}">swap</span>
+                        </button>
+                    {% endfor %}
+                </div>
+                <div class="bonus-spinner is-hidden" id="bonus-spinner">Finding your next one…</div>
+            </div>
+        </div>
+
+        {% comment %} Metrics: opt-in, understated. One quiet line, only for
+        participants with active metrics; absent for everyone else. {% endcomment %}
+        {% if metric_fields %}
+        <div class="card" id="metrics-card">
+            <div class="card-body">
+                <div class="eyebrow">Today's numbers <span class="cnt" id="metrics-saved"></span></div>
+                <div class="metrics-row">
+                    {% for f in metric_fields %}
+                        <label class="metric">
+                            <span class="metric-name">{{ f.label }}</span>
+                            <span class="metric-inp">
+                                <input type="number" inputmode="decimal" step="any" class="metric-input"
+                                       data-key="{{ f.key }}" data-slot="{{ f.slot }}" value="{{ f.value }}" placeholder="—">
+                                {% if f.unit %}<span class="metric-unit">{{ f.unit }}</span>{% endif %}
+                            </span>
+                        </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <footer class="climb-foot">
+        {% if debug_as_of is not None %}
+            <span class="dev">DEV {{ today|date:"M j" }}</span>
+            <a href="/daily/checkin/{{ yesterday_qs }}">‹ prev</a>
+            <a href="/daily/checkin/{{ tomorrow_qs }}">next ›</a>
+            <a href="/daily/checkin/">today</a>
+        {% endif %}
+    </footer>
+</div>
+
+{% if not backfill %}
+{# --- Welcome / how-it-works modal (auto-shows once for new users) --- #}
+<div id="intro-modal" class="intro-modal"
+     data-intro-version="{{ intro_version }}"
+     data-first-visit="{% if first_visit %}1{% else %}0{% endif %}"
+     data-replay="{% if intro_replayable %}1{% else %}0{% endif %}">
+    <div class="intro-card">
+        <div class="intro-hi intro-anim" style="--d:.05s">Hi, {{ participant.display_name }}!</div>
+        <h2 class="intro-title" id="intro-title" aria-label="Welcome to The Climb">Welcome to The Climb</h2>
+        <div class="intro-body">
+            <p class="intro-anim" style="--d:.55s">This is your daily check-in, kept refreshingly simple. Pick a few small things that matter and check them off.</p>
+            <p class="intro-anim" style="--d:.68s">Keep the habits you want to build. Got something you keep putting off? Make it today's win, right up top. And Jamie is here whenever you want a hand.</p>
+        </div>
+        <button type="button" class="intro-ok intro-anim" style="--d:.84s" onclick="window.__introGotIt()">let's go</button>
+    </div>
+</div>
+
+{# --- Jamie: chat FAB + bottom-sheet panel --- #}
+<button type="button" id="coach-fab" class="fab fab-chat{% if chat_unread %} has-unread{% endif %}" aria-label="Chat with Jamie">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-6.5L7.5 19.5V16H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Z"/></svg>
+    <span class="fab-dot"></span>
+</button>
+<div id="coach-scrim"></div>
+<div id="coach-panel" class="coach-panel" aria-hidden="true">
+    <div class="coach-head">
+        <span class="coach-title">Jamie</span>
+        <button type="button" class="coach-close" id="coach-close" aria-label="Close">✕</button>
+    </div>
+    <div class="coach-log" id="coach-log">
+        {% for m in chat_history %}
+            <div class="msg msg-{{ m.role }}"><div class="bubble">{{ m.text }}</div><div class="mtime">{{ m.at }}</div></div>
+        {% empty %}
+            <div class="coach-empty">Tell me anything: a note, your numbers, or ask for a hand.</div>
+        {% endfor %}
+    </div>
+    {% comment %} "Wrap up my day" was removed from beta: it ran the mutation
+    engine and invited frog-first planning, both retired for the support-only
+    Climb. "Plan tomorrow" only shows when a beta user has mutations enabled;
+    support-only users get no chips row at all. {% endcomment %}
+    {% if ai_mutations_enabled %}
+    <div class="coach-chips">
+        <button type="button" class="chip" id="chip-plan">Plan tomorrow</button>
+    </div>
+    {% endif %}
+    <form class="coach-input" id="coach-form" onsubmit="return false;">
+        <textarea id="coach-text" rows="1" placeholder="Message Jamie…"></textarea>
+        <button type="submit" class="coach-send" id="coach-send" aria-label="Send">↑</button>
+    </form>
+</div>
+{% endif %}
+
+{% comment %} DEV only: config panel (gear FAB above the chat FAB). Toggle the
+route options by clicking instead of typing URLs. {% endcomment %}
+{% if beta_toggle and dev_config %}
+<button type="button" id="dev-gear" class="fab dev-gear" aria-label="Dev config" title="Dev config">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.5 4.5l2.1 2.1M17.4 17.4l2.1 2.1M2.5 12h3M18.5 12h3M4.5 19.5l2.1-2.1M17.4 6.6l2.1-2.1"/></svg>
+</button>
+<div id="dev-panel" class="dev-panel" aria-hidden="true">
+    <div class="dev-panel-head"><span>DEV CONFIG</span><button type="button" id="dev-panel-close" aria-label="Close">✕</button></div>
+    <div class="dev-row"><span>Beta UI</span><button type="button" class="dev-toggle{% if dev_config.beta %} on{% endif %}" data-nav-on="beta=1" data-nav-off="beta=0" aria-label="Beta UI"></button></div>
+    <div class="dev-row"><span>Dev QR</span><button type="button" class="dev-toggle{% if dev_config.qr %} on{% endif %}" data-nav-on="qr=1" data-nav-off="qr=0" aria-label="Dev QR"></button></div>
+    <div class="dev-row"><span>Install gate</span><button type="button" class="dev-toggle{% if dev_config.gate %} on{% endif %}" data-nav-on="gate=1" data-nav-off="gate=0" aria-label="Install gate"></button></div>
+    <div class="dev-row"><span>Streak pill</span><button type="button" class="dev-toggle{% if dev_config.streak %} on{% endif %}" data-nav-on="streak=1" data-nav-off="streak=0" aria-label="Streak pill"></button></div>
+    <div class="dev-row"><span>Welcome dialog</span><button type="button" class="dev-toggle" data-ls="daily_intro_seen_v" data-ls-val="{{ intro_version }}" aria-label="Welcome dialog"></button></div>
+    <div class="dev-row"><span>Win explainer</span><button type="button" class="dev-toggle" data-ls="daily_win_explainer_seen" data-ls-val="1" aria-label="Win explainer"></button></div>
+    <div class="dev-note">Flip toggles, then Apply. On = shows, off = suppressed.</div>
+    <button type="button" id="dev-apply" class="dev-apply">Apply changes</button>
+    <button type="button" id="dev-reset" class="dev-reset">Full reset</button>
+</div>
+{% endif %}
+
+{% comment %} DEV only: scannable QR to open this app on a phone over the LAN. {% endcomment %}
+{% if beta_toggle and dev_qr %}
+<div id="dev-qr" class="dev-qr">
+    <img class="dev-qr-img" src="{{ dev_qr.svg }}" width="128" height="128" alt="Scan to open on your phone">
+    <div class="dev-qr-cap">
+        <strong>scan to open on your phone</strong>
+        <span>{{ dev_qr.ip }} · same Wi-Fi</span>
+    </div>
+    <button type="button" class="dev-qr-x" id="dev-qr-x" aria-label="Hide">✕</button>
+</div>
+{% endif %}
+
+{% include "daily/_climb_core.html" %}
+<style>
+    /* Local tokens layered on base.html's palette (--accent gold, --done green).
+       Defined on :root so elements OUTSIDE .climb (the FABs, chat panel, which
+       render at the page root) also resolve them — otherwise var(--acc-ink) is
+       undefined there and the chat icon falls back to near-white on gold. */
+    :root {
+        --line: rgba(255,255,255,.13);
+        --line-soft: rgba(255,255,255,.09);
+        --fill: rgba(255,255,255,.02);
+        --acc-ink: #2a2208;
+    }
+    .climb { margin: 0; }
+
+    /* Header */
+    .appbar { padding: 8px 4px 2px; }
+    .brand {
+        font-size: 1.5rem; font-weight: 500; letter-spacing: -.01em; line-height: 1.05;
+        background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+        width: max-content; max-width: 100%;
+    }
+    .datestr { font-size: .84rem; color: var(--text-dim); font-weight: 400; margin-top: 7px; }
+    .caption { padding: 6px 4px 0; color: var(--text-faint); font-size: .74rem; }
+
+    /* Week strip */
+    .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 12px 2px 8px; }
+    .wday { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; text-decoration: none; position: relative; }
+    .wday > svg { width: 30px; height: 30px; }
+    .wtrack { stroke: rgba(255,255,255,.09); }
+    .warc { stroke: var(--done); transition: stroke-dashoffset .5s ease; }
+    .warc.full { stroke: var(--done-bright); }
+    .wlabel { font-size: .68rem; font-weight: 500; color: var(--text-faint); }
+    .wday.today .wlabel { color: var(--text); font-weight: 700; }
+    /* Streak pill: a self-contained warm signal that leads the strip. Kept
+       orange (not --accent) so the flame reads the same across all themes. */
+    .wstreak {
+        align-self: flex-start; flex-shrink: 0;
+        display: inline-flex; align-items: center; gap: 3px;
+        height: 30px; padding: 0 11px 0 9px;
+        background: rgba(255,145,60,.10);
+        border: 1px solid rgba(255,145,60,.38);
+        border-radius: 999px;
+        animation: streak-pop .5s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes streak-pop { 0%{transform:scale(.6);opacity:0} 100%{transform:scale(1);opacity:1} }
+    .wstreak-flame { font-size: .9rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,.5)); }
+    .wstreak-num { color: #ffb060; font-weight: 700; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    /* Gold star nested in the ring center: a day a whole north star was
+       finished. The arc keeps carrying habits on the perimeter; the star sits
+       in the empty middle so the two signals never collide. */
+    .wstar { position: absolute; top: 0; left: 0; right: 0; height: 30px; display: grid; place-items: center; pointer-events: none; }
+    .wstar svg { width: 13px; height: 13px; color: var(--accent); filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
+    .wstar.just svg { animation: starpop .5s cubic-bezier(.34,1.56,.64,1); }
+    @keyframes starpop { 0%{transform:scale(0) rotate(-40deg); opacity:0} 60%{transform:scale(1.25) rotate(6deg)} 100%{transform:scale(1) rotate(0); opacity:1} }
+
+    .scroll { display: flex; flex-direction: column; gap: 14px; padding: 8px 0 32px; }
+
+    /* Squared card / eyebrow / footer actions come from _climb_core.html */
+    .eyebrow .cnt { margin-left: auto; letter-spacing: .06em; font-variant-numeric: tabular-nums; text-transform: none; }
+
+    .rows { display: flex; flex-direction: column; }
+    .rows .row + .row { border-top: 1px solid var(--line-soft); }
+    .row {
+        display: flex; align-items: center; gap: 15px; width: 100%; padding: 14px 0;
+        background: transparent; border: 0; cursor: pointer; color: var(--text);
+        font: inherit; text-align: left;
+    }
+    .row.solo { padding: 0; }
+    .row.locked { opacity: .5; pointer-events: none; }
+    .check {
+        flex: none; width: 26px; height: 26px; border-radius: 50%; color: transparent;
+        border: 2px solid rgba(255,255,255,.22); display: grid; place-items: center; transition: all .16s ease;
+    }
+    .check::after {
+        content: ""; width: 13px; height: 11px; background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+    }
+    .row.done .check { background: var(--done); border-color: transparent; color: var(--on-done); }
+    .win .row.done .check { background: var(--accent); color: var(--acc-ink); }
+    .row.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
+    @keyframes pop { 0%{transform:scale(.5)} 60%{transform:scale(1.18)} 100%{transform:scale(1)} }
+    .rlabel { font-size: 1rem; font-weight: 400; line-height: 1.3; transition: color .16s; }
+    .win .rlabel { font-size: 1.3rem; font-weight: 300; letter-spacing: 0; }
+    .sub { display: block; font-size: .82rem; font-weight: 400; color: var(--text-dim); margin-top: 6px; }
+    .row.done .rlabel { color: var(--text-dim); text-decoration: line-through; }
+    .swap { margin-left: auto; font-size: .64rem; font-weight: 600; letter-spacing: .13em; color: var(--text-faint); text-transform: uppercase; flex: none; padding: 4px 2px; }
+    .swap:hover { color: var(--accent); }
+
+    /* ===== Nested detail checklists (sub-items under a habit) ===== */
+    /* Each core habit is now wrapped in .habit; the hairline lives between
+       habits (was between rows). */
+    .rows .habit + .habit { border-top: 1px solid var(--line-soft); }
+    /* Right-side row controls: an optional "2/8" count, an expand chevron
+       (only when the habit has sub-items), and the "···" overflow menu. */
+    .subtag { font-size: .72rem; color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
+    .subtag:empty { display: none; }
+    .chev { display: none; color: var(--text-faint); flex: none; transition: transform .18s ease; }
+    .chev svg { width: 15px; height: 15px; display: block; }
+    .habit.has-subs .chev { display: inline-flex; }
+    .habit.has-subs.open .chev { transform: rotate(90deg); }
+    .more { margin-left: auto; display: inline-flex; align-items: center; color: var(--text-faint); flex: none; padding: 2px; }
+    .more svg { width: 18px; height: 18px; display: block; }
+    .more:hover { color: var(--accent); }
+
+    /* The drawer of sub-items, indented under the habit's label. */
+    .subwrap { display: none; padding: 2px 0 12px 41px; }
+    .habit.open .subwrap { display: block; animation: subslide .18s ease; }
+    @keyframes subslide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .subrows { display: flex; flex-direction: column; }
+    .subrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 0;
+        background: transparent; border: 0; cursor: pointer; color: var(--text); font: inherit; text-align: left; }
+    .subrow + .subrow { border-top: 1px solid var(--line-soft); }
+    .check.sm { width: 20px; height: 20px; border-width: 2px; }
+    .check.sm::after { width: 10px; height: 9px; }
+    .subrow .rlabel { font-size: .92rem; }
+    .subrow.done .rlabel { color: var(--text-dim); text-decoration: line-through; }
+    .subrow.done .check { background: var(--done); border-color: transparent; color: var(--on-done); }
+    .subrow.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
+    .subx { margin-left: auto; color: var(--text-faint); font-size: .9rem; line-height: 1; flex: none; padding: 4px 6px; }
+    .subx:hover { color: #e0a672; }
+
+    /* Composer for adding a sub-item (opened from the "···" menu). */
+    .sub-composer { margin: 8px 0 2px; }
+    .sub-composer .composer-input { width: 100%; }
+    .sub-foot { display: flex; margin-top: 8px; border: 1px solid var(--line); }
+    .sub-foot .act { padding: 11px 10px; font-size: .82rem; }
+    .sub-foot .act + .act { border-left: 1px solid var(--line-soft); }
+
+    /* The "···" overflow menu: a divided action strip below the row. */
+    .rowmenu { display: flex; border-top: 1px solid var(--line-soft); animation: subslide .16s ease; }
+    .rowmenu .act { padding: 13px 8px; font-size: .84rem; white-space: nowrap; }
+    .rowmenu .act + .act { border-left: 1px solid var(--line-soft); }
+    /* Cancel and Swap shrink to their text with matching padding; "Add sub-item"
+       flexes to fill the middle, so the strip reads evenly balanced. */
+    .rowmenu .act:first-child,
+    .rowmenu .act:last-child { flex: 0 0 auto; padding-left: 18px; padding-right: 18px; }
+    /* Swap composer: a small card in the row's place (input body + divided
+       footer), mirroring the Add-habit card. Footer reuses .card-foot / .act. */
+    .swap-composer { border: 1px solid var(--line); margin: 10px 0; }
+    .swap-composer .sc-body { padding: 14px 15px 12px; }
+    .swap-composer .sc-body .eyebrow { margin-bottom: 10px; }
+    .swap-composer .composer-input { width: 100%; }
+    .invite { font-size: 1rem; color: var(--text-dim); line-height: 1.55; }
+    /* Post-completion prompt: after "Did it", the card asks before serving
+       another win (never auto-served). */
+    .win-again { font-size: .98rem; color: var(--text-dim); margin-top: 16px; }
+    /* Collapsed win invite: a quiet one-line link below the habits. */
+    .win-slim {
+        display: block; width: 100%; text-align: left; cursor: pointer;
+        background: transparent; border: 0; padding: 4px 2px;
+        color: var(--text-faint); font: inherit; font-size: .84rem; line-height: 1.5;
+    }
+    .win-slim span { color: var(--accent); white-space: nowrap; }
+    .win-slim:hover { color: var(--text-dim); }
+    /* "Your wins" door: a quiet text link pinned to the right of the "Today's
+       win" title (replaces the old pencil icon). */
+    .wins-link { margin-left: auto; color: var(--text-dim); text-decoration: none; font-size: .72rem; font-weight: 500; letter-spacing: 0; text-transform: none; transition: color .16s; }
+    .wins-link:hover { color: var(--accent); }
+    .metaline { font-size: .82rem; color: var(--text-dim); }
+
+    /* Add-habit composer sits inside the habits card; a hairline separates it
+       from the rows above, matching the divided-card look. */
+    #add-item-composer > .card-body { border-top: 1px solid var(--line-soft); }
+    .composer-msg, .add-msg { color: #e0a672; font-size: .82rem; padding: 10px 20px; }
+
+    /* Metrics — understated */
+    .metrics-row { display: flex; flex-wrap: wrap; gap: 14px; }
+    .metric { display: flex; flex-direction: column; gap: 5px; }
+    .metric-name { font-size: .72rem; color: var(--text-faint); }
+    .metric-inp { display: inline-flex; align-items: baseline; gap: 4px; }
+    .metric-input {
+        width: 70px; background: transparent; border: 0; border-bottom: 1px solid var(--line);
+        color: var(--text); font: inherit; font-size: 1.05rem; padding: 2px 0; font-variant-numeric: tabular-nums;
+    }
+    .metric-input:focus { outline: none; border-color: var(--accent); }
+    .metric-unit { font-size: .78rem; color: var(--text-faint); }
+
+    .backfill-banner {
+        border: 1px solid var(--line); padding: 12px 14px; font-size: .9rem; color: var(--text-dim); margin: 8px 0 0;
+    }
+    .backfill-banner a { color: var(--accent); }
+    .climb-foot { margin-top: 22px; text-align: center; color: var(--text-faint); font-size: .78rem; }
+    .climb-foot span { color: var(--text-dim); }
+    .climb-foot a { color: var(--text-faint); margin: 0 4px; }
+    .climb-foot .dev { color: var(--accent); }
+
+    /* Goal-complete toast (a north star finished) */
+    .win-toast {
+        position: fixed; left: 50%; bottom: 92px; transform: translate(-50%, 12px); z-index: 70;
+        max-width: calc(100vw - 40px); text-align: center;
+        background: var(--accent-grad); color: var(--acc-ink); font-size: .9rem; font-weight: 600;
+        padding: 12px 18px; border-radius: 999px; box-shadow: 0 14px 30px -10px rgba(0,0,0,.6);
+        opacity: 0; transition: opacity .3s ease, transform .3s cubic-bezier(.34,1.56,.64,1);
+    }
+    .win-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    /* FABs */
+    .fab { position: fixed; right: 20px; border: 0; cursor: pointer; display: grid; place-items: center; z-index: 40; box-shadow: 0 10px 26px -8px rgba(0,0,0,.55); }
+    .fab-chat {
+        bottom: 22px; width: 56px; height: 56px; border-radius: 28px;
+        background: var(--bg-solid); border: 1px solid var(--line); color: var(--text);
+    }
+    .fab-chat svg { width: 21px; height: 21px; display: block; }
+    .fab-dot { position: absolute; top: 11px; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: #ff5a5a; border: 2px solid var(--accent-2); display: none; }
+    .fab-chat.has-unread .fab-dot { display: block; }
+
+    /* Intro modal — thin, letter-spaced, premium (see reference). Text animates
+       in on show; the welcome title reveals letter by letter. */
+    .intro-modal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; }
+    .intro-modal.show { display: flex; }
+    .intro-card {
+        border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,217,122,.05), rgba(255,255,255,.01)), var(--bg-solid);
+        max-width: 24rem; width: 100%; padding: 46px 34px 40px; text-align: center;
+    }
+    .intro-hi { font-size: 1rem; font-weight: 400; letter-spacing: .01em; color: var(--accent); margin-bottom: 16px; }
+    .intro-title {
+        font-size: clamp(2.3rem, 10vw, 2.7rem); font-weight: 200; letter-spacing: .04em; line-height: 1.12;
+        color: var(--text); margin: 0 0 26px;
+    }
+    .intro-title .word { display: inline-block; white-space: nowrap; }
+    .intro-title .ch { display: inline-block; opacity: 0; transform: translateY(14px); will-change: transform, opacity; }
+    .intro-modal.show .intro-title .ch { animation: introCh .5s cubic-bezier(.2,.7,.3,1) forwards; animation-delay: var(--chd, 0s); }
+    .intro-body { max-width: 20rem; margin: 0 auto 30px; }
+    .intro-body p { font-size: .95rem; font-weight: 300; color: var(--text-dim); line-height: 1.7; margin: 0 0 14px; }
+    .intro-body p:last-child { margin-bottom: 0; }
+    .intro-ok {
+        background: transparent; border: 1px solid rgba(255,255,255,.28); color: var(--text);
+        font: inherit; font-size: .82rem; font-weight: 400; letter-spacing: .18em; text-transform: lowercase;
+        padding: 15px 40px; cursor: pointer; transition: border-color .2s, color .2s, letter-spacing .2s;
+    }
+    .intro-ok:hover { border-color: var(--accent); color: var(--accent); letter-spacing: .22em; }
+    .intro-anim { opacity: 0; transform: translateY(12px); }
+    .intro-modal.show .intro-anim { animation: introRise .6s ease forwards; animation-delay: var(--d, 0s); }
+    @keyframes introRise { to { opacity: 1; transform: none; } }
+    @keyframes introCh { to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+        .intro-anim, .intro-title .ch { opacity: 1 !important; transform: none !important; animation: none !important; }
+    }
+
+    /* Chat panel (bottom sheet) */
+    #coach-scrim { position: fixed; inset: 0; z-index: 45; background: rgba(6,8,15,.5); opacity: 0; pointer-events: none; transition: opacity .2s; }
+    #coach-scrim.show { opacity: 1; pointer-events: auto; }
+    .coach-panel {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-width: 480px; margin: 0 auto;
+        background: var(--bg-solid); border-top: 1px solid var(--line);
+        display: flex; flex-direction: column; max-height: 78vh;
+        transform: translateY(100%); transition: transform .24s cubic-bezier(.4,0,.2,1);
+    }
+    .coach-panel.open { transform: translateY(0); }
+    .coach-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+    .coach-title { font-weight: 500; }
+    .coach-close { background: none; border: 0; color: var(--text-dim); font-size: 1rem; cursor: pointer; }
+    .coach-log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 160px; }
+    .coach-empty { color: var(--text-faint); font-size: .9rem; text-align: center; margin: auto; padding: 0 20px; }
+    .msg { display: flex; flex-direction: column; max-width: 84%; }
+    .msg-user { align-self: flex-end; align-items: flex-end; }
+    .msg-coach { align-self: flex-start; }
+    .bubble { padding: 10px 13px; font-size: .95rem; line-height: 1.4; }
+    .msg-user .bubble { background: var(--accent-grad); color: var(--acc-ink); }
+    .msg-coach .bubble { background: rgba(255,255,255,.06); border: 1px solid var(--line-soft); color: var(--text); }
+    .msg.typing .bubble { color: var(--text-faint); }
+    .mtime { font-size: .66rem; color: var(--text-faint); margin-top: 3px; padding: 0 4px; }
+    .coach-chips { display: flex; gap: 8px; padding: 8px 18px 0; flex-wrap: wrap; }
+    .chip { background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text-dim); font: inherit; font-size: .8rem; padding: 7px 12px; cursor: pointer; }
+    .chip.on { border-color: var(--accent); color: var(--accent); }
+    .coach-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); }
+    .coach-input textarea { flex: 1; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: .95rem; padding: 10px 12px; resize: none; max-height: 120px; }
+    .coach-input textarea:focus { outline: none; border-color: rgba(255,217,122,.5); }
+    .coach-send { flex: none; width: 40px; height: 40px; border: 0; background: var(--accent-grad); color: var(--acc-ink); font-size: 1.1rem; cursor: pointer; }
+    .coach-send:disabled { opacity: .5; }
+
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+    /* DEV-only QR panel (local dev). White card so the code scans; bottom-left,
+       clear of the chat/help FABs on the right. */
+    .dev-qr {
+        position: fixed; left: 14px; bottom: 16px; z-index: 55;
+        display: flex; align-items: center; gap: 12px;
+        background: #fff; color: #0a0b12; padding: 12px 14px 12px 12px;
+        border-radius: 12px; box-shadow: 0 12px 30px -8px rgba(0,0,0,.6);
+        max-width: calc(100vw - 28px);
+    }
+    .dev-qr-img { display: block; width: 128px; height: 128px; flex: none; }
+    .dev-qr-cap { font-size: .78rem; line-height: 1.4; max-width: 130px; }
+    .dev-qr-cap strong { display: block; font-weight: 600; margin-bottom: 4px; }
+    .dev-qr-cap span { color: #555; font-variant-numeric: tabular-nums; }
+    .dev-qr-x {
+        position: absolute; top: 4px; right: 6px; background: none; border: 0;
+        color: #999; font-size: .8rem; cursor: pointer; padding: 4px;
+    }
+    .dev-qr-x:hover { color: #333; }
+
+    /* DEV config panel (gear FAB stacked above the chat FAB) */
+    .dev-gear { bottom: 90px; right: 28px; width: 38px; height: 38px; border-radius: 19px;
+        color: var(--text-dim); background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+    .dev-gear svg { width: 19px; height: 19px; }
+    .dev-gear:hover { color: var(--text); }
+    .dev-panel {
+        position: fixed; right: 20px; bottom: 138px; z-index: 56; width: 232px;
+        background: var(--bg-solid); border: 1px solid var(--line); border-radius: 12px;
+        padding: 8px; box-shadow: 0 16px 40px -12px rgba(0,0,0,.7);
+        display: none;
+    }
+    .dev-panel.show { display: block; }
+    .dev-panel-head { display: flex; align-items: center; justify-content: space-between;
+        font-size: .66rem; font-weight: 600; letter-spacing: .12em; color: var(--text-faint);
+        padding: 4px 6px 8px; }
+    .dev-panel-head button { background: none; border: 0; color: var(--text-faint); font-size: .8rem; cursor: pointer; }
+    .dev-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px; font-size: .9rem; color: var(--text); }
+    .dev-toggle { position: relative; width: 40px; height: 23px; flex: none; border: 0; cursor: pointer;
+        border-radius: 12px; background: rgba(255,255,255,.14); transition: background .15s; }
+    .dev-toggle::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 18px; height: 18px;
+        border-radius: 50%; background: #fff; transition: transform .15s; }
+    .dev-toggle.on { background: var(--done); }
+    .dev-toggle.on::after { transform: translateX(17px); }
+    .dev-note { font-size: .72rem; color: var(--text-faint); padding: 6px 6px 4px; line-height: 1.4; }
+    .dev-apply { width: 100%; margin-top: 4px; padding: 10px; background: var(--accent-grad);
+        border: 0; border-radius: 8px; color: var(--acc-ink); font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer; }
+    .dev-apply.pending { box-shadow: 0 0 0 2px rgba(255,217,122,.4); }
+    .dev-reset { width: 100%; margin-top: 6px; padding: 8px; background: transparent;
+        border: 1px solid var(--line); border-radius: 8px; color: var(--text-dim); font: inherit; font-size: .8rem; cursor: pointer; }
+    .dev-reset:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+
+<script>
+(function () {
+    "use strict";
+    var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
+    var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
+    var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    var WC = 81.68;  // 2πr for the week strip's r=13 rings
+    var $ = function (id) { return document.getElementById(id); };
+
+    // Persist this participant's token for iOS-standalone self-heal.
+    try {
+        var t = "{{ self_token }}";
+        if (t) localStorage.setItem("daily_self_token", t);
+        sessionStorage.removeItem("daily_reauth_attempt");
+    } catch (e) {}
+
+    {% if beta_toggle %}
+    // ===== DEV: beta-mode toggle (local dev only) =====
+    window.climb = window.climb || {};
+    window.climb.beta = function (on) { var u = new URL(location.href); u.searchParams.set("beta", (on === false) ? "0" : "1"); location.href = u.toString(); };
+    window.climb.current = function () { window.climb.beta(false); };
+    console.log("%cThe Climb · BETA mode", "color:#ffd97a;font-weight:600;font-size:1.05em;",
+        "\n  climb.beta(false) → back to the CURRENT app\n  or add ?beta=0 / ?beta=1 to any URL");
+    {% endif %}
+
+    // ---------- helpers ----------
+    function post(url, body, onOk, onErr) {
+        fetch(url + qs, {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+            body: JSON.stringify(body || {}),
+        }).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+          .then(function (res) { if (res.d && res.d.ok) { onOk && onOk(res.d); } else { onErr && onErr(res); } })
+          .catch(function () { onErr && onErr({ status: 0 }); });
+    }
+    function arc(el, done, total) {
+        var f = total ? Math.min(done, total) / total : 0;
+        var c = el.querySelector(".warc");
+        if (c) { c.style.strokeDashoffset = (WC * (1 - f)).toFixed(1); c.classList.toggle("full", done >= total && total > 0); }
+    }
+
+    // ---------- week strip + today's live progress + badge ----------
+    var weekDays = Array.prototype.slice.call(document.querySelectorAll(".wday"));
+    weekDays.forEach(function (d) { arc(d, parseInt(d.dataset.done || "0", 10), parseInt(d.dataset.total || "1", 10)); });
+    var todayEl = document.querySelector(".wday.today");
+    function coreRows() { return Array.prototype.slice.call(document.querySelectorAll('#items .row')); }
+    function refreshProgress() {
+        var rows = coreRows(), total = rows.length;
+        var done = rows.filter(function (r) { return r.classList.contains("done"); }).length;
+        if (todayEl) arc(todayEl, done, total);
+        var cnt = $("habit-count"); if (cnt) cnt.textContent = total ? (done + " of " + total) : "";
+        try { if (window.__setBadge) window.__setBadge(Math.max(0, total - done)); } catch (e) {}
+    }
+
+    // ---------- check rows (core + bonus) ----------
+    function setState(row, state) {
+        row.dataset.state = state;
+        row.classList.toggle("done", state === "done");
+        row.classList.toggle("skip", state === "skip");
+    }
+    function bindRow(row) {
+        row.addEventListener("click", function (e) {
+            // "···" overflow menu (core habits) and the legacy "swap" text (bonus rows).
+            if (e.target.closest(".more")) { e.stopPropagation(); toggleRowMenu(row); return; }
+            if (e.target.closest(".swap")) { e.stopPropagation(); openSwap(row); return; }
+            // A habit with sub-items derives its check from them: tapping the
+            // row opens/closes the detail drawer. The CHECK itself still
+            // toggles the parent directly — it's the only way to clear a done
+            // parent (sub untaps never downgrade it, see set_item_state).
+            var habit = row.closest(".habit");
+            var hasSubs = habit && habit.classList.contains("has-subs");
+            if (hasSubs && !e.target.closest(".check")) { e.stopPropagation(); toggleDrawer(habit); return; }
+            if (row.classList.contains("locked")) return;
+            var next = row.dataset.state === "done" ? "pending" : "done";
+            if (hasSubs && next === "pending") {
+                // Clearing the parent clears the drawer too (server cascades).
+                subrowsOf(habit).forEach(function (s) { s.classList.remove("done"); });
+                updateSubtag(habit);
+            }
+            setState(row, next);
+            if (next === "done") { row.classList.remove("just"); void row.offsetWidth; row.classList.add("just"); }
+            refreshProgress();
+            post("/daily/item/", { key: row.dataset.key, state: next }, function (d) {
+                if (d.new_bonus) addBonusRow(d.new_bonus);
+                if (d.bonus_revealed) { var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden"); }
+            });
+        });
+    }
+    function rowHtml(item, core) {
+        var b = document.createElement("button");
+        b.className = "row"; b.setAttribute("data-check", ""); b.dataset.key = item.key;
+        b.dataset.core = core ? "1" : "0"; b.dataset.state = "pending"; b.type = "button";
+        var chk = document.createElement("span"); chk.className = "check";
+        var lab = document.createElement("span"); lab.className = "rlabel"; lab.textContent = item.label;
+        var sw = document.createElement("span"); sw.className = "swap"; sw.setAttribute("role", "button"); sw.textContent = "swap";
+        b.appendChild(chk); b.appendChild(lab); b.appendChild(sw);
+        bindRow(b);
+        return b;
+    }
+    function addBonusRow(item) {
+        var host = $("bonus-items"); if (!host) return;
+        host.appendChild(rowHtml(item, false));
+        var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden");
+    }
+    document.querySelectorAll('.row[data-check]').forEach(bindRow);
+    refreshProgress();
+
+    // ---------- nested detail checklists (sub-items) ----------
+    // A core habit can carry a drawer of sub-items (e.g. exercises under
+    // "Strength training"). Checking any sub auto-fills the parent (server
+    // derives + persists it); the ring still counts the PARENT, never the subs.
+    function subrowsOf(habit) { return Array.prototype.slice.call(habit.querySelectorAll(".subrow")); }
+    function updateSubtag(habit) {
+        var subs = subrowsOf(habit), tag = habit.querySelector(".subtag");
+        habit.classList.toggle("has-subs", subs.length > 0);
+        if (!tag) return;
+        if (subs.length) {
+            var done = subs.filter(function (s) { return s.classList.contains("done"); }).length;
+            tag.textContent = done + "/" + subs.length;
+        } else { tag.textContent = ""; }
+    }
+    function toggleDrawer(habit, force) {
+        var open = (force === undefined) ? !habit.classList.contains("open") : force;
+        habit.classList.toggle("open", open);
+    }
+    // Reflect a server-derived parent update ({key,state}) onto its row.
+    function setParentFrom(update) {
+        if (!update) return;
+        var row = document.querySelector('#items .row[data-key="' + update.key + '"]');
+        if (row) setState(row, update.state);
+        refreshProgress();
+    }
+    function bindSubRow(sub) {
+        sub.addEventListener("click", function (e) {
+            if (e.target.closest(".subx")) { e.stopPropagation(); removeSub(sub); return; }
+            var next = sub.dataset.state === "done" ? "pending" : "done";
+            sub.dataset.state = next;
+            sub.classList.toggle("done", next === "done");
+            if (next === "done") { sub.classList.remove("just"); void sub.offsetWidth; sub.classList.add("just"); }
+            var habit = sub.closest(".habit"); if (habit) updateSubtag(habit);
+            post("/daily/item/", { key: sub.dataset.key, state: next }, function (d) {
+                setParentFrom(d.parent);
+                if (d.new_bonus) addBonusRow(d.new_bonus);
+                if (d.bonus_revealed) { var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden"); }
+            });
+        });
+    }
+    function makeSubRow(item, parentKey) {
+        var b = document.createElement("button");
+        b.className = "subrow"; b.setAttribute("data-subcheck", ""); b.dataset.key = item.key;
+        b.dataset.parent = parentKey; b.dataset.state = "pending"; b.type = "button";
+        var c = document.createElement("span"); c.className = "check sm";
+        var l = document.createElement("span"); l.className = "rlabel"; l.textContent = item.label;
+        var x = document.createElement("span"); x.className = "subx"; x.setAttribute("role", "button");
+        x.setAttribute("aria-label", "Remove " + item.label); x.textContent = "✕";
+        b.appendChild(c); b.appendChild(l); b.appendChild(x);
+        bindSubRow(b);
+        return b;
+    }
+    function removeSub(sub) {
+        var habit = sub.closest(".habit"), parentKey = sub.dataset.parent;
+        post("/daily/subitem/remove/", { parent_key: parentKey, key: sub.dataset.key }, function (d) {
+            sub.remove();
+            if (habit) { updateSubtag(habit); if (!subrowsOf(habit).length) toggleDrawer(habit, false); }
+            setParentFrom(d.parent);
+        });
+    }
+    function openSubComposer(habit) {
+        toggleDrawer(habit, true);
+        var wrap = habit.querySelector(".subwrap");
+        var existing = wrap.querySelector(".sub-composer");
+        if (existing) { existing.querySelector(".sub-input").focus(); return; }
+        var parentKey = habit.dataset.hkey;
+        var comp = document.createElement("div"); comp.className = "sub-composer";
+        var inp = document.createElement("input");
+        inp.type = "text"; inp.maxLength = 60; inp.className = "composer-input sub-input";
+        inp.placeholder = "e.g. Lateral raise"; inp.autocomplete = "off";
+        var foot = document.createElement("div"); foot.className = "sub-foot";
+        // Left button reads "Cancel" while the drawer is still empty (nothing to
+        // keep) and flips to "Done" once at least one sub-item exists (the
+        // composer stays open across adds, so this reflects the current state).
+        var cancel = mkAct(subrowsOf(habit).length ? "Done" : "Cancel", false), save = mkAct("Add", true);
+        foot.appendChild(cancel); foot.appendChild(save);
+        comp.appendChild(inp); comp.appendChild(foot);
+        wrap.appendChild(comp); inp.focus();
+        function submit() {
+            var label = inp.value.trim(); if (!label) { inp.focus(); return; }
+            post("/daily/subitem/add/", { parent_key: parentKey, label: label }, function (d) {
+                habit.querySelector(".subrows").appendChild(makeSubRow(d.item, parentKey));
+                updateSubtag(habit); inp.value = ""; inp.focus();   // stay open for a run of exercises
+                cancel.textContent = "Done";   // now that a sub-item exists, dismiss = "Done", not "Cancel"
+            });
+        }
+        function dismiss() {
+            comp.remove();
+            // If the habit still has no sub-items, collapse the (now empty)
+            // drawer so it doesn't leave a gap under the row.
+            if (!subrowsOf(habit).length) toggleDrawer(habit, false);
+        }
+        cancel.onclick = function (e) { e.stopPropagation(); dismiss(); };
+        save.onclick = function (e) { e.stopPropagation(); submit(); };
+        inp.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); submit(); } else if (e.key === "Escape") { dismiss(); } };
+    }
+
+    // ---------- row overflow menu ("···": Cancel | Add sub-item | Swap) ----------
+    var menuOpen = null;
+    function closeRowMenu() { if (menuOpen) { menuOpen.remove(); menuOpen = null; } }
+    function toggleRowMenu(row) {
+        if (menuOpen && menuOpen.__row === row) { closeRowMenu(); return; }
+        openRowMenu(row);
+    }
+    function openRowMenu(row) {
+        closeSwap(); closeRowMenu();
+        var habit = row.closest(".habit");
+        var menu = document.createElement("div"); menu.className = "rowmenu"; menu.__row = row;
+        var cancel = mkAct("Cancel", false), add = mkAct("Add sub-item", false), swap = mkAct("Swap", false);
+        menu.appendChild(cancel); menu.appendChild(add); menu.appendChild(swap);
+        row.parentNode.insertBefore(menu, row.nextSibling);   // below the row, above the drawer
+        menuOpen = menu;
+        cancel.onclick = function (e) { e.stopPropagation(); closeRowMenu(); };
+        add.onclick = function (e) { e.stopPropagation(); closeRowMenu(); if (habit) openSubComposer(habit); };
+        swap.onclick = function (e) { e.stopPropagation(); closeRowMenu(); openSwap(row); };
+    }
+
+    // Build a full core-habit element (wrapper + row + empty drawer) for the
+    // "Add habit" flow, so added habits gain sub-items and the "···" menu too.
+    function coreHabitEl(item) {
+        var habit = document.createElement("div"); habit.className = "habit"; habit.dataset.hkey = item.key;
+        var b = document.createElement("button");
+        b.className = "row"; b.setAttribute("data-check", ""); b.dataset.key = item.key;
+        b.dataset.core = "1"; b.dataset.state = "pending"; b.type = "button";
+        var chk = document.createElement("span"); chk.className = "check";
+        var lab = document.createElement("span"); lab.className = "rlabel"; lab.textContent = item.label;
+        var tag = document.createElement("span"); tag.className = "subtag"; tag.setAttribute("aria-hidden", "true");
+        var chev = document.createElement("span"); chev.className = "chev"; chev.setAttribute("aria-hidden", "true");
+        chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+        var more = document.createElement("span"); more.className = "more"; more.setAttribute("role", "button");
+        more.setAttribute("aria-haspopup", "true"); more.setAttribute("aria-label", "More actions for " + item.label);
+        more.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+        b.appendChild(chk); b.appendChild(lab); b.appendChild(tag); b.appendChild(chev); b.appendChild(more);
+        var wrap = document.createElement("div"); wrap.className = "subwrap";
+        var subrows = document.createElement("div"); subrows.className = "subrows";
+        wrap.appendChild(subrows);
+        habit.appendChild(b); habit.appendChild(wrap);
+        bindRow(b);
+        return habit;
+    }
+
+    // Bind sub-rows that rendered server-side, and paint each habit's count.
+    document.querySelectorAll(".subrow[data-subcheck]").forEach(bindSubRow);
+    document.querySelectorAll("#items .habit").forEach(updateSubtag);
+
+    // ---------- swap (card composer: Write my own / Auto) ----------
+    // Clicking "swap" replaces the row with a small card: an input in the body,
+    // Cancel / Auto / Save in a divided footer, mirroring the Add-habit card.
+    var swapOpen = null;
+    function closeSwap() {
+        if (!swapOpen) return;
+        if (swapOpen.composer) swapOpen.composer.remove();
+        swapOpen.row.style.display = "";
+        swapOpen = null;
+    }
+    function openSwap(row) {
+        closeSwap();
+        row.style.display = "none";
+        var wrap = document.createElement("div");
+        wrap.className = "swap-composer";
+        var body = document.createElement("div");
+        body.className = "sc-body";
+        var eb = document.createElement("div");
+        eb.className = "eyebrow"; eb.textContent = "Swap this habit";
+        var inp = document.createElement("input");
+        inp.type = "text"; inp.maxLength = 60; inp.className = "composer-input";
+        inp.value = row.querySelector(".rlabel").textContent;
+        body.appendChild(eb); body.appendChild(inp);
+        var foot = document.createElement("div");
+        foot.className = "card-foot";
+        var cancel = mkAct("Cancel", false), auto = mkAct("Auto", false), save = mkAct("Save", true);
+        foot.appendChild(cancel); foot.appendChild(auto); foot.appendChild(save);
+        wrap.appendChild(body); wrap.appendChild(foot);
+        row.parentNode.insertBefore(wrap, row.nextSibling);
+        swapOpen = { row: row, composer: wrap };
+        inp.focus();
+        cancel.onclick = function (e) { e.stopPropagation(); closeSwap(); };
+        // Auto = Jamie picks a replacement (AI). Show a loading state; doSwap
+        // tears the composer down on success or error, so no restore is needed.
+        auto.onclick = function (e) {
+            e.stopPropagation();
+            auto.disabled = true; auto.textContent = "Finding…"; auto.classList.add("loading");
+            save.disabled = true; cancel.disabled = true;
+            doSwap(row, null);
+        };
+        save.onclick = function (e) { e.stopPropagation(); doSwap(row, inp.value.trim()); };
+        inp.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); doSwap(row, inp.value.trim()); } else if (e.key === "Escape") { closeSwap(); } };
+    }
+    function mkAct(txt, gold) { var b = document.createElement("button"); b.type = "button"; b.className = "act" + (gold ? " gold" : ""); b.textContent = txt; return b; }
+    function doSwap(row, label) {
+        var body = { key: row.dataset.key, state: "skip" };
+        if (label) body.label = label;
+        post("/daily/item/", body, function (d) {
+            closeSwap();
+            if (d.replacement) {
+                row.dataset.key = d.replacement.key;
+                row.querySelector(".rlabel").textContent = d.replacement.label;
+                setState(row, "pending");
+                // The server dropped the old habit's sub-item drawer with it;
+                // retire the stale rows and re-point the wrapper's parent key
+                // or every sub action after a swap posts a dead key (400s).
+                var habit = row.closest(".habit");
+                if (habit) {
+                    habit.dataset.hkey = d.replacement.key;
+                    subrowsOf(habit).forEach(function (s) { s.remove(); });
+                    updateSubtag(habit);
+                    toggleDrawer(habit, false);
+                }
+            }
+            refreshProgress();
+        }, function () { closeSwap(); });
+    }
+
+    // ---------- add habit ----------
+    var addBtn = $("add-item-btn"), addFoot = $("add-habit-foot"), addComposer = $("add-item-composer"),
+        addInput = $("add-item-input"), addMsg = $("add-item-msg"), MAX_CORE = {{ max_checklist_size }};
+    function syncAddCap() {
+        if (!addBtn) return;
+        if (coreRows().length >= MAX_CORE) { if (addFoot) addFoot.classList.add("is-hidden"); if (addMsg) { addMsg.textContent = "That's the max, " + MAX_CORE + " items. Swap one to change it."; addMsg.classList.remove("is-hidden"); } }
+        else if (addComposer && addComposer.classList.contains("is-hidden")) { if (addFoot) addFoot.classList.remove("is-hidden"); if (addMsg) addMsg.classList.add("is-hidden"); }
+    }
+    function openAdd() { if (!addComposer) return; addFoot.classList.add("is-hidden"); addComposer.classList.remove("is-hidden"); addInput.focus(); }
+    function closeAdd() { if (!addComposer) return; addComposer.classList.add("is-hidden"); addInput.value = ""; if (addMsg) addMsg.classList.add("is-hidden"); setAddLoading(false); syncAddCap(); }
+    // While Jamie is finding an auto item, show a loading state and lock the
+    // composer's buttons so it can't be double-fired.
+    function setAddLoading(on) {
+        var auto = $("add-item-auto"), save = $("add-item-save"), cancel = $("add-item-cancel");
+        if (auto) { auto.disabled = on; auto.textContent = on ? "Finding…" : "Auto"; auto.classList.toggle("loading", on); }
+        if (save) save.disabled = on;
+        if (cancel) cancel.disabled = on;
+    }
+    function submitAdd(mode) {
+        var label = addInput.value.trim();
+        if (mode === "custom" && !label) { addInput.focus(); return; }
+        if (mode === "auto") setAddLoading(true);
+        post("/daily/item/add/", mode === "custom" ? { mode: "custom", label: label } : { mode: "auto" }, function (d) {
+            if (d.item) { $("items").appendChild(coreHabitEl(d.item)); closeAdd(); refreshProgress(); }
+            else setAddLoading(false);
+        }, function (res) {
+            setAddLoading(false);
+            if (res.status === 409) syncAddCap();
+            else if (res.status === 503) { addMsg.textContent = "Jamie is offline, type your own and tap Add."; addMsg.classList.remove("is-hidden"); }
+            else { addMsg.textContent = "Couldn't add that, try again."; addMsg.classList.remove("is-hidden"); }
+        });
+    }
+    if (addBtn) {
+        addBtn.onclick = openAdd;
+        $("add-item-cancel").onclick = closeAdd;
+        $("add-item-save").onclick = function () { submitAdd("custom"); };
+        $("add-item-auto").onclick = function () { submitAdd("auto"); };
+        addInput.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); submitAdd("custom"); } else if (e.key === "Escape") { closeAdd(); } };
+        syncAddCap();
+    }
+
+    // ---------- today's win (crown / invite / slim link) ----------
+    // Resting states when there is no surfaced win:
+    //   - not collapsed → the full invite card (top)
+    //   - collapsed (tapped "Not now") → a slim always-reachable link under the
+    //     habits. Never a dead end: the slim link reopens the composer.
+    var crown = $("win-crown"), invite = $("win-invite"),
+        winSlim = $("win-slim"), winTitle = $("win-title"), winGoal = $("win-goal"),
+        winGoalText = $("win-goal-text"), pendingNext = null,
+        WIN_COLLAPSED = "daily_win_collapsed";
+    var WIN_EXPLAINED = "daily_win_explainer_seen";
+    // ?winintro=1 replays the first-time win experience: clears the "explainer
+    // seen" and "collapsed" flags so the full invite + long explainer show again.
+    try {
+        if (new URLSearchParams(location.search).get("winintro") === "1") {
+            localStorage.removeItem(WIN_EXPLAINED);
+            localStorage.removeItem(WIN_COLLAPSED);
+        }
+    } catch (e) {}
+    function winCollapsed() { try { return localStorage.getItem(WIN_COLLAPSED) === "1"; } catch (e) { return false; } }
+    function setCollapsed(on) { try { on ? localStorage.setItem(WIN_COLLAPSED, "1") : localStorage.removeItem(WIN_COLLAPSED); } catch (e) {} }
+    function hide(el) { if (el) el.classList.add("is-hidden"); }
+    function showEl(el) { if (el) el.classList.remove("is-hidden"); }
+    // First time the invite is shown, use the fuller explainer; concise after.
+    function paintInviteCopy() {
+        var lo = $("invite-long"), sh = $("invite-short"); if (!lo || !sh) return;
+        var seen = false; try { seen = localStorage.getItem(WIN_EXPLAINED) === "1"; } catch (e) {}
+        if (seen) { hide(lo); showEl(sh); }
+        else { showEl(lo); hide(sh); try { localStorage.setItem(WIN_EXPLAINED, "1"); } catch (e) {} }
+    }
+    // Paint the resting no-win state (invite card vs slim link).
+    function paintRest() {
+        hide(crown);
+        if (winCollapsed()) { hide(invite); showEl(winSlim); }
+        else { showEl(invite); hide(winSlim); paintInviteCopy(); }
+    }
+    function renderWin(win) {
+        if (!crown) return;
+        // Always clear the "want another?" prompt state (prompt line + swapped
+        // footer) so the card returns to its normal Not today | Did it footer.
+        hide($("win-again")); showEl($("win-foot")); hide($("win-foot-again"));
+        if (win) {
+            crown.dataset.winId = win.id;
+            showEl(crown);
+            var r = $("win-row"); if (r) r.classList.remove("done", "just");
+            winTitle.textContent = win.title;
+            if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
+            hide(invite); hide(winSlim);
+        } else {
+            paintRest();
+        }
+    }
+    // Drop a gold star into today's ring when a whole north star is finished
+    // (the arc keeps carrying habits; the star sits in the center).
+    function starToday() {
+        if (!todayEl || todayEl.querySelector(".wstar")) return;
+        var s = document.createElement("span");
+        s.className = "wstar just"; s.setAttribute("aria-label", "finished a goal");
+        s.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg>';
+        todayEl.insertBefore(s, todayEl.querySelector(".wlabel"));
+    }
+    function winToast(msg) {
+        var t = document.createElement("div"); t.className = "win-toast"; t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.classList.add("show"); });
+        setTimeout(function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 300); }, 2800);
+    }
+    function winAction(action) {
+        var id = crown && crown.dataset.winId; if (!id) return;
+        post("/daily/win/", { id: id, action: action }, function (d) {
+            if (action === "did_it") {
+                var r = $("win-row"); if (r) { r.classList.add("done", "just"); }
+                // Finishing the last stone completes the whole goal: star + cheer.
+                if (d.north_star_done) { starToday(); winToast("Goal complete: " + d.north_star_done.title); }
+                // Show the done state briefly, then ask before serving another —
+                // never auto-serve. If there IS a next win queued, offer it;
+                // otherwise just rest.
+                setTimeout(function () { if (d.next) promptAnother(d.next); else renderWin(null); }, 700);
+            } else { renderWin(d.next); }
+        });
+    }
+    // After "Did it", hold the next win and ask "Want another one?" (Not today |
+    // Sure) instead of surfacing it automatically. The completed win stays visible
+    // above the prompt.
+    function promptAnother(next) {
+        pendingNext = next;
+        showEl($("win-again")); hide($("win-foot")); showEl($("win-foot-again"));
+    }
+    // "Add a win" now opens the full wins page with the one-off input primed
+    // (?add=1), so a north star (goal + steps) is reachable in the same place.
+    function goToWins() { location.href = "/daily/wins/?add=1"; }
+    if (crown) {
+        $("win-row").onclick = function () { winAction("did_it"); };
+        $("win-didit").onclick = function () { winAction("did_it"); };
+        $("win-nottoday").onclick = function () { winAction("not_today"); };
+    }
+    // "Want another one?" prompt: Sure surfaces the held win, Not today rests.
+    if ($("win-again-yes")) $("win-again-yes").onclick = function () { var n = pendingNext; pendingNext = null; renderWin(n); };
+    if ($("win-again-no")) $("win-again-no").onclick = function () {
+        // Record the decline server-side: without the defer stamp the same
+        // win is still surfaced_on=today and reappears on the next reload.
+        var declined = pendingNext; pendingNext = null; renderWin(null);
+        if (declined && declined.id) post("/daily/win/", { id: declined.id, action: "not_today" }, function () {}, function () {});
+    };
+    if ($("win-invite-open")) $("win-invite-open").onclick = goToWins;
+    // "Not now" collapses the card to the slim link (remembered), never removes it.
+    if ($("win-invite-x")) $("win-invite-x").onclick = function () { setCollapsed(true); paintRest(); };
+    if (winSlim) winSlim.onclick = goToWins;   // slim link → wins page (one-off input primed)
+    // On load: if there's no surfaced win, honor the collapsed state.
+    if (crown && crown.classList.contains("is-hidden")) paintRest();
+
+    // ---------- metrics (understated) ----------
+    document.querySelectorAll(".metric-input").forEach(function (inp) {
+        inp.addEventListener("change", function () {
+            post("/daily/metric/", { key: inp.dataset.key, slot: inp.dataset.slot, value: inp.value.trim() }, function () {
+                var s = $("metrics-saved"); if (s) { s.textContent = "saved"; setTimeout(function () { s.textContent = ""; }, 1500); }
+            });
+        });
+    });
+
+    // ---------- per-user timezone ----------
+    if (!BACKFILL) {
+        try {
+            var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
+            if (tz) fetch("/daily/timezone/", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF }, body: JSON.stringify({ timezone: tz }) }).catch(function () {});
+        } catch (e) {}
+    }
+
+    // ---------- help modal ----------
+    var modal = $("intro-modal");
+    if (modal) {
+        var KEY = "daily_intro_seen_v", ver = modal.dataset.introVersion;
+        function seen() { try { return localStorage.getItem(KEY) === ver; } catch (e) { return false; } }
+        // Split the welcome title into per-letter spans so it reveals letter by
+        // letter (CSS animates .ch when the modal gets .show; delay staggered
+        // via --chd). The aria-label keeps it readable to screen readers.
+        var titleEl = $("intro-title");
+        if (titleEl) {
+            var words = titleEl.textContent.split(" "); titleEl.textContent = "";
+            var idx = 0;
+            words.forEach(function (word, wi) {
+                // Each word is a nowrap group so the letters never break mid-word;
+                // breaks happen only at the (real) spaces between words.
+                var w = document.createElement("span"); w.className = "word";
+                word.split("").forEach(function (c) {
+                    var s = document.createElement("span");
+                    s.className = "ch"; s.textContent = c;
+                    s.style.setProperty("--chd", (0.18 + idx * 0.028).toFixed(3) + "s");
+                    w.appendChild(s); idx++;
+                });
+                titleEl.appendChild(w);
+                if (wi < words.length - 1) { titleEl.appendChild(document.createTextNode(" ")); idx++; }
+            });
+        }
+        window.__introGotIt = function () { modal.classList.remove("show"); try { localStorage.setItem(KEY, ver); } catch (e) {} };
+        // ?intro=1 force-shows it, ?intro=0 skips the auto-show (testing).
+        var _ip = null; try { _ip = new URLSearchParams(location.search).get("intro"); } catch (e) {}
+        // Auto-show only if it hasn't been seen/dismissed (or dev-toggled off).
+        // This respects the "seen" flag even on a genuine first visit, so
+        // dismissing once (or turning it off in the dev panel) keeps it closed.
+        var _auto = !seen() && (modal.dataset.firstVisit === "1" || modal.dataset.replay === "1");
+        if (_ip === "1" || (_ip !== "0" && _auto)) modal.classList.add("show");
+        var hf = $("help-fab"); if (hf) hf.onclick = function () { modal.classList.add("show"); };
+        modal.addEventListener("click", function (e) { if (e.target === modal) window.__introGotIt(); });
+    }
+
+    // ---------- Jamie chat ----------
+    var fab = $("coach-fab"), panel = $("coach-panel"), scrim = $("coach-scrim"),
+        log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false;
+    function scrollLog() { if (log) log.scrollTop = log.scrollHeight; }
+    function openChat() { if (!panel) return; panel.classList.add("open"); if (scrim) scrim.classList.add("show"); if (fab) fab.classList.remove("has-unread"); setTimeout(function () { scrollLog(); if (tx) tx.focus(); }, 180); }
+    function closeChat() { if (!panel) return; panel.classList.remove("open"); if (scrim) scrim.classList.remove("show"); if (tx) tx.blur(); }
+    if (fab) fab.onclick = openChat;
+    if ($("coach-close")) $("coach-close").onclick = closeChat;
+    if (scrim) scrim.onclick = closeChat;
+    function bubble(role, text, time) {
+        var w = document.createElement("div"); w.className = "msg msg-" + role;
+        var b = document.createElement("div"); b.className = "bubble"; b.textContent = text; w.appendChild(b);
+        if (time) { var t = document.createElement("div"); t.className = "mtime"; t.textContent = time; w.appendChild(t); }
+        var em = log.querySelector(".coach-empty"); if (em) em.remove();
+        log.appendChild(w); scrollLog(); return w;
+    }
+    function nowTime() { var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + (m < 10 ? "0" : "") + m + " " + ap; }
+    function setPlanning(on) { planning = on; var c = $("chip-plan"); if (c) c.classList.toggle("on", on); }
+    function sendChat(text) {
+        if (!text) return;
+        bubble("user", text, nowTime()); if (tx) { tx.value = ""; tx.style.height = "auto"; }
+        send.disabled = true;
+        var typing = bubble("coach", "typing…", ""); typing.classList.add("typing");
+        post("/daily/chat/", { text: text, planning: planning }, function (d) {
+            send.disabled = false; if (typing) typing.remove();
+            if (d.reply) bubble("coach", d.reply.text, nowTime());
+            if (d.planned) setPlanning(false);
+        }, function () { send.disabled = false; if (typing) typing.remove(); bubble("coach", "Couldn't reach Jamie, your note is saved. Try again in a sec.", nowTime()); });
+    }
+    if ($("coach-form")) $("coach-form").addEventListener("submit", function () { sendChat((tx.value || "").trim()); });
+    if (send) send.onclick = function (e) { e.preventDefault(); sendChat((tx.value || "").trim()); };
+    if (tx) { tx.addEventListener("input", function () { tx.style.height = "auto"; tx.style.height = Math.min(tx.scrollHeight, 120) + "px"; });
+        tx.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat((tx.value || "").trim()); } }); }
+    if ($("chip-plan")) $("chip-plan").onclick = function () { setPlanning(!planning); openChat(); if (planning) bubble("coach", "What's the one thing you've been putting off that would matter most tomorrow?", nowTime()); };
+    // "Wrap up my day" was removed from beta (see the coach-chips comment in the
+    // markup) — no chip-wrap handler here anymore.
+    // ?ask=win: arriving from the wins page's "Jamie can help" link. Open Jamie
+    // with a starter question primed (a mirror to help elicit a win, not an oracle).
+    try {
+        if (new URLSearchParams(location.search).get("ask") === "win") {
+            openChat();
+            if (tx) {
+                tx.value = "I want to add a win but I'm not sure what. Can you help me think of one?";
+                tx.dispatchEvent(new Event("input"));
+                tx.focus();
+            }
+        }
+    } catch (e) {}
+    // Close swap editor / row menu on outside tap.
+    document.addEventListener("click", function (e) {
+        if (swapOpen && !e.target.closest(".swap-composer")) closeSwap();
+        if (menuOpen && !e.target.closest(".rowmenu") && !e.target.closest(".more")) closeRowMenu();
+    });
+
+    // ===== DEV config panel (gear FAB) =====
+    // Session-backed toggles (beta/qr/gate) navigate with the param; the server
+    // remembers them. localStorage toggles (welcome/win) flip a flag + reload.
+    var devGear = $("dev-gear"), devPanel = $("dev-panel");
+    if (devGear && devPanel) {
+        devGear.onclick = function () { devPanel.classList.toggle("show"); };
+        var dpc = $("dev-panel-close"); if (dpc) dpc.onclick = function () { devPanel.classList.remove("show"); };
+        var devApply = $("dev-apply");
+        function markPending() { if (devApply) devApply.classList.add("pending"); }
+        // All toggles flip visual state ONLY — nothing applies until "Apply".
+        // Init the localStorage toggles from their stored state (ON = will show).
+        devPanel.querySelectorAll(".dev-toggle[data-ls]").forEach(function (btn) {
+            var key = btn.dataset.ls, val = btn.dataset.lsVal, stored = null;
+            try { stored = localStorage.getItem(key); } catch (e) {}
+            btn.classList.toggle("on", stored !== val);
+        });
+        devPanel.querySelectorAll(".dev-toggle").forEach(function (btn) {
+            btn.onclick = function () { btn.classList.toggle("on"); markPending(); };
+        });
+        // Apply: commit every toggle at once — session params via one navigation,
+        // localStorage flags written just before it. Single reload.
+        if (devApply) devApply.onclick = function () {
+            var u = new URL(location.href);
+            devPanel.querySelectorAll(".dev-toggle[data-nav-on]").forEach(function (btn) {
+                var kv = (btn.classList.contains("on") ? btn.dataset.navOn : btn.dataset.navOff).split("=");
+                u.searchParams.set(kv[0], kv[1]);
+            });
+            devPanel.querySelectorAll(".dev-toggle[data-ls]").forEach(function (btn) {
+                var key = btn.dataset.ls, val = btn.dataset.lsVal;
+                try { btn.classList.contains("on") ? localStorage.removeItem(key) : localStorage.setItem(key, val); } catch (e) {}
+            });
+            location.href = u.toString();
+        };
+        // Full reset: wipe our localStorage flags + clear session flags server-side.
+        var devReset = $("dev-reset");
+        if (devReset) devReset.onclick = function () {
+            try {
+                ["daily_intro_seen_v", "daily_win_explainer_seen", "daily_win_collapsed",
+                 "daily_win_invite_dismissed", "daily_last_local_date"].forEach(function (k) { localStorage.removeItem(k); });
+            } catch (e) {}
+            var u = new URL(location.href);
+            ["beta", "qr", "gate", "streak", "intro", "winintro", "nogate"].forEach(function (p) { u.searchParams.delete(p); });
+            u.searchParams.set("devreset", "1");
+            location.href = u.toString();
+        };
+    }
+
+    // Dev QR panel: visibility is decided server-side by the route (?qr=0 hides,
+    // remembered in the session; ?qr=1 shows). The × hides it now and pings the
+    // server with ?qr=0 so it stays hidden on the next load, no reload needed.
+    var devqx = $("dev-qr-x");
+    if (devqx) devqx.onclick = function () {
+        var p = $("dev-qr"); if (p) p.style.display = "none";
+        var u = new URL(location.href); u.searchParams.set("qr", "0");
+        history.replaceState(null, "", u.toString());
+        fetch(u.toString(), { credentials: "same-origin" }).catch(function () {});
+    };
+})();
+</script>
+{% endblock %}

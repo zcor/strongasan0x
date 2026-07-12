@@ -1,0 +1,217 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Welcome · The Climb{% endblock %}
+
+{% block content %}
+<style>
+    .ob {
+        max-width: 460px; margin: 0 auto; padding: 24px 20px 48px;
+        box-sizing: border-box; color: var(--text); font-family: var(--font-body);
+    }
+    .ob-jamie {
+        font-size: 1.05rem; line-height: 1.5; color: var(--text);
+        margin: 0 0 14px;
+    }
+    .ob-lede { color: var(--text-dim); font-size: 0.98rem; line-height: 1.5; margin: 0 0 8px; }
+    .ob-one {
+        color: var(--accent); font-weight: 600; font-size: 1.02rem; margin: 18px 0 20px;
+    }
+    .ob-step { display: none; }
+    .ob-step.show { display: block; animation: obIn .28s ease; }
+    @keyframes obIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .ob-btns { display: flex; flex-direction: column; gap: 11px; }
+    .ob-btn {
+        display: block; width: 100%; text-align: left; cursor: pointer;
+        background: var(--panel); border: 1.5px solid var(--panel-border);
+        border-radius: var(--radius); padding: 15px 16px;
+        color: var(--text); font-size: 1.02rem; font-family: var(--font-body);
+        transition: border-color .15s, background .15s, transform .08s;
+    }
+    .ob-btn:hover { border-color: var(--accent); }
+    .ob-btn:active { transform: scale(0.985); }
+    .ob-btn.primary { background: var(--accent); color: #10202a; border-color: var(--accent); font-weight: 600; }
+    .ob-btn.sel { border-color: var(--accent); background: var(--done-bg); }
+
+    .ob-q { font-size: 1.1rem; font-weight: 600; margin: 0 0 16px; }
+    .ob-row { display: flex; gap: 10px; }
+    .ob-row .ob-btn { text-align: center; }
+
+    .ob-input {
+        width: 100%; box-sizing: border-box; background: var(--panel);
+        border: 1.5px solid var(--panel-border); border-radius: var(--radius);
+        padding: 13px 14px; color: var(--text); font-size: 1rem;
+        font-family: var(--font-body); margin-bottom: 12px;
+    }
+    .ob-input::placeholder { color: var(--text-faint); }
+    .ob-input:focus { outline: none; border-color: var(--accent); }
+
+    /* Suggestion card (Branch A) */
+    .ob-suggest {
+        border: 1.5px solid var(--panel-border); border-radius: var(--radius);
+        padding: 16px; margin-bottom: 14px; background: var(--panel);
+    }
+    .ob-suggest-label { color: var(--text-faint); font-size: 0.72rem; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .ob-suggest-text { font-size: 1.2rem; font-weight: 300; color: var(--text); }
+    .ob-mini {
+        display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;
+    }
+    .ob-mini button {
+        background: transparent; border: none; color: var(--accent);
+        font: inherit; font-size: 0.9rem; cursor: pointer; padding: 4px 0;
+    }
+    .ob-mini button.faint { color: var(--text-dim); }
+    .ob-back {
+        background: transparent; border: none; color: var(--text-dim);
+        font: inherit; font-size: 0.88rem; cursor: pointer; margin-top: 18px; padding: 4px 0;
+    }
+    .ob-err { color: #d08770; font-size: 0.86rem; margin-top: 8px; min-height: 1em; }
+    .hidden { display: none !important; }
+</style>
+
+<div class="ob">
+    <p class="ob-jamie">I'm Jamie, here to cheer you on (and help when you're stuck).</p>
+    <p class="ob-lede">The Climb keeps it simple. Pick a few small things that matter and
+        check them off each day: the habits you want to keep, and the things you keep
+        putting off.</p>
+    <p class="ob-one">Let's start with just one.</p>
+
+    {# Step 1: the fork #}
+    <div class="ob-step show" id="step-fork">
+        <div class="ob-btns">
+            <button type="button" class="ob-btn" id="fork-suggest">Suggest one for me</button>
+            <button type="button" class="ob-btn" id="fork-own">I've got one</button>
+        </div>
+    </div>
+
+    {# Step 2A: focus, then a suggested starter habit #}
+    <div class="ob-step" id="step-focus">
+        <div class="ob-q">What should I help you with first?</div>
+        <div class="ob-row">
+            <button type="button" class="ob-btn focus-opt" data-focus="health">My health</button>
+            <button type="button" class="ob-btn focus-opt" data-focus="life">My life</button>
+        </div>
+        <button type="button" class="ob-back" id="focus-back">← back</button>
+    </div>
+
+    <div class="ob-step" id="step-suggest">
+        <div class="ob-suggest">
+            <div class="ob-suggest-label">A GOOD FIRST HABIT</div>
+            <div class="ob-suggest-text" id="suggest-text">Moved my body</div>
+            <input type="text" class="ob-input hidden" id="suggest-edit" maxlength="60" style="margin-top:12px;margin-bottom:0;">
+            <div class="ob-mini">
+                <button type="button" id="suggest-reword">Reword</button>
+                <button type="button" id="suggest-another" class="faint">Try another</button>
+            </div>
+        </div>
+        <button type="button" class="ob-btn primary" id="suggest-use">Use this one</button>
+        <button type="button" class="ob-back" id="suggest-back">← back</button>
+        <div class="ob-err" id="suggest-err"></div>
+    </div>
+
+    {# Step 2B: bring your own #}
+    <div class="ob-step" id="step-own">
+        <div class="ob-q">What's the one thing?</div>
+        <input type="text" class="ob-input" id="own-input" maxlength="60"
+               placeholder="e.g. Moved my body, or Book the dentist" autocomplete="off">
+        <button type="button" class="ob-btn primary" id="own-save">That's my first one</button>
+        <button type="button" class="ob-back" id="own-back">← back</button>
+        <div class="ob-err" id="own-err"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+    var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    var SUGGESTIONS = {
+        health: ["Moved my body", "Slept 7+ hours", "Drank plenty of water",
+                 "Got outside for a bit", "Stretched for a few minutes"],
+        life:   ["Cleared one small task", "Tidied up for 10 minutes",
+                 "Stepped away from screens", "Read a few pages", "Wrote down today's win"]
+    };
+    var focus = "";
+    var sugIdx = 0;
+
+    function show(id) {
+        var steps = document.querySelectorAll(".ob-step");
+        for (var i = 0; i < steps.length; i++) steps[i].classList.remove("show");
+        document.getElementById(id).classList.add("show");
+    }
+    function el(id) { return document.getElementById(id); }
+
+    // Step 1 forks
+    el("fork-suggest").addEventListener("click", function () { show("step-focus"); });
+    el("fork-own").addEventListener("click", function () { show("step-own"); el("own-input").focus(); });
+    el("focus-back").addEventListener("click", function () { show("step-fork"); });
+    el("suggest-back").addEventListener("click", function () { show("step-focus"); });
+    el("own-back").addEventListener("click", function () { show("step-fork"); });
+
+    // Focus -> suggestion
+    var focusOpts = document.querySelectorAll(".focus-opt");
+    for (var i = 0; i < focusOpts.length; i++) {
+        focusOpts[i].addEventListener("click", function () {
+            focus = this.getAttribute("data-focus");
+            sugIdx = 0;
+            paintSuggestion();
+            show("step-suggest");
+        });
+    }
+    function paintSuggestion() {
+        var list = SUGGESTIONS[focus] || SUGGESTIONS.health;
+        el("suggest-text").textContent = list[sugIdx % list.length];
+        el("suggest-edit").classList.add("hidden");
+        el("suggest-text").classList.remove("hidden");
+    }
+    el("suggest-another").addEventListener("click", function () {
+        sugIdx += 1; paintSuggestion();
+    });
+    el("suggest-reword").addEventListener("click", function () {
+        var edit = el("suggest-edit");
+        if (edit.classList.contains("hidden")) {
+            edit.value = el("suggest-text").textContent;
+            edit.classList.remove("hidden");
+            el("suggest-text").classList.add("hidden");
+            edit.focus();
+        } else {
+            edit.classList.add("hidden");
+            el("suggest-text").classList.remove("hidden");
+        }
+    });
+    el("suggest-use").addEventListener("click", function () {
+        var edit = el("suggest-edit");
+        var label = edit.classList.contains("hidden") ? el("suggest-text").textContent : edit.value.trim();
+        submit(label, "suggest-err");
+    });
+
+    // Bring your own
+    el("own-save").addEventListener("click", function () {
+        submit(el("own-input").value.trim(), "own-err");
+    });
+    el("own-input").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); el("own-save").click(); }
+    });
+
+    var busy = false;
+    function submit(label, errId) {
+        if (busy) return;
+        label = (label || "").trim();
+        if (!label) { el(errId).textContent = "Give it a name first."; return; }
+        busy = true;
+        el(errId).textContent = "";
+        fetch("/daily/onboarding/beta/", {
+            method: "POST", credentials: "same-origin",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF},
+            body: JSON.stringify({focus: focus, label: label}),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            busy = false;
+            if (d && d.ok) { window.location.href = d.redirect || "/daily/checkin/"; }
+            else { el(errId).textContent = "Something went wrong, try again."; }
+        })
+        .catch(function () { busy = false; el(errId).textContent = "Network hiccup, try again."; });
+    }
+})();
+</script>
+{% endblock %}

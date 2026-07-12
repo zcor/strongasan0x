@@ -1,0 +1,37 @@
+{% comment %}
+Shared chrome for the wins pages (wins_edit.html, wins_achieved.html): the
+sub-page header with its back link, and the north-star block (star + title +
+stones list). Include AFTER _climb_core.html and BEFORE the page's own style.
+{% endcomment %}
+<style>
+    .wedit { display: flex; flex-direction: column; gap: 14px; padding: 6px 0 40px; }
+
+    .wehead { padding: 6px 2px 2px; }
+    .weback { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: .84rem; text-decoration: none; margin-bottom: 16px; }
+    .weback svg { width: 16px; height: 16px; }
+    .weback:hover { color: var(--text); }
+    .wetitle {
+        font-size: 1.5rem; font-weight: 500; letter-spacing: -.01em;
+        color: var(--text); width: max-content;
+    }
+    .wesub { font-size: .86rem; color: var(--text-dim); font-weight: 300; line-height: 1.5; margin-top: 8px; max-width: 30rem; }
+
+    /* north star block */
+    .goal { padding: 4px 0; }
+    .goal + .goal { border-top: 1px solid var(--line-soft); margin-top: 6px; padding-top: 14px; }
+    .goalhead { display: flex; align-items: center; gap: 11px; }
+    .star { color: var(--accent); flex: none; display: inline-flex; }
+    .star svg { width: 15px; height: 15px; display: block; }
+    .star.sm svg { width: 13px; height: 13px; }
+    .gtitle { font-size: 1.04rem; font-weight: 500; }
+    .gcount { margin-left: auto; font-size: .7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
+
+    .stones { display: flex; flex-direction: column; padding: 8px 0 4px 26px; }
+    .stone { display: flex; align-items: center; gap: 11px; padding: 9px 0; }
+    .stone + .stone { border-top: 1px solid var(--line-soft); }
+    .stone .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); flex: none; }
+    .stone .rlabel { font-size: .92rem; }
+    .stone.done .rlabel { color: var(--text-dim); }
+
+    .empty { font-size: .88rem; color: var(--text-faint); font-weight: 300; line-height: 1.5; }
+</style>
