@@ -8,6 +8,20 @@ urlpatterns = [
     path("checkin/", views.checkin, name="checkin"),
     path("c/<uuid:token>/", views.token_login, name="token_login"),
     path("item/", views.set_item_state, name="set_item_state"),
+    path("item/add/", views.add_item, name="add_item"),
+    # Nested detail checklists: add/remove a sub-item under a core habit.
+    path("subitem/add/", views.add_subitem, name="add_subitem"),
+    path("subitem/remove/", views.remove_subitem, name="remove_subitem"),
+    # Wins backlog (beta): add to the pile, act on the surfaced "today's win".
+    path("win/add/", views.win_add, name="win_add"),
+    path("win/", views.win_action, name="win_action"),
+    # Wins editor ("your list" door): north stars with stepping stones + one-offs.
+    path("wins/", views.wins_edit, name="wins_edit"),
+    # Finished north stars with their full step ladders (read-only).
+    path("wins/achieved/", views.wins_achieved, name="wins_achieved"),
+    path("win/goal/add/", views.win_goal_add, name="win_goal_add"),
+    path("win/stone/add/", views.win_stone_add, name="win_stone_add"),
+    path("win/remove/", views.win_remove, name="win_remove"),
     path("bonus/next/", views.next_bonus, name="next_bonus"),
     path("wrap/", views.wrap_day, name="wrap_day"),
     path("comment/", views.save_comment, name="save_comment"),
@@ -23,6 +37,7 @@ urlpatterns = [
     path("timezone/", views.set_timezone, name="set_timezone"),
     # Naked-user onboarding: a few multiple-choice taps → seeded checklist.
     path("onboarding/", views.submit_onboarding, name="submit_onboarding"),
+    path("onboarding/beta/", views.submit_onboarding_beta, name="submit_onboarding_beta"),
     # Metrics (Spencer-persona): log a number reading.
     path("metric/", views.save_metric, name="save_metric"),
     # Coach chat: live two-way messaging (successor to the comment box).

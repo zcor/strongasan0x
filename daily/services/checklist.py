@@ -20,6 +20,10 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
+# Upper bound on the user-curated core list. Generous (one item per gym station
+# plus extras) but bounded so a runaway add-loop can't create an unusable page.
+MAX_CHECKLIST_SIZE = 20
+
 
 def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> int:
     """Apply any AI mutations whose source check-in is BEFORE `as_of` and
@@ -42,7 +46,15 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
     )
     promoted = 0
     for suggestion in pending:
-        proposed = suggestion.proposed_questions
+        current = participant.checklist_versions.filter(is_current=True).first()
+        # The mutation engine proposes bare {key,label} questions; re-attach the
+        # current version's sub-item lists to every preserved key BEFORE the
+        # validity and no-op checks, or applying any suggestion would silently
+        # wipe user-curated drawers (and an identical proposal would not
+        # compare equal to a current question that has sub-items).
+        proposed = _merge_subitems(
+            current.questions if current else [], suggestion.proposed_questions
+        )
         if not _is_valid_questions(proposed):
             logger.warning("daily.checklist: skipping invalid proposed_questions on suggestion %s", suggestion.id)
             suggestion.status = CoachSuggestion.STATUS_DISMISSED
@@ -52,7 +64,6 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
 
         proposed_bonus = suggestion.proposed_bonus or None
 
-        current = participant.checklist_versions.filter(is_current=True).first()
         if (
             current
             and _questions_equal(current.questions, proposed)
@@ -104,27 +115,85 @@ def revert_to_baseline(participant: DailyParticipant) -> ChecklistVersion:
 
 
 def _is_valid_questions(questions) -> bool:
-    from .ai_coach import CHECKLIST_SIZE
-    if not isinstance(questions, list) or len(questions) != CHECKLIST_SIZE:
+    # The user curates their own list (e.g. one item per gym station), bounded
+    # at MAX_CHECKLIST_SIZE. Must be a non-empty list of unique {key,label}.
+    # A habit may carry an optional `items` list of {key,label} sub-items (the
+    # nested detail checklist); every key, sub-item keys included, is globally
+    # unique so per-day answers never collide.
+    if not isinstance(questions, list) or not (1 <= len(questions) <= MAX_CHECKLIST_SIZE):
         return False
     seen = set()
-    for q in questions:
-        if not isinstance(q, dict):
-            return False
-        key = q.get("key")
-        label = q.get("label")
+
+    def _add_kv(key, label) -> bool:
         if not isinstance(key, str) or not isinstance(label, str):
             return False
         if not key or not label or key in seen:
             return False
         seen.add(key)
+        return True
+
+    for q in questions:
+        if not isinstance(q, dict):
+            return False
+        if not _add_kv(q.get("key"), q.get("label")):
+            return False
+        items = q.get("items")
+        if items is not None:
+            if not isinstance(items, list):
+                return False
+            for s in items:
+                if not isinstance(s, dict) or not _add_kv(s.get("key"), s.get("label")):
+                    return False
     return True
+
+
+def all_version_keys(version) -> set:
+    """Every key in play on a version: core habits, their nested sub-items,
+    and bonus items. Freshly minted keys must be globally unique so a
+    sub-item's per-day answer can never collide with another item's."""
+    keys = {q["key"] for q in version.questions}
+    keys |= {q["key"] for q in (version.bonus_questions or [])}
+    for q in version.questions:
+        for s in (q.get("items") or []):
+            keys.add(s["key"])
+    return keys
+
+
+def _merge_subitems(current_questions: List[dict], proposed) -> list:
+    """Carry each current question's `items` sub-list onto the proposed
+    question with the same key. A proposal that explicitly ships its own
+    `items` for a key wins; one that omits them (the common engine output)
+    inherits the existing drawer instead of erasing it. Non-list input is
+    returned as-is for _is_valid_questions to reject."""
+    if not isinstance(proposed, list):
+        return proposed
+    existing_items = {
+        q.get("key"): q.get("items")
+        for q in current_questions
+        if isinstance(q, dict) and q.get("items")
+    }
+    merged = []
+    for q in proposed:
+        if (
+            isinstance(q, dict)
+            and "items" not in q
+            and q.get("key") in existing_items
+        ):
+            q = dict(q, items=existing_items[q.get("key")])
+        merged.append(q)
+    return merged
+
+
+def _sub_pairs(q: dict):
+    return [(s.get("key"), s.get("label")) for s in (q.get("items") or [])]
 
 
 def _questions_equal(a: List[dict], b: List[dict]) -> bool:
     if len(a) != len(b):
         return False
     return all(
-        x.get("key") == y.get("key") and x.get("label") == y.get("label")
+        x.get("key") == y.get("key")
+        and x.get("label") == y.get("label")
+        and _sub_pairs(x) == _sub_pairs(y)
         for x, y in zip(a, b)
     )

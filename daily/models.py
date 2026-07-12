@@ -93,6 +93,35 @@ class DailyParticipant(models.Model):
     # at provision time) or a completed in-app onboarding. NULL = "naked": the
     # app runs the onboarding questionnaire on their next open. Set = skip it.
     onboarded_at = models.DateTimeField(null=True, blank=True)
+    # --- The Climb reframe (see daily/CLIMB_REFRAME_PLAN.md) ----------------
+    # Gates the ENTIRE new concept/UI (new onboarding, combined win+habit
+    # screen, wins facet, narrowed Jamie). Default False = today's app,
+    # completely unchanged. Set True per user (admin) to recruit beta testers.
+    # The current path is FROZEN; nothing keys off this except the beta branch.
+    beta = models.BooleanField(
+        default=False,
+        help_text="Show the new Climb experience (combined win+habit screen, "
+                  "narrowed Jamie). False = today's app, untouched.",
+    )
+    # Opt-in for AI list-curation WITHIN the beta experience. Off by default:
+    # beta Jamie is support-only and never rewrites the list unless this is on.
+    # NOT tied to focus. Non-beta users ignore this (their path always runs the
+    # mutation engine as it does today).
+    ai_mutations_enabled = models.BooleanField(
+        default=False,
+        help_text="Let Jamie adjust the checklist overnight (beta only). "
+                  "Off = support-only Jamie who never edits the list.",
+    )
+    # Soft health-vs-life focus, captured once in beta onboarding. Tunes what
+    # Jamie suggests and how substantive her guidance is; never a hard lock on
+    # what the user may add. Blank = not chosen.
+    FOCUS_HEALTH = "health"
+    FOCUS_LIFE = "life"
+    FOCUS_CHOICES = [(FOCUS_HEALTH, "Health"), (FOCUS_LIFE, "Life")]
+    focus = models.CharField(
+        max_length=10, blank=True, default="", choices=FOCUS_CHOICES,
+        help_text="Beta: soft health/life focus set in onboarding.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -276,6 +305,11 @@ class DailyCheckInAnswer(models.Model):
     )
     question_key = models.CharField(max_length=40)
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default=STATE_PENDING)
+    # True when this state was AUTO-DERIVED from sub-item toggles rather than
+    # tapped by the user. Derivation may overwrite its own writes but never a
+    # direct mark: without this bit, untapping a sub-item would erase a habit
+    # the user had marked done themselves.
+    derived = models.BooleanField(default=False)
 
     class Meta:
         unique_together = [("check_in", "question_key")]
@@ -537,3 +571,84 @@ class CoachChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.role} @ {self.created_at:%Y-%m-%d %H:%M}: {self.text[:40]}"
+
+
+class WinItem(models.Model):
+    """A "win" the user wants to claim — the reframed, positive face of a
+    put-off thing (see daily/CLIMB_REFRAME_PLAN.md sections 2b/2c).
+
+    This is a BACKLOG, deliberately NOT a ChecklistVersion question: the pile
+    can grow large and is NEVER rendered all at once (or even counted) on the
+    daily surface. Exactly one open item is "surfaced" as today's win at a time.
+
+    Beta-only. The habit checklist stays in ChecklistVersion.questions.
+    """
+
+    STATUS_OPEN = "open"        # in the pile, not yet done
+    STATUS_DONE = "done"        # completed as a win
+    STATUS_GRADUATED = "graduated"  # promoted to a recurring habit
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "Open"),
+        (STATUS_DONE, "Done"),
+        (STATUS_GRADUATED, "Graduated to habit"),
+    ]
+
+    participant = models.ForeignKey(
+        DailyParticipant, on_delete=models.CASCADE, related_name="wins"
+    )
+    # A win can be a lone thing OR a "north star" that owns a ladder of small
+    # stepping stones (see plan section 2b, "goal-with-substeps"). One level
+    # only, mirroring habit sub-items:
+    #   - standalone win: parent=None, is_goal=False  (surfaced directly)
+    #   - north star:     parent=None, is_goal=True   (NEVER surfaced itself;
+    #                     completes when its last open stone is done)
+    #   - stepping stone: parent=<north star>         (a leaf; surfaced with the
+    #                     goal shown beneath as "part of: ...")
+    # is_goal (not child-count) marks the container so a north star with no
+    # stones yet is never mistaken for a surfaceable win.
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="stones",
+        help_text="The north star this stepping stone belongs to (null for "
+                  "standalone wins and for north stars themselves).",
+    )
+    is_goal = models.BooleanField(
+        default=False,
+        help_text="True = a north star that owns stepping stones; never "
+                  "surfaced on its own.",
+    )
+    # The user's own words for the goal/win. The honest put-off thing.
+    text = models.CharField(max_length=200)
+    status = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default=STATUS_OPEN
+    )
+    # User ordering of the pile (lower = higher priority). Surface picks the
+    # lowest-order open item not already deferred today.
+    order = models.PositiveIntegerField(default=0)
+    # The date this item is currently surfaced as "today's win" (NULL = resting
+    # in the pile). At most one open item per participant is surfaced per day.
+    surfaced_on = models.DateField(null=True, blank=True)
+    # The most recent date the user tapped "Not today" on this item, so it is
+    # not resurfaced the same day. Defer = send back to the pile, never delete.
+    deferred_on = models.DateField(null=True, blank=True)
+    defer_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    done_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["order", "created_at"]
+        indexes = [
+            models.Index(fields=["participant", "status"]),
+            models.Index(fields=["participant", "surfaced_on"]),
+        ]
+
+    def __str__(self):
+        return f"{self.participant.display_name} win: {self.text[:40]} ({self.status})"
+
+    @property
+    def is_stone(self):
+        """A stepping stone under a north star."""
+        return self.parent_id is not None

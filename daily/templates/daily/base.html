@@ -93,11 +93,17 @@
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { margin: 0; padding: 0; }
+        /* Paint the navy on <html> too, so iOS Safari's status-bar strip and the
+           area behind the toolbar (overscroll / safe-area zones) show navy, not
+           the default white <html> background. Safari also samples this for the
+           status-bar tint. */
+        html { background: var(--bg-solid); }
         body {
             font-family: var(--font-body);
             background: var(--bg);
             background-attachment: fixed;
             min-height: 100vh;
+            min-height: 100dvh;   /* cover the dynamic viewport on mobile Safari */
             color: var(--text);
             padding: 16px;
             padding-bottom: 48px;
@@ -369,6 +375,15 @@
 
     <script>
     (function () {
+        // DEV (local DEBUG) only: lets a phone on the LAN preview the app in
+        // Safari without going through the install/notification gate. Renders
+        // false in production (beta_toggle = settings.DEBUG), so the gate is
+        // never bypassable there.
+        var DEV = {% if beta_toggle %}true{% else %}false{% endif %};
+        // DEV: whether to FORCE-show the install/notification gate (session flag,
+        // toggled from the dev config panel). Off = the gate is auto-skipped.
+        var DEV_GATE = {% if dev_gate %}true{% else %}false{% endif %};
+
         // 1) Register the service worker (makes the app installable; keeps
         //    navigations fresh — it does not cache the live checklist).
         if ("serviceWorker" in navigator) {
@@ -501,6 +516,12 @@
         }
 
         function evaluateGate() {
+            // LOCAL DEV (DEBUG): auto-skip the install/notification gate so a
+            // phone on the LAN can just view the app in Safari. The gate exists
+            // to enforce home-screen install + notifications, which is pointless
+            // in dev. Append ?gate=1 to force-show it for testing. DEV renders
+            // false in production, so the real gate always applies there.
+            if (DEV && !DEV_GATE) { passGate(); return; }
             // FAIL-OPEN: non-mobile or no standalone concept → don't gate at all.
             // Only iOS/Android mobile users are required to install + enable.
             var isMobile = isIOS || /android/i.test(ua);

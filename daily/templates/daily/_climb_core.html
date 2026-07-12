@@ -1,0 +1,56 @@
+{% comment %}
+The Climb (beta) shared card system: squared card, hairline border, eyebrow,
+divided footer actions, inline composer inputs. Included by checkin_beta.html
+and wins_edit.html BEFORE their own <style> so page rules can override.
+Beta-only: never include this from a legacy (frozen path) template.
+{% endcomment %}
+<style>
+    /* Local tokens layered on base.html's palette (--accent gold, --done green).
+       Defined on :root so elements OUTSIDE the page wrapper (FABs, chat panel,
+       which render at the page root) also resolve them — otherwise var(--acc-ink)
+       is undefined there and falls back wrong. */
+    :root {
+        --line: rgba(255,255,255,.13);
+        --line-soft: rgba(255,255,255,.09);
+        --fill: rgba(255,255,255,.02);
+        --acc-ink: #2a2208;
+    }
+    .is-hidden { display: none !important; }
+
+    /* Quiet link on an eyebrow's right edge (the eyebrow is a flex row) */
+    .eyelink { margin-left: auto; color: var(--text-dim); text-decoration: none; font-size: .72rem; font-weight: 500; letter-spacing: 0; text-transform: none; transition: color .16s; }
+    .eyelink:hover { color: var(--accent); }
+
+    /* Squared card, hairline border, divided footer */
+    .card { border: 1px solid var(--line); background: var(--fill); }
+    .card-body { padding: 20px; }
+    .eyebrow {
+        font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .17em;
+        color: var(--text-dim); display: flex; align-items: baseline; margin-bottom: 15px;
+    }
+    .eyebrow.gold { color: var(--accent); }
+
+    /* Divided footer actions */
+    .card-foot { display: flex; border-top: 1px solid var(--line-soft); }
+    .act {
+        flex: 1; display: flex; align-items: center; justify-content: center; gap: 9px;
+        padding: 15px 10px; font: inherit; font-size: .86rem; font-weight: 500;
+        color: var(--text-dim); background: transparent; border: 0; cursor: pointer; transition: color .16s, background .16s;
+    }
+    .act + .act { border-left: 1px solid var(--line-soft); }
+    .act:hover { color: var(--text); background: rgba(255,255,255,.02); }
+    .act.gold { color: var(--accent); }
+    .act:disabled { opacity: .55; cursor: default; }
+    .act.loading { color: var(--text-dim); }
+    .act svg { width: 17px; height: 17px; }
+    .act.act-tight { flex: 0 0 auto; padding: 15px 14px; }
+
+    /* Inline composers (add habit / win) live in a card footer or body */
+    .composer-input {
+        width: 100%; box-sizing: border-box; background: rgba(255,255,255,.05);
+        border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 1rem;
+        padding: 12px 12px;
+    }
+    .composer-input:focus { outline: none; border-color: rgba(255,217,122,.5); }
+    .composer-input + .composer-input { margin-top: 8px; }
+</style>

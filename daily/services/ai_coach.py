@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
+import subprocess
 from datetime import date as date_cls
 from decimal import Decimal
 from typing import List, Optional, Tuple, TypedDict
@@ -22,10 +24,149 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# LLM backend selection.
+#
+# Production uses DeepSeek (OpenAI-compatible). For LOCAL DEV with no API key,
+# we can shell out to the Claude Code CLI (`claude -p`), which reuses the
+# developer's own Claude auth, so Jamie works without DEEPSEEK_API_KEY. Gated to
+# DEBUG (or an explicit DAILY_LLM_BACKEND="claude_cli") so it never runs in
+# production. The CLI adapter mimics only the sliver of the OpenAI client these
+# call sites use:
+#   client.chat.completions.create(model=, messages=, ...)
+#       -> resp.choices[0].message.content
+#       -> resp.usage.prompt_tokens / .completion_tokens
+# so the five call sites below stay backend-agnostic.
+# ---------------------------------------------------------------------------
+
+# Haiku 4.5 is the lowest / cheapest active Claude tier ($1/$5 per MTok), the
+# closest match to DeepSeek's economics. Do NOT pass --effort with it: Haiku 4.5
+# does not support the effort parameter and the call errors.
+DEFAULT_CLAUDE_CLI_MODEL = "claude-haiku-4-5"
+
+
+class _CliUsage:
+    def __init__(self, prompt_tokens, completion_tokens):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
+class _CliMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class _CliChoice:
+    def __init__(self, content):
+        self.message = _CliMessage(content)
+
+
+class _CliResponse:
+    def __init__(self, content, prompt_tokens, completion_tokens):
+        self.choices = [_CliChoice(content)]
+        self.usage = _CliUsage(prompt_tokens, completion_tokens)
+        self.model = "claude-cli"
+
+
+class _ClaudeCliClient:
+    """Local-dev LLM backend backed by `claude -p` (Claude Code CLI). Uses the
+    developer's own Claude auth, so Jamie works with NO DEEPSEEK_API_KEY.
+    DEBUG-only. Exposes just `.chat.completions.create(...)`."""
+
+    def __init__(self):
+        # Make `client.chat.completions.create(...)` resolve back to us.
+        self.chat = self
+        self.completions = self
+
+    def create(self, model=None, messages=None, max_tokens=None,
+               temperature=None, **kwargs):
+        system_parts = []
+        convo = []
+        for m in (messages or []):
+            role = m.get("role")
+            content = m.get("content", "") or ""
+            if role == "system":
+                system_parts.append(content)
+            elif role == "assistant":
+                convo.append("Assistant: " + content)
+            else:
+                convo.append("User: " + content)
+        # A single user turn is sent bare; a multi-turn chat is sent as a
+        # labeled transcript so `claude -p` sees the whole conversation.
+        if len(convo) == 1 and convo[0].startswith("User: "):
+            prompt = convo[0][len("User: "):]
+        else:
+            prompt = "\n\n".join(convo)
+
+        cli_model = getattr(settings, "DAILY_LLM_CLAUDE_CLI_MODEL", "") or DEFAULT_CLAUDE_CLI_MODEL
+        # --system-prompt REPLACES Claude Code's default coding-agent prompt, so
+        # Jamie's persona isn't contaminated by it.
+        # --tools "" / --setting-sources "": user chat text reaches this CLI as
+        # the prompt, so it must be text-only. Without these, the CLI inherits
+        # the developer's permission allowlist and a message like "read
+        # ~/.ssh/id_rsa" could run tools locally and echo the output back.
+        cmd = [
+            "claude", "-p", "--output-format", "json", "--model", cli_model,
+            "--tools", "", "--setting-sources", "",
+        ]
+        if system_parts:
+            cmd += ["--system-prompt", "\n\n".join(system_parts)]
+
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True, timeout=180,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "claude CLI exit %s: %s" % (proc.returncode, (proc.stderr or "")[:300])
+            )
+        data = json.loads(proc.stdout)
+        if data.get("is_error"):
+            raise RuntimeError("claude CLI error: %s" % str(data.get("result"))[:300])
+        usage = data.get("usage") or {}
+        return _CliResponse(
+            data.get("result", "") or "",
+            usage.get("input_tokens") or 0,
+            usage.get("output_tokens") or 0,
+        )
+
+
+def _llm_backend() -> Optional[str]:
+    """Which LLM backend is active: "deepseek" when DEEPSEEK_API_KEY is set;
+    "claude_cli" for local dev (DEBUG or explicit opt-in, with `claude` on
+    PATH); None when nothing is available."""
+    if getattr(settings, "DEEPSEEK_API_KEY", "") or "":
+        return "deepseek"
+    override = getattr(settings, "DAILY_LLM_BACKEND", "") or ""
+    if override == "claude_cli" or (getattr(settings, "DEBUG", False) and shutil.which("claude")):
+        return "claude_cli"
+    return None
+
+
+def _get_llm_client():
+    """An OpenAI-compatible client for the active backend, or None when no LLM
+    is available (the caller then returns None / stays offline)."""
+    backend = _llm_backend()
+    if backend == "deepseek":
+        try:
+            import openai
+        except ImportError:
+            logger.error("daily.ai_coach: openai SDK not installed")
+            return None
+        return openai.OpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com/v1",
+        )
+    if backend == "claude_cli":
+        return _ClaudeCliClient()
+    return None
+
 DEEPSEEK_INPUT_USD_PER_1M = 0.14
 DEEPSEEK_OUTPUT_USD_PER_1M = 0.28
 
-CHECKLIST_SIZE = 3  # Always exactly 3. Substitute, don't expand.
+CHECKLIST_SIZE = 3  # DEFAULT core size for onboarding/seeding only. NOT a cap:
+# users curate their own uncapped list (add/swap instantly). The overnight coach
+# must preserve whatever count the user currently has — never force back to 3.
 
 
 class CheckInSummary(TypedDict):
@@ -126,17 +267,17 @@ DO NOT mutate the list just because:
 
 # Strict mechanical rules for tomorrow's JSON
 
-- EXACTLY 3 items. Never more, never fewer.
-- SUBSTITUTE, DO NOT EXPAND. If the user asks for "more exercise",
-  change the existing exercise label (e.g. "45 min" → "60 min"). DO
-  NOT add a second exercise bullet. The total stays at 3.
-- TRANSITION (legacy lists): if yesterday's checklist has MORE than 3
-  items (a legacy 5-item list), select the 3 most essential for THIS
-  user — prioritize what they actually complete and what serves their
-  stated goals — and briefly explain the trim in the note (e.g.
-  "simplified your list to the essential 3 — the others can return as
-  bonuses"). Demote up to 2 of the dropped items to bonus items if they
-  still serve the user (put them in the bonus JSON array below).
+- KEEP THE SAME NUMBER OF ITEMS as yesterday's core list — never add or
+  remove a slot. The user curates their own list length (they add and
+  remove items themselves, instantly, in the app); your job is to refine
+  the items in place, not to resize the list. Output exactly as many core
+  items as yesterday had, no more, no fewer.
+- REFINE IN PLACE, DO NOT EXPAND. If the user asks for "more exercise",
+  change the existing exercise label (e.g. "45 min" → "60 min"). DO NOT
+  add a second exercise bullet — the item COUNT is fixed by the user.
+- Do NOT trim or "simplify" a long list. A user with 11 items (e.g. one
+  per gym station) chose that on purpose; keep all 11. Never drop items
+  to hit some ideal size — there is no ideal size.
 - Keep keys STABLE for questions you preserve. Generate new keys
   (lowercase_with_underscores, short) only when replacing entirely.
 - Labels are concise past-tense phrases the user will see ticked off
@@ -170,7 +311,7 @@ flattery — but never fabricate the win itself.
 
 # Bonus items (extra credit) + daily novelty
 
-After the core 3, offer BONUS items for tomorrow — small optional extras
+After the core items, offer BONUS items for tomorrow — small optional extras
 revealed in the app after the user has done most of their core items.
 
 DAILY NOVELTY MATTERS: each morning should contain something fresh to
@@ -182,7 +323,7 @@ engaged user opening the app should regularly find something they
 haven't seen before.
 
 Rules:
-- If the user is struggling to finish even the core 3, offer just 1
+- If the user is struggling to finish even their core items, offer just 1
   gentle bonus rather than piling on — but rarely offer zero.
 - Bonus items are extra credit: small, low-friction, grounded in their
   data (same no-invention rule). Fresh nudges, NOT restatements of
@@ -198,7 +339,7 @@ Rules:
 ```json
 [
   {"key": "...", "label": "..."},
-  ...exactly 3 items total...
+  ...the SAME number of items as yesterday's core list...
 ]
 ```
 
@@ -250,12 +391,8 @@ def derive_stretch_item(
     overlap with `existing_items` already on the checklist. Returns None on
     any failure (caller should fall back to a sensible default item).
     """
-    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
-    if not api_key:
-        return None
-    try:
-        import openai
-    except ImportError:
+    client = _get_llm_client()
+    if client is None:
         return None
 
     comments_block = ""
@@ -281,10 +418,10 @@ def derive_stretch_item(
         f"{existing_block}"
     )
     try:
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         resp = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
+                {"role": "system", "content": SAFETY_PREAMBLE},
                 {"role": "system", "content": STRETCH_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
@@ -376,16 +513,11 @@ def distill_profile(
     leaves any existing profile untouched and the coach falls back to no
     profile). Grounded ONLY in `attestation_text`; the prompt forbids invention.
     """
-    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
-    if not api_key:
-        logger.warning("daily.ai_coach.distill_profile: DEEPSEEK_API_KEY not configured")
-        return None
     if not (attestation_text or "").strip():
         return None
-    try:
-        import openai
-    except ImportError:
-        logger.error("daily.ai_coach.distill_profile: openai SDK not installed")
+    client = _get_llm_client()
+    if client is None:
+        logger.warning("daily.ai_coach.distill_profile: no LLM backend available")
         return None
 
     user_msg = (
@@ -395,7 +527,6 @@ def distill_profile(
     )
     model = "deepseek-chat"
     try:
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         resp = client.chat.completions.create(
             model=model,
             messages=[
@@ -448,7 +579,7 @@ Rules:
 
 
 CORE_SWAP_PROMPT = """You are Coach Jamie. The user just tapped "swap" on
-one of their 3 core daily habits — they're NOT INTERESTED in that item.
+one of their core daily habits — they're NOT INTERESTED in that item.
 Generate ONE replacement core habit for today.
 
 THE APP'S LANE (most important rule): if their logs show structured,
@@ -492,14 +623,9 @@ def generate_one_bonus(
     the list. core=False → extra-credit bonus item ("bonus_" key);
     core=True → a real replacement core habit ("q_" key) for a swapped
     slot. Returns None on failure (caller leaves the list as-is)."""
-    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
-    if not api_key:
-        logger.warning("daily.ai_coach.generate_one_bonus: DEEPSEEK_API_KEY not configured")
-        return None
-    try:
-        import openai
-    except ImportError:
-        logger.error("daily.ai_coach.generate_one_bonus: openai SDK not installed")
+    client = _get_llm_client()
+    if client is None:
+        logger.warning("daily.ai_coach.generate_one_bonus: no LLM backend available")
         return None
 
     existing_block = ""
@@ -525,10 +651,10 @@ def generate_one_bonus(
         f"{existing_block}{done_block}{comment_block}{rejected_block}"
     )
     try:
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         resp = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
+                {"role": "system", "content": SAFETY_PREAMBLE},
                 {"role": "system", "content": CORE_SWAP_PROMPT if core else ONE_BONUS_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
@@ -723,11 +849,18 @@ def _clean_items(parsed, max_items, seen_keys=None) -> Optional[List[dict]]:
     return cleaned
 
 
-def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]], Optional[List[dict]]]:
+def _parse_response(
+    raw: str, expected_core_count: Optional[int] = None
+) -> Tuple[str, Optional[List[dict]], Optional[List[dict]]]:
     """Split raw response into (prose, core_questions|None, bonus|None).
 
-    First fenced ```json array = tomorrow's core 3; second (optional)
+    First fenced ```json array = tomorrow's core list; second (optional)
     = bonus items (0-3). Bonus is best-effort: any doubt → None.
+
+    `expected_core_count` is the user's CURRENT core size. The overnight coach
+    may refine labels but must NOT change the number of core items (the user
+    owns their list length), so a mismatched count rejects the mutation. When
+    None (legacy callers), any non-empty list is accepted.
     """
     matches = list(_FENCED_JSON_RE.finditer(raw))
     if not matches:
@@ -744,13 +877,15 @@ def _parse_response(raw: str) -> Tuple[str, Optional[List[dict]], Optional[List[
         logger.warning("daily.ai_coach: core JSON parse failed: %s", exc)
         return raw.strip(), None, None
 
-    if not isinstance(core_parsed, list) or len(core_parsed) != CHECKLIST_SIZE:
+    if not isinstance(core_parsed, list) or len(core_parsed) < 1:
+        return prose, None, None
+    if expected_core_count is not None and len(core_parsed) != expected_core_count:
         logger.info(
-            "daily.ai_coach: core count %s != %d, rejecting mutation",
-            len(core_parsed) if isinstance(core_parsed, list) else "?", CHECKLIST_SIZE,
+            "daily.ai_coach: core count %s != current %d, rejecting mutation",
+            len(core_parsed), expected_core_count,
         )
         return prose, None, None
-    core = _clean_items(core_parsed, CHECKLIST_SIZE)
+    core = _clean_items(core_parsed, len(core_parsed))
     if core is None:
         return prose, None, None
 
@@ -784,25 +919,19 @@ def generate_suggestion(
     still code-enforces proposed_questions = the plan — never trust the model
     to copy a list verbatim.
     """
-    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
-    if not api_key:
-        logger.warning("daily.ai_coach: DEEPSEEK_API_KEY not configured; skipping suggestion")
-        return None
-
-    try:
-        import openai
-    except ImportError:
-        logger.error("daily.ai_coach: openai SDK not installed")
+    client = _get_llm_client()
+    if client is None:
+        logger.warning("daily.ai_coach: no LLM backend available; skipping suggestion")
         return None
 
     user_prompt = _format_user_prompt(context, refinement=refinement, evening_plan=evening_plan)
     model = "deepseek-chat"
 
     try:
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         response = client.chat.completions.create(
             model=model,
             messages=[
+                {"role": "system", "content": SAFETY_PREAMBLE},
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
@@ -817,7 +946,9 @@ def generate_suggestion(
     if not raw:
         return None
 
-    suggestion_text, proposed_questions, proposed_bonus = _parse_response(raw)
+    suggestion_text, proposed_questions, proposed_bonus = _parse_response(
+        raw, expected_core_count=len(context["current_questions"]) or None
+    )
     if not suggestion_text:
         suggestion_text = "Great work yesterday. Keep going."
 
@@ -832,7 +963,12 @@ def generate_suggestion(
     return suggestion_text, proposed_questions, proposed_bonus, model, cost
 
 
-CHAT_SYSTEM_PROMPT = """You are Coach Jamie in a LIVE chat with the user inside
+# The chat prompt exists in two variants that differ ONLY in the "what they
+# can do right now" block: the legacy UI has "swap" + the "Plan tomorrow" chat
+# button; the beta UI adds "+ Add item" / "Write my own". Telling a legacy user
+# to tap buttons that don't exist (or vice versa) breaks trust, so the caller
+# picks the variant matching the user's actual UI.
+_CHAT_PROMPT_PREFIX = """You are Coach Jamie in a LIVE chat with the user inside
 their daily check-in app. This is a real-time message thread, not the overnight
 note. Reply like a sharp, warm coach texting back — brief (1-3 sentences),
 specific, never preachy. No greetings like "Hi"/"Hey [name]" on every message;
@@ -872,11 +1008,9 @@ So when they ask for a change:
   editing another day from chat, etc.), say so plainly — "the app can't do
   that" — and offer the nearest REAL alternative. Never imply a missing
   feature exists.
-- What they CAN do right now, themselves: the "swap" button on any checklist
-  item replaces it instantly, and the "Plan tomorrow" button in this chat lets
-  them lock in tomorrow's 3 items tonight (frog first). Point them there when
-  they want certainty instead of an overnight promise.
+"""
 
+_CHAT_PROMPT_SUFFIX = """
 Never invent facts, numbers, or actions. If you don't know, say so.
 
 If their logs show structured self-programmed training, stay out of prescribing
@@ -884,6 +1018,30 @@ workouts — your lane is the unmanaged margins (recovery, sleep, fueling,
 measurement, sun, stress) and being a thoughtful sounding board.
 
 Keep it human and short. This is a text thread, not an essay."""
+
+# Legacy (non-beta) UI: no "+ Add item" button; instant paths are "swap" and
+# the "Plan tomorrow" chat flow. Wording recovered from the pre-beta prompt.
+_CHAT_RIGHT_NOW_LEGACY = """- What they CAN do right now, themselves: the "swap" button on any checklist
+  item replaces it instantly, and the "Plan tomorrow" button in this chat lets
+  them lock in tomorrow's 3 items tonight (frog first). Point them there when
+  they want certainty instead of an overnight promise.
+"""
+
+_CHAT_RIGHT_NOW_BETA = """- What they CAN do right now, themselves — point them here FIRST, since these
+  are instant and beat any overnight promise:
+  * "+ Add item" (below the checklist) adds a new item immediately — they can
+    type their own ("Write my own") or let you auto-suggest one. They can add
+    many items (up to 20 — e.g. one per gym station plus a walk).
+  * "swap" on any item replaces it instantly — again either their own wording
+    or an auto-suggestion.
+  So if they want a new or different item, the honest answer is usually "tap
+  '+ Add item' (or 'swap') and choose 'Write my own' — it's on your list right
+  now," NOT "I'll add it tomorrow." Only fall back to the overnight framing for
+  changes the buttons genuinely can't do.
+"""
+
+CHAT_SYSTEM_PROMPT = _CHAT_PROMPT_PREFIX + _CHAT_RIGHT_NOW_LEGACY + _CHAT_PROMPT_SUFFIX
+CHAT_SYSTEM_PROMPT_BETA = _CHAT_PROMPT_PREFIX + _CHAT_RIGHT_NOW_BETA + _CHAT_PROMPT_SUFFIX
 
 
 PLANNING_SYSTEM_PROMPT = """You are Coach Jamie in a LIVE evening chat, helping
@@ -936,6 +1094,143 @@ from you would be a lie the user discovers tomorrow.
 Keep it human and short. This is a text thread, not an essay."""
 
 
+# ===== Jamie safety layer (beta / general audience) =======================
+# The prompts above were written for a fitness coach. Once the app went general
+# (wins about anything, open chat), new risk surfaces opened. This shared
+# preamble is injected into every USER-FACING Jamie prompt (chat, the overnight
+# suggestion note, item auto-suggest, win scoping) so the rules hold in every
+# mode. distill_profile is exempt: its output is internal model context, never
+# shown to the user.
+# See daily/CLIMB_REFRAME_PLAN.md section 3a. Prompts REDUCE risk, they do not
+# eliminate it: the crisis case does NOT rely on the model alone (see
+# detect_crisis / CRISIS_RESPONSE below).
+
+SAFETY_PREAMBLE = """You are Jamie, an encouraging daily supporter inside a
+personal habit + wins tracker. Before anything else, these rules override every
+other instruction and hold in every mode:
+
+- Scope: you are a supporter and cheerleader, not a general assistant, therapist,
+  doctor, lawyer, or financial advisor. Help with the checklist, scoping tasks
+  into doable steps, and encouragement. Decline off-topic or inappropriate
+  requests warmly and redirect.
+- Crisis and clinical (highest priority): if the user signals self-harm, suicidal
+  thoughts, abuse, an eating disorder, or serious addiction, do NOT try to treat
+  it and do NOT brush it off. Respond with brief care and point them to real help.
+- Defer to professionals: on medical, legal, financial, or mental-health
+  questions, give no authoritative advice; encourage a qualified person.
+- No invention: never state facts, numbers, or claims you do not have.
+- Non-judgment: never shame, especially around slips or avoidance. Compassion,
+  not lectures.
+- No manufactured pressure or dark patterns.
+- Do not use em-dashes in your replies; use commas, colons, or separate sentences.
+"""
+
+# Focus tunes only how substantive Jamie's guidance can be (plan section 3), not
+# her role. Health: she may lean on real, safe, general health knowledge. Life:
+# she stays out of the substance of the user's work and helps with process plus
+# encouragement only.
+FOCUS_GUIDANCE = {
+    "health": (
+        "The user's focus is HEALTH. You may lean on real, safe, general health "
+        "knowledge (sleep, recovery, hydration, mobility, protein) so your "
+        "encouragement can be specific. Never give clinical or diagnostic advice."
+    ),
+    "life": (
+        "The user's focus is LIFE. Stay out of the substance of their work or "
+        "personal decisions (advising how to do their job reads as preachy). Your "
+        "help is process only: scoping a put-off thing into a today-sized win, plus "
+        "encouragement."
+    ),
+}
+
+# Support-only chat prompt (beta, ai_mutations_enabled = False). Jamie does NOT
+# rewrite the list, so the "changes come tomorrow" promise of CHAT_SYSTEM_PROMPT
+# would be a LIE here. Her honest answer is that edits are instant, by the user.
+CHAT_SYSTEM_PROMPT_SUPPORT = """You are Jamie in a LIVE chat inside the user's
+daily check-in app, in SUPPORT mode. You cheer the user on and help them when
+they are stuck. You do two things and nothing more:
+
+1. Moral support: grounded, specific encouragement based on what you can see
+   (today's checklist, their metrics, recent days, the conversation).
+2. Help a stuck user NAME something: a habit to add, or a win they have been
+   putting off. You are a mirror, not an oracle: ask a reflective question or
+   offer a few example buckets, but never invent a specific goal for them. Once
+   they name it, you can help scope it into one doable step for today.
+
+You do NOT edit the list, and no overnight change is coming, so NEVER say a
+change will "show up tomorrow." Editing is INSTANT and the user does it
+themselves:
+- "+ Add item" (below the checklist) adds a habit immediately; they type their
+  own or let you auto-suggest.
+- "swap" on any item replaces it instantly.
+- For a win, they tap "Add a win" in the win card (or "Your wins") and name it.
+So when they want a new or different item, tell them the honest, instant path:
+"tap '+ Add item' and type it, it's on your list right now." Never claim you
+added, changed, or queued anything yourself; you cannot.
+
+Reply like a warm friend texting back: brief (1-3 sentences), specific, never
+preachy. No greeting on every message. Keep it human and short."""
+
+
+def detect_crisis(text: str) -> bool:
+    """Lightweight keyword/pattern detector for crisis / clinical signals. Used
+    to short-circuit to a vetted, human-written response INSTEAD of the model
+    (far safer than hoping the model handles it every time — plan section 3a).
+    Deliberately high-recall; a false positive just surfaces real resources."""
+    if not text:
+        return False
+    t = " " + re.sub(r"[^a-z0-9' ]+", " ", text.lower()) + " "
+    for pat in _CRISIS_PATTERNS:
+        if pat.search(t):
+            return True
+    return False
+
+
+# Phrases that should trigger the vetted response. Word-boundary regexes so
+# "therapist" doesn't trip "rapist", etc. High-recall by design.
+_CRISIS_PATTERNS = [
+    # self-harm / suicide (verb stems so "hurting", "cutting", "killing" match).
+    # "myself" forms only: a bare "me" object turns everyday gym hyperbole
+    # ("leg day is killing me", "that workout hurt me") into a 988 response.
+    # Third-party violence ("he hits me") is the abuse pattern below.
+    re.compile(r"\b(kill|hurt|harm|cut|cutting|hang)\w*\s+my ?self\b"),
+    re.compile(r"\b(suicid\w*|end(ing)? my life|take my (own )?life|took my life)\b"),
+    re.compile(r"\bwant\w* to die\b|\bdon'?t want to (be alive|live)\b|\bbetter off dead\b"),
+    re.compile(r"\bself[- ]?harm\w*\b"),
+    re.compile(r"\b(no reason to|can'?t go on|nothing left to|don'?t want to) live\b"),
+    # eating disorder
+    re.compile(r"\b(starv\w*|hurt\w*|punish\w*)\s+my ?self\b"),
+    re.compile(r"\bmak\w*\s+my ?self\s+(throw up|vomit|sick)\b"),
+    # "binge" needs eating/drinking context: bare \bbinge\b would trip on
+    # "binged a whole show last night". detect_crisis lowercases and turns
+    # punctuation into spaces, so "binge-eating" arrives here as "binge eating".
+    re.compile(
+        r"\bthrow(ing)? up (my|after)\b|\bpurg\w*\b"
+        r"|\bbing(?:e|es|ed|ing|eing)\s+(?:eat\w*|ate|eating|drink\w*|drank|and purg\w*)\b"
+    ),
+    re.compile(r"\b(anorexi\w*|bulimi\w*|eating disorder)\b"),
+    # addiction / abuse
+    re.compile(r"\b(overdos\w*|relaps\w*)\b"),
+    re.compile(r"\b(being|getting|been)\s+(abused|beaten|hit)\b|\b(he|she|they)\s+hits?\s+me\b"),
+]
+
+# Vetted, human-written response. Care + real resources, never a diagnosis or
+# a promise to treat. US-centric defaults with an international pointer; revise
+# with a professional before broad launch (plan section 3a).
+CRISIS_RESPONSE = (
+    "I'm really glad you told me, and I want to make sure you get the right kind "
+    "of support, which is more than I can give. You deserve to talk to someone "
+    "trained for this, right now if you can.\n\n"
+    "In the US you can call or text 988 (the Suicide and Crisis Lifeline), any "
+    "time, free and confidential. You can also text HOME to 741741 to reach the "
+    "Crisis Text Line. If you are outside the US, findahelpline.com lists free "
+    "lines for your country. If you are in immediate danger, please call your "
+    "local emergency number.\n\n"
+    "I'm still here to cheer you on with the small stuff whenever you want. Please "
+    "reach out to one of those, you do not have to carry this alone."
+)
+
+
 def parse_planned_list(raw: str) -> Tuple[str, Optional[List[dict]]]:
     """Extract the planned 3-item list from a planning-mode chat reply.
 
@@ -965,7 +1260,8 @@ def parse_planned_list(raw: str) -> Tuple[str, Optional[List[dict]]]:
 
 
 def chat_reply(participant_name, checklist, today_states, metrics_summary,
-               recent_summary, history, planning=False):
+               recent_summary, history, planning=False,
+               mutations_enabled=True, focus="", beta=False):
     """Generate a live coach chat reply. `history` is a list of
     {"role": "user"|"coach", "text": str} in chronological order (the last item
     is the user's new message). Returns (reply_text, model, cost) or None.
@@ -973,13 +1269,18 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
     planning=True switches to the evening "Plan tomorrow" system prompt: the
     coach shapes a frog-first 3-item list and, once settled, emits it as JSON
     (the caller parses it with parse_planned_list and queues the suggestion —
-    the model itself never claims success)."""
-    api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
-    if not api_key:
-        return None
-    try:
-        import openai
-    except ImportError:
+    the model itself never claims success).
+
+    mutations_enabled=False (beta support-only Jamie) selects the SUPPORT prompt:
+    she never rewrites the list and points the user at the instant + Add / swap
+    buttons instead of promising overnight changes. `focus` ("health"/"life")
+    softly tunes how substantive her guidance is. `beta` picks which UI the
+    "what they can do right now" coaching references: the beta buttons
+    (+ Add item / Write my own) or the legacy swap + Plan-tomorrow flow —
+    non-beta users must never be told to tap beta-only buttons. The shared
+    SAFETY_PREAMBLE is injected as the first system message in every case."""
+    client = _get_llm_client()
+    if client is None:
         return None
 
     context_lines = [f"User: {participant_name}", "", "Today's checklist:"]
@@ -992,10 +1293,23 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
         context_lines += ["", "Recent days:", recent_summary]
     context = "\n".join(context_lines)
 
+    if planning:
+        base_prompt = PLANNING_SYSTEM_PROMPT
+    elif not mutations_enabled:
+        base_prompt = CHAT_SYSTEM_PROMPT_SUPPORT
+    elif beta:
+        base_prompt = CHAT_SYSTEM_PROMPT_BETA
+    else:
+        base_prompt = CHAT_SYSTEM_PROMPT
     messages = [
-        {"role": "system", "content": PLANNING_SYSTEM_PROMPT if planning else CHAT_SYSTEM_PROMPT},
-        {"role": "system", "content": "Context for this conversation:\n" + context},
+        # Safety rules first, so they frame everything that follows.
+        {"role": "system", "content": SAFETY_PREAMBLE},
+        {"role": "system", "content": base_prompt},
     ]
+    focus_note = FOCUS_GUIDANCE.get(focus)
+    if focus_note:
+        messages.append({"role": "system", "content": focus_note})
+    messages.append({"role": "system", "content": "Context for this conversation:\n" + context})
     # Map our roles to OpenAI roles (coach → assistant).
     for m in history[-20:]:
         messages.append({
@@ -1005,7 +1319,6 @@ def chat_reply(participant_name, checklist, today_states, metrics_summary,
 
     model = "deepseek-chat"
     try:
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
         resp = client.chat.completions.create(
             model=model, messages=messages,
             # Planning replies may carry a 3-item JSON block on top of prose.

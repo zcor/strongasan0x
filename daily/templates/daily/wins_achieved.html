@@ -1,0 +1,60 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Achieved · {{ participant.display_name }}{% endblock %}
+
+{% block content %}
+{% comment %}
+Finished north stars, each with the ladder of steps that got it done. Reached
+from the "Achieved ›" link on the "Your wins" editor; read-only. Same page
+shape as the editor: back link top-left returns to /daily/wins/.
+{% endcomment %}
+
+<div class="wedit">
+
+    <header class="wehead">
+        <a class="weback" href="/daily/wins/" aria-label="Back to your wins">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+            Your wins
+        </a>
+        <div class="wetitle">Achieved</div>
+        <div class="wesub">North stars you finished, and every step it took. Proof this works.</div>
+    </header>
+
+    <div class="card" id="achieved-card">
+        <div class="card-body">
+            <div class="eyebrow gold">Summits</div>
+            {% for g in achieved %}
+                <div class="goal">
+                    <div class="goalhead">
+                        <span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>
+                        <span class="gtitle">{{ g.goal.text }}</span>
+                        {% if g.goal.done_at %}<span class="gcount">{{ g.goal.done_at|date:"M j" }}</span>{% endif %}
+                    </div>
+                    {% if g.stones %}
+                    <div class="stones">
+                        {% for s in g.stones %}
+                            <div class="stone done">
+                                <span class="dot" aria-hidden="true"></span>
+                                <span class="rlabel">{{ s.text }}</span>
+                                {% if s.status == "graduated" %}<span class="stag">now a habit</span>{% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            {% empty %}
+                <div class="empty">Nothing yet. Your first finished north star lands here.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+{% include "daily/_climb_core.html" %}
+{% include "daily/_wins_chrome.html" %}
+<style>
+    .card-body { padding: 18px 16px; }
+    /* A stone that graduated into a recurring habit */
+    .stag { margin-left: auto; flex: none; font-size: .66rem; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); }
+</style>
+{% endblock %}
