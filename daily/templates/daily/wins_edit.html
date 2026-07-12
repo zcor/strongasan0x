@@ -63,6 +63,8 @@ Climb card language (squared cards, hairline borders, gold/green, thin type).
                     <div class="single" data-stone-id="{{ s.id }}">
                         <span class="dot" aria-hidden="true"></span>
                         <span class="rlabel">{{ s.text }}</span>
+                        <button class="spromote" type="button" data-promote="{{ s.id }}"
+                                aria-label="Make this a daily habit">→ habit</button>
                         <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Remove win">✕</button>
                     </div>
                 {% endfor %}
@@ -114,6 +116,9 @@ Climb card language (squared cards, hairline borders, gold/green, thin type).
        tighter body padding for its list-heavy cards. */
     .card-body { padding: 18px 16px; }
 
+    .spromote { flex: none; background: none; border: 0; color: var(--accent); font: inherit; font-size: .74rem; cursor: pointer; padding: 4px 8px; line-height: 1; white-space: nowrap; }
+    .spromote:hover { text-decoration: underline; }
+    .spromote:disabled { opacity: .4; cursor: default; }
     .gremove, .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
     .gremove { margin-left: 10px; }
     .gremove:hover, .sremove:hover { color: #e0a672; }
@@ -144,6 +149,15 @@ Climb card language (squared cards, hairline borders, gold/green, thin type).
     .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-faint); margin: 16px 0 10px; }
     .addstep-more { background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 10px 0 2px; }
     @media (min-width: 520px) { .ncomposer { align-items: center; } .ncard { border: 1px solid var(--line); } }
+    .edit-toast {
+        position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 16px);
+        max-width: 90vw; background: var(--bg-solid); color: var(--text);
+        border: 1px solid var(--accent); border-radius: 12px; padding: 12px 18px;
+        font-size: .92rem; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+        opacity: 0; pointer-events: none; z-index: 2000;
+        transition: opacity .3s ease, transform .3s ease;
+    }
+    .edit-toast.show { opacity: 1; transform: translate(-50%, 0); }
 </style>
 
 <script>
@@ -163,6 +177,20 @@ Climb card language (squared cards, hairline borders, gold/green, thin type).
           .catch(function () { onErr && onErr({ status: 0 }); });
     }
 
+    // A brief self-dismissing toast for the summit moment when deleting a
+    // goal's last stone completes it (the editor has no persistent banner).
+    function editToast(msg) {
+        var t = document.createElement("div");
+        t.className = "edit-toast";
+        t.textContent = "🌟 " + msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.classList.add("show"); });
+        setTimeout(function () {
+            t.classList.remove("show");
+            setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
+        }, 3200);
+    }
+
     function goalCount(goalEl) {
         var n = goalEl.querySelectorAll(".stone").length;
         var c = goalEl.querySelector("[data-count]");
@@ -178,13 +206,40 @@ Climb card language (squared cards, hairline borders, gold/green, thin type).
         var rm = e.target.closest("[data-remove]");
         if (!rm) return;
         var id = rm.getAttribute("data-remove");
-        post("/daily/win/remove/", { id: id }, function () {
+        post("/daily/win/remove/", { id: id }, function (d) {
             var goalEl = rm.closest(".goal");
             var row = rm.closest(".stone, .single, .goal");
-            // If removing the goal head's ✕, drop the whole goal block.
-            if (rm.classList.contains("gremove")) { if (goalEl) goalEl.remove(); }
-            else if (row) { row.remove(); if (goalEl) goalCount(goalEl); }
+            // Deleting the last open stone can COMPLETE the goal (server tells
+            // us via north_star_done). Drop the whole goal block and mark the
+            // summit, instead of leaving a stale card with an empty stone list.
+            if (d && d.north_star_done) {
+                if (goalEl) { goalEl.remove(); }
+                editToast("Goal complete: " + d.north_star_done.title);
+            } else if (rm.classList.contains("gremove")) {
+                if (goalEl) goalEl.remove();
+            } else if (row) {
+                row.remove(); if (goalEl) goalCount(goalEl);
+            }
             syncEmpty();
+        });
+    });
+
+    // ---- promote a one-off win into a recurring daily habit ----
+    document.addEventListener("click", function (e) {
+        var pr = e.target.closest("[data-promote]");
+        if (!pr) return;
+        var id = pr.getAttribute("data-promote");
+        pr.disabled = true;
+        post("/daily/win/", { id: id, action: "promote" }, function (d) {
+            var row = pr.closest(".single");
+            if (row) row.remove();
+            syncEmpty();
+            editToast("Added to your daily list: " + ((d.item && d.item.label) || "new habit"));
+        }, function (res) {
+            pr.disabled = false;
+            editToast(res && res.status === 409
+                ? "Your daily list is full. Remove a habit first."
+                : "Couldn't add that right now.");
         });
     });
 
