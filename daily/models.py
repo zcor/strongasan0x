@@ -361,6 +361,11 @@ class CoachSuggestion(models.Model):
         blank=True,
         help_text='Optional extra-credit items for tomorrow (0-3)',
     )
+    # Snapshot of the core list the proposal was GENERATED from. Lets
+    # apply-time reconcile edits the user made in between (instant add/swap):
+    # without it, applying a 9pm proposal wholesale would silently drop an
+    # item added at 10pm. NULL on pre-guard rows (applied as-is).
+    base_questions = models.JSONField(null=True, blank=True)
     rationale = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
 

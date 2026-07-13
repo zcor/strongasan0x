@@ -1443,17 +1443,17 @@ def wrap_day(request):
     invite_planning = False
     if plan:
         frog = plan.proposed_questions[0]["label"]
-        reply = f'Day wrapped. Tomorrow is already planned — "{frog}" first. Rest up.'
+        reply = f'Day wrapped. Tomorrow is already planned: "{frog}" first. Rest up.'
     elif ready:
         reply = (
-            "Day wrapped — your morning note is set. Want to set up tomorrow? "
+            "Day wrapped, your morning note is set. Want to set up tomorrow? "
             "What's the ONE thing you've been putting off that would matter most?"
         )
         invite_planning = True
     else:
         reply = (
             "I couldn't wrap the day just now (coach is offline). Your taps "
-            "are saved — tell me anything here and I'll fold it in overnight."
+            "are saved. Tell me anything here and I'll fold it in overnight."
         )
     CoachChatMessage.objects.create(
         participant=participant, role=CoachChatMessage.ROLE_COACH,
@@ -1871,6 +1871,9 @@ def _queue_evening_plan(participant, today, items, model_name="", merge=False):
         check_in=check_in,
         suggestion_text=note,
         proposed_questions=proposed,
+        base_questions=[
+            {"key": q["key"], "label": q["label"]} for q in version.questions
+        ],
         rationale=CoachSuggestion.RATIONALE_EVENING_PLAN,
         status=CoachSuggestion.STATUS_PENDING,
         model_name=model_name or "",
@@ -2207,9 +2210,15 @@ def submit_onboarding(request):
 @require_http_methods(["POST"])
 def submit_onboarding_beta(request):
     """Finish the BETA one-card onboarding: seed the ONE starter item the user
-    chose (their own words, or an accepted suggestion), set their soft focus,
-    and stamp onboarded_at. New beta users start near-empty (one card), NOT the
-    legacy baseline-3 or the survey-seeded set. Beta-only."""
+    chose (their own words, or an accepted suggestion), set their focus, and
+    stamp onboarded_at. New beta users start near-empty (one card), NOT the
+    legacy baseline-3 or the survey-seeded set. Beta-only.
+
+    The focus answer ("What's this mostly for?") also picks their Jamie:
+    health = the full coach (ai_mutations_enabled, morning notes, overnight
+    tune-ups; the onboarding copy says so), life = support-only cheerleader.
+    The overnight prompt's health/fitness scope gate stays as the runtime
+    backstop either way."""
     participant = request.daily_participant
     if not _is_beta(request, participant):
         return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
@@ -2237,8 +2246,11 @@ def submit_onboarding_beta(request):
             source=ChecklistVersion.SOURCE_BASELINE, is_current=True,
         )
         participant.focus = focus
+        participant.ai_mutations_enabled = focus == DailyParticipant.FOCUS_HEALTH
         participant.onboarded_at = timezone.now()
         if not participant.source:
             participant.source = "onboarding"
-        participant.save(update_fields=["focus", "onboarded_at", "source", "updated_at"])
+        participant.save(update_fields=[
+            "focus", "ai_mutations_enabled", "onboarded_at", "source", "updated_at",
+        ])
     return JsonResponse({"ok": True, "redirect": "/daily/checkin/"})

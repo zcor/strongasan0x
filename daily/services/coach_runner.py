@@ -168,6 +168,12 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
         suggestion_text=suggestion_text,
         proposed_questions=proposed_questions,
         proposed_bonus=proposed_bonus,
+        # What the model was shown — the reconcile base for user edits made
+        # between generation and tomorrow's apply (see apply_pending_mutations).
+        base_questions=[
+            {"key": q["key"], "label": q["label"]}
+            for q in context["current_questions"]
+        ],
         rationale=rationale,
         status=CoachSuggestion.STATUS_PENDING,
         model_name=model_name,

@@ -225,6 +225,98 @@ class SupportOnlyMutationTests(TestCase):
         self.assertEqual([q["key"] for q in current.questions], ["q_a"])
 
 
+class ProposalReconcileTests(TestCase):
+    """A proposal generated last night must not revert instant edits the user
+    made after it: apply-time reconciliation overlays additions/removals made
+    since the snapshot in base_questions. Beta only; legacy applies as-is."""
+
+    def _setup(self, beta=True, current=None):
+        p = _make_participant(beta=beta, ai_mutations_enabled=True)
+        version = ChecklistVersion.objects.create(
+            participant=p,
+            questions=current,
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        ci = DailyCheckIn.objects.create(
+            participant=p,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=version,
+        )
+        return p, version, ci
+
+    def _suggest(self, ci, proposed, base):
+        return CoachSuggestion.objects.create(
+            check_in=ci, suggestion_text="note",
+            proposed_questions=proposed, base_questions=base,
+            status=CoachSuggestion.STATUS_PENDING,
+        )
+
+    def test_item_added_after_generation_survives(self):
+        # Coach saw [a, b] and refined b; the user added c later that night.
+        p, _v, ci = self._setup(current=[
+            {"key": "a", "label": "A"},
+            {"key": "b", "label": "B"},
+            {"key": "c", "label": "C (added at 10pm)"},
+        ])
+        self._suggest(
+            ci,
+            proposed=[{"key": "a", "label": "A"}, {"key": "b", "label": "B refined"}],
+            base=[{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+        )
+        self.assertEqual(apply_pending_mutations(p, timezone.localdate()), 1)
+        keys = [q["key"] for q in p.checklist_versions.get(is_current=True).questions]
+        self.assertEqual(keys, ["a", "b", "c"])
+
+    def test_unchanged_proposal_plus_user_add_is_noop(self):
+        # Coach kept the list as-was; the user's later addition means the
+        # reconciled proposal equals the current list: no version churn.
+        p, v, ci = self._setup(current=[
+            {"key": "a", "label": "A"},
+            {"key": "c", "label": "C"},
+        ])
+        sug = self._suggest(
+            ci,
+            proposed=[{"key": "a", "label": "A"}],
+            base=[{"key": "a", "label": "A"}],
+        )
+        self.assertEqual(apply_pending_mutations(p, timezone.localdate()), 0)
+        sug.refresh_from_db()
+        self.assertEqual(sug.status, CoachSuggestion.STATUS_SHOWN)
+        self.assertEqual(p.checklist_versions.get(is_current=True).id, v.id)
+
+    def test_item_swapped_away_after_generation_stays_gone(self):
+        # Coach saw [a, b]; the user swapped b for d before morning. The
+        # proposal's b must not resurrect; d must survive.
+        p, _v, ci = self._setup(current=[
+            {"key": "a", "label": "A"},
+            {"key": "d", "label": "D (swapped in)"},
+        ])
+        self._suggest(
+            ci,
+            proposed=[{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+            base=[{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+        )
+        self.assertEqual(apply_pending_mutations(p, timezone.localdate()), 0)
+        keys = [q["key"] for q in p.checklist_versions.get(is_current=True).questions]
+        self.assertEqual(keys, ["a", "d"])
+
+    def test_legacy_participant_applies_proposal_as_is(self):
+        # Frozen path: no reconciliation, the proposal lands verbatim.
+        p, _v, ci = self._setup(beta=False, current=[
+            {"key": "a", "label": "A"},
+            {"key": "c", "label": "C"},
+        ])
+        self._suggest(
+            ci,
+            proposed=[{"key": "a", "label": "A refined"}],
+            base=[{"key": "a", "label": "A"}],
+        )
+        self.assertEqual(apply_pending_mutations(p, timezone.localdate()), 1)
+        keys = [q["key"] for q in p.checklist_versions.get(is_current=True).questions]
+        self.assertEqual(keys, ["a"])
+
+
 class OnboardingBetaGateTests(TestCase):
     def _client_for(self, participant):
         c = Client()
@@ -256,6 +348,25 @@ class OnboardingBetaGateTests(TestCase):
         self.assertEqual(r.status_code, 200)
         version = p.checklist_versions.get(is_current=True)
         self.assertEqual([q["label"] for q in version.questions], ["Walk"])
+
+    def test_focus_answer_picks_the_jamie(self):
+        # "What's this mostly for?" decides the coach mode: health gets the
+        # full engine (overnight notes + tune-ups), life stays support-only.
+        for focus, expect_mutations in (("health", True), ("life", False), ("", False)):
+            p = _make_participant(beta=True)
+            c = self._client_for(p)
+            r = c.post(
+                "/daily/onboarding/beta/",
+                data=json.dumps({"label": "Walk", "focus": focus}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 200)
+            p.refresh_from_db()
+            self.assertEqual(
+                p.ai_mutations_enabled, expect_mutations,
+                f"focus={focus!r} should set ai_mutations_enabled={expect_mutations}",
+            )
+            self.assertEqual(p.focus, focus)
 
 
 class CrisisRegexTests(TestCase):
