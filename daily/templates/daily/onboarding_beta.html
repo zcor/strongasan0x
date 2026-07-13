@@ -1,97 +1,117 @@
 {% extends "daily/base.html" %}
 
-{% block title %}Welcome · The Climb{% endblock %}
+{% block title %}Welcome · Daily{% endblock %}
 
 {% block content %}
+{% include "daily/_climb_core.html" %}
 <style>
+    /* Daily's design language (see _climb_core.html): squared cards,
+       hairline borders, thin type, gold reserved for the accent moments. */
     .ob {
         max-width: 460px; margin: 0 auto; padding: 24px 20px 48px;
         box-sizing: border-box; color: var(--text); font-family: var(--font-body);
     }
-    .ob-jamie {
-        font-size: 1.05rem; line-height: 1.5; color: var(--text);
-        margin: 0 0 14px;
+    /* Big warm greeting, then a mid-size title, then the quiet description —
+       same voice as the check-in's welcome dialog (thin type, gold moment). */
+    .ob-hi {
+        font-size: 2.6rem; font-weight: 100; letter-spacing: -.01em; line-height: 1.05;
+        margin: 10px 0 6px; width: max-content;
+        background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
     }
-    .ob-lede { color: var(--text-dim); font-size: 0.98rem; line-height: 1.5; margin: 0 0 8px; }
-    .ob-one {
-        color: var(--accent); font-weight: 600; font-size: 1.02rem; margin: 18px 0 20px;
-    }
+    .ob-title { font-size: 1.3rem; font-weight: 400; letter-spacing: -.01em; margin: 0 0 14px; color: var(--text); }
+    .ob-lede { color: var(--text); font-weight: 300; font-size: 0.95rem; line-height: 1.55; margin: 0 0 8px; }
     .ob-step { display: none; }
     .ob-step.show { display: block; animation: obIn .28s ease; }
     @keyframes obIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-    .ob-btns { display: flex; flex-direction: column; gap: 11px; }
+    .ob-btns { display: flex; flex-direction: column; gap: 10px; }
     .ob-btn {
         display: block; width: 100%; text-align: left; cursor: pointer;
-        background: var(--panel); border: 1.5px solid var(--panel-border);
-        border-radius: var(--radius); padding: 15px 16px;
-        color: var(--text); font-size: 1.02rem; font-family: var(--font-body);
-        transition: border-color .15s, background .15s, transform .08s;
+        background: var(--fill); border: 1px solid var(--line);
+        padding: 15px 16px;
+        color: var(--text); font-size: 1rem; font-weight: 400; font-family: var(--font-body);
+        transition: border-color .16s, color .16s, transform .08s;
     }
-    .ob-btn:hover { border-color: var(--accent); }
+    .ob-btn:hover { border-color: rgba(255,217,122,.5); }
     .ob-btn:active { transform: scale(0.985); }
-    .ob-btn.primary { background: var(--accent); color: #10202a; border-color: var(--accent); font-weight: 600; }
-    .ob-btn.sel { border-color: var(--accent); background: var(--done-bg); }
+    .ob-btn.primary { background: transparent; border-color: var(--accent); color: var(--accent); font-weight: 500; text-align: center; }
+    .ob-btn.sel { border-color: var(--accent); }
 
-    .ob-q { font-size: 1.1rem; font-weight: 600; margin: 0 0 16px; }
+    .ob-q { font-size: 1.05rem; font-weight: 500; letter-spacing: -.01em; margin: 20px 0 16px; }
     .ob-row { display: flex; gap: 10px; }
     .ob-row .ob-btn { text-align: center; }
 
     .ob-input {
-        width: 100%; box-sizing: border-box; background: var(--panel);
-        border: 1.5px solid var(--panel-border); border-radius: var(--radius);
+        width: 100%; box-sizing: border-box; background: rgba(255,255,255,.05);
+        border: 1px solid var(--line);
         padding: 13px 14px; color: var(--text); font-size: 1rem;
         font-family: var(--font-body); margin-bottom: 12px;
     }
-    .ob-input::placeholder { color: var(--text-faint); }
-    .ob-input:focus { outline: none; border-color: var(--accent); }
+    .ob-input::placeholder { color: var(--text-dim); }
+    .ob-input:focus { outline: none; border-color: rgba(255,217,122,.5); }
 
     /* Suggestion card (Branch A) */
     .ob-suggest {
-        border: 1.5px solid var(--panel-border); border-radius: var(--radius);
-        padding: 16px; margin-bottom: 14px; background: var(--panel);
+        border: 1px solid var(--line); background: var(--fill);
+        padding: 16px; margin-bottom: 14px;
     }
-    .ob-suggest-label { color: var(--text-faint); font-size: 0.72rem; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .ob-suggest-label {
+        color: var(--text-dim); font-size: 0.66rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.17em; margin-bottom: 8px;
+    }
     .ob-suggest-text { font-size: 1.2rem; font-weight: 300; color: var(--text); }
     .ob-mini {
         display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;
     }
     .ob-mini button {
         background: transparent; border: none; color: var(--accent);
-        font: inherit; font-size: 0.9rem; cursor: pointer; padding: 4px 0;
+        font: inherit; font-size: 0.88rem; cursor: pointer; padding: 4px 0;
     }
     .ob-mini button.faint { color: var(--text-dim); }
     .ob-back {
         background: transparent; border: none; color: var(--text-dim);
         font: inherit; font-size: 0.88rem; cursor: pointer; margin-top: 18px; padding: 4px 0;
     }
-    .ob-err { color: #d08770; font-size: 0.86rem; margin-top: 8px; min-height: 1em; }
+    .ob-back:hover { color: var(--text); }
+    .ob-err { color: #e0a672; font-size: 0.86rem; margin-top: 8px; min-height: 1em; }
+    .ob-hint { color: var(--text-dim); font-weight: 300; font-size: 0.86rem; line-height: 1.55; margin: 14px 2px 0; }
     .hidden { display: none !important; }
 </style>
 
 <div class="ob">
-    <p class="ob-jamie">I'm Jamie, here to cheer you on (and help when you're stuck).</p>
-    <p class="ob-lede">The Climb keeps it simple. Pick a few small things that matter and
-        check them off each day: the habits you want to keep, and the things you keep
+    <h1 class="ob-hi">Hi!</h1>
+    <div class="ob-title">I'm Jamie</div>
+    <p class="ob-lede">I'm here to cheer you on, and to help when you're stuck.
+        Daily keeps it simple: pick a few small things that matter and check them
+        off each day, the habits you want to keep and the things you keep
         putting off.</p>
-    <p class="ob-one">Let's start with just one.</p>
 
-    {# Step 1: the fork #}
-    <div class="ob-step show" id="step-fork">
+    {% comment %} Step 1: purpose. EVERY new user answers this; it decides
+    which Jamie they get. Health: the full coach (morning notes, small
+    overnight list tweaks, sets ai_mutations_enabled). Life: support-only
+    cheerleader, since a coach engine has no business editing a
+    general-purpose list. NOTE: multi-line {#...#} renders as literal text;
+    always use this block form. {% endcomment %}
+    <div class="ob-step show" id="step-focus">
+        <p class="ob-lede">Let's start with just one.</p>
+        <div class="ob-q">What's this mostly for?</div>
+        <div class="ob-row">
+            <button type="button" class="ob-btn focus-opt" data-focus="health">Health &amp; fitness</button>
+            <button type="button" class="ob-btn focus-opt" data-focus="life">Life in general</button>
+        </div>
+        <p class="ob-hint">Pick health and I coach: a morning note each day, and small
+            overnight tune-ups to your list. Pick life and I stick to cheering you on;
+            your list is all yours.</p>
+    </div>
+
+    {# Step 2: the fork #}
+    <div class="ob-step" id="step-fork">
+        <div class="ob-q">Your first one:</div>
         <div class="ob-btns">
             <button type="button" class="ob-btn" id="fork-suggest">Suggest one for me</button>
             <button type="button" class="ob-btn" id="fork-own">I've got one</button>
         </div>
-    </div>
-
-    {# Step 2A: focus, then a suggested starter habit #}
-    <div class="ob-step" id="step-focus">
-        <div class="ob-q">What should I help you with first?</div>
-        <div class="ob-row">
-            <button type="button" class="ob-btn focus-opt" data-focus="health">My health</button>
-            <button type="button" class="ob-btn focus-opt" data-focus="life">My life</button>
-        </div>
-        <button type="button" class="ob-back" id="focus-back">← back</button>
+        <button type="button" class="ob-back" id="fork-back">← back</button>
     </div>
 
     <div class="ob-step" id="step-suggest">
@@ -140,23 +160,20 @@
     }
     function el(id) { return document.getElementById(id); }
 
-    // Step 1 forks
-    el("fork-suggest").addEventListener("click", function () { show("step-focus"); });
-    el("fork-own").addEventListener("click", function () { show("step-own"); el("own-input").focus(); });
-    el("focus-back").addEventListener("click", function () { show("step-fork"); });
-    el("suggest-back").addEventListener("click", function () { show("step-focus"); });
-    el("own-back").addEventListener("click", function () { show("step-fork"); });
-
-    // Focus -> suggestion
+    // Step 1: purpose (every path answers this) -> step 2: the fork
     var focusOpts = document.querySelectorAll(".focus-opt");
     for (var i = 0; i < focusOpts.length; i++) {
         focusOpts[i].addEventListener("click", function () {
             focus = this.getAttribute("data-focus");
             sugIdx = 0;
-            paintSuggestion();
-            show("step-suggest");
+            show("step-fork");
         });
     }
+    el("fork-suggest").addEventListener("click", function () { paintSuggestion(); show("step-suggest"); });
+    el("fork-own").addEventListener("click", function () { show("step-own"); el("own-input").focus(); });
+    el("fork-back").addEventListener("click", function () { show("step-focus"); });
+    el("suggest-back").addEventListener("click", function () { show("step-fork"); });
+    el("own-back").addEventListener("click", function () { show("step-fork"); });
     function paintSuggestion() {
         var list = SUGGESTIONS[focus] || SUGGESTIONS.health;
         el("suggest-text").textContent = list[sugIdx % list.length];

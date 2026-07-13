@@ -47,13 +47,22 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
     promoted = 0
     for suggestion in pending:
         current = participant.checklist_versions.filter(is_current=True).first()
+        proposed = suggestion.proposed_questions
+        # Beta users edit their list instantly (add/swap), so a proposal
+        # generated last night may predate edits made after it: reconcile
+        # first, or applying it wholesale would revert them. Legacy stays
+        # frozen: proposals apply exactly as generated, as they always have.
+        if participant.beta and current and suggestion.base_questions is not None:
+            proposed = _reconcile_user_edits(
+                suggestion.base_questions, current.questions, proposed
+            )
         # The mutation engine proposes bare {key,label} questions; re-attach the
         # current version's sub-item lists to every preserved key BEFORE the
         # validity and no-op checks, or applying any suggestion would silently
         # wipe user-curated drawers (and an identical proposal would not
         # compare equal to a current question that has sub-items).
         proposed = _merge_subitems(
-            current.questions if current else [], suggestion.proposed_questions
+            current.questions if current else [], proposed
         )
         if not _is_valid_questions(proposed):
             logger.warning("daily.checklist: skipping invalid proposed_questions on suggestion %s", suggestion.id)
@@ -145,6 +154,52 @@ def _is_valid_questions(questions) -> bool:
                 if not isinstance(s, dict) or not _add_kv(s.get("key"), s.get("label")):
                     return False
     return True
+
+
+def _reconcile_user_edits(base, current_questions, proposed) -> list:
+    """Overlay edits the user made AFTER a proposal was generated onto it.
+    `base` is the core list the model saw; anything in the current list but
+    not in base is a later user addition (carry it over, appended in current
+    order); anything in base but no longer current was user-removed (drop it
+    from the proposal too). The proposal's own key changes (a coach swap:
+    same slot, new key) are untouched. Non-list proposals pass through for
+    _is_valid_questions to reject. Trims coach-introduced items first if the
+    overlay would exceed MAX_CHECKLIST_SIZE — user curation outranks coaching.
+    """
+    if not isinstance(proposed, list) or not isinstance(base, list):
+        return proposed
+    base_keys = {q.get("key") for q in base if isinstance(q, dict)}
+    current_keys = {
+        q.get("key") for q in current_questions if isinstance(q, dict)
+    }
+    removed = base_keys - current_keys
+    result = [
+        q for q in proposed
+        if not (isinstance(q, dict) and q.get("key") in removed)
+    ]
+    result_keys = {q.get("key") for q in result if isinstance(q, dict)}
+    added = [
+        {"key": q["key"], "label": q["label"]}
+        for q in current_questions
+        if isinstance(q, dict)
+        and q.get("key") not in base_keys
+        and q.get("key") not in result_keys
+    ]
+    result += added
+    overflow = len(result) - MAX_CHECKLIST_SIZE
+    if overflow > 0:
+        fresh = [
+            q for q in result
+            if isinstance(q, dict)
+            and q.get("key") not in base_keys and q.get("key") not in current_keys
+        ]
+        for q in reversed(fresh):
+            if overflow <= 0:
+                break
+            result.remove(q)
+            overflow -= 1
+        logger.info("daily.checklist: reconciled proposal trimmed to cap")
+    return result
 
 
 def all_version_keys(version) -> set:
