@@ -825,10 +825,14 @@ def set_item_state(request):
         parent_q = next(q for q in version.questions if q["key"] == parent_key)
         sub_keys = [s["key"] for s in (parent_q.get("items") or [])]
         parent_update = _derive_parent(check_in, parent_key, sub_keys, states)
-    elif not is_bonus and state == DailyCheckInAnswer.STATE_PENDING:
-        # Directly untapping a habit's check clears the whole habit for
-        # today, sub-items included — otherwise a still-done sub would just
-        # re-derive the parent back to done on the next render.
+    elif not is_bonus and state in (
+        DailyCheckInAnswer.STATE_PENDING,
+        DailyCheckInAnswer.STATE_SKIP,
+    ):
+        # Directly untapping OR skipping a habit clears the whole habit for
+        # today, sub-items included. Otherwise a still-done sub would just
+        # re-derive the parent back to done on the next render, silently
+        # overriding the user's explicit un-tap or skip.
         parent_q = next((q for q in version.questions if q["key"] == key), None)
         sub_keys = [s["key"] for s in ((parent_q or {}).get("items") or [])]
         if any(states.get(sk) == "done" for sk in sub_keys):
@@ -1365,8 +1369,14 @@ def win_remove(request):
         win = participant.wins.get(id=body.get("id"))
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    remove_win(win)
-    return JsonResponse({"ok": True})
+    # Deleting the last open stone of a goal that already had progress
+    # completes that goal — surface it the SAME way win_action does, so the
+    # editor can celebrate the summit instead of leaving a stale, empty card.
+    completed_goal = remove_win(win)
+    payload = {"ok": True}
+    if completed_goal is not None:
+        payload["north_star_done"] = {"title": completed_goal.text}
+    return JsonResponse(payload)
 
 
 def _generate_and_append_bonus(participant, version, check_in, states):
@@ -1767,7 +1777,7 @@ def _queue_evening_plan(participant, today, items, model_name="", merge=False):
     for "Morning walk" reorders that habit instead of duplicating it. The
     merged list must NEVER drop an existing habit: at the MAX_CHECKLIST_SIZE
     cap, excess NEW planned items are dropped instead (they were never on the
-    list), and if even the frog is new and can't fit, nothing is queued.
+    list), and if even the lead win is new and can't fit, nothing is queued.
     Sub-items aren't carried here; apply_pending_mutations re-attaches them
     by key at apply time.
 
@@ -1844,16 +1854,18 @@ def _queue_evening_plan(participant, today, items, model_name="", merge=False):
         ]
     ).update(status=CoachSuggestion.STATUS_DISMISSED, responded_at=timezone.now())
 
-    frog = items[0]["label"]
+    lead = items[0]["label"]
     if merge:
         note = (
-            f'Your plan, set last night: "{frog}" comes first. That\'s the frog, '
-            "eat it while you're fresh. The rest of your list is right behind it."
+            f'Your plan, set last night: "{lead}" comes first. That\'s your win '
+            "for today, do it while you're fresh. The rest of your list is right "
+            "behind it."
         )
     else:
         note = (
-            f'Your plan, set last night: "{frog}" comes first. That\'s the frog, '
-            "eat it while you're fresh. The other two are there to back it up."
+            f'Your plan, set last night: "{lead}" comes first. That\'s your win '
+            "for today, do it while you're fresh. The other two are there to back "
+            "it up."
         )
     return CoachSuggestion.objects.create(
         check_in=check_in,

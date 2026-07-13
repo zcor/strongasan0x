@@ -1,6 +1,11 @@
 """Regression tests for the pre-commit review fixes (see REVIEW_FINDINGS.md):
 sub-item preservation through overnight mutations, evening-plan merge (reorder,
-never shrink), the beta gate on beta onboarding, and crisis-regex precision."""
+never shrink), the beta gate on beta onboarding, and crisis-regex precision.
+
+Also covers the Climb beta-review fixes: skip-clears-subitem-done, the
+case-folded label fallback in _merge_subitems, win_remove completing a goal
+via its last open stone (with north_star_done in the response), and the
+win_action 'promote' endpoint."""
 import json
 from datetime import timedelta
 
@@ -13,8 +18,10 @@ from daily.models import (
     CoachSuggestion,
     DailyCheckIn,
     DailyParticipant,
+    WinItem,
 )
 from daily.services.checklist import apply_pending_mutations
+from daily.services.wins import complete_win, create_north_star
 
 
 def _make_participant(**kwargs):
@@ -275,3 +282,245 @@ class CrisisRegexTests(TestCase):
         self.assertTrue(detect_crisis("thinking about cutting my self"))
         # Third-party violence still trips via the abuse pattern.
         self.assertTrue(detect_crisis("he hits me when he's drunk"))
+
+
+class SkipClearsSubItemTests(TestCase):
+    """set_item_state: SKIPPING a core habit with a done sub-item must clear
+    that sub-item too, not just leave it stranded 'done' under a skipped
+    parent (previously only the STATE_PENDING branch did this)."""
+
+    def setUp(self):
+        self.p = DailyParticipant.objects.create(
+            display_name="Tester", kind=DailyParticipant.KIND_EXTERNAL
+        )
+        self.version = ChecklistVersion.objects.create(
+            participant=self.p,
+            questions=[
+                {"key": "q_gym", "label": "Gym", "items": [
+                    {"key": "s_bench", "label": "Bench"},
+                    {"key": "s_squat", "label": "Squat"},
+                ]},
+            ],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        self.c = Client()
+        s = self.c.session
+        s[SESSION_DAILY_PARTICIPANT_ID] = self.p.id
+        s.save()
+
+    def _post(self, url, body):
+        return self.c.post(url, data=json.dumps(body), content_type="application/json")
+
+    def _answer_state(self, key):
+        ci = DailyCheckIn.objects.get(participant=self.p)
+        return ci.answers.get(question_key=key).state
+
+    def test_skip_clears_done_subitem(self):
+        r1 = self._post("/daily/item/", {"key": "s_bench", "state": "done"})
+        self.assertEqual(r1.json()["parent"], {"key": "q_gym", "state": "done"})
+        self.assertEqual(self._answer_state("q_gym"), "done")
+
+        r2 = self._post("/daily/item/", {"key": "q_gym", "state": "skip"})
+        self.assertEqual(r2.status_code, 200)
+        # The sub-item's own answer must be cleared back to pending...
+        self.assertEqual(self._answer_state("s_bench"), "pending")
+
+        # ...so a subsequent render doesn't re-derive the parent back to done.
+        r3 = self.c.get("/daily/checkin/")
+        self.assertEqual(r3.status_code, 200)
+        ci = DailyCheckIn.objects.get(participant=self.p)
+        self.assertEqual(ci.answers.get(question_key="q_gym").state, "skip")
+
+    def test_pending_still_clears_done_subitem(self):
+        # Regression guard: the pre-existing STATE_PENDING-clears-subitems
+        # behavior must still work after adding the SKIP branch.
+        self._post("/daily/item/", {"key": "s_bench", "state": "done"})
+        self.assertEqual(self._answer_state("q_gym"), "done")
+
+        r = self._post("/daily/item/", {"key": "q_gym", "state": "pending"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._answer_state("s_bench"), "pending")
+        self.assertEqual(self._answer_state("q_gym"), "pending")
+
+
+class MergeSubitemsLabelFallbackTests(TestCase):
+    """_merge_subitems (via apply_pending_mutations): when a proposed question
+    renames the key but keeps the label, the sub-item drawer must still be
+    re-attached by a case-folded label match."""
+
+    def setUp(self):
+        self.p = DailyParticipant.objects.create(
+            display_name="Tester", kind=DailyParticipant.KIND_EXTERNAL,
+            beta=True, ai_mutations_enabled=True,
+        )
+        self.today = timezone.localdate()
+        self.version = ChecklistVersion.objects.create(
+            participant=self.p,
+            questions=[
+                {"key": "q_gym", "label": "Gym", "items": [
+                    {"key": "s_bench", "label": "Bench"},
+                    {"key": "s_squat", "label": "Squat"},
+                ]},
+                {"key": "q_water", "label": "Drink water"},
+            ],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+
+    def _queue(self, proposed):
+        ci = DailyCheckIn.objects.create(
+            participant=self.p,
+            date=self.today - timedelta(days=1),
+            checklist_version=self.version,
+        )
+        return CoachSuggestion.objects.create(
+            check_in=ci,
+            suggestion_text="note",
+            proposed_questions=proposed,
+            status=CoachSuggestion.STATUS_PENDING,
+        )
+
+    def test_key_rename_reattaches_subitems_by_exact_label(self):
+        self._queue([
+            {"key": "q_gym2", "label": "Gym"},       # AI renamed the key, same label
+            {"key": "q_water", "label": "Drink water"},
+        ])
+        promoted = apply_pending_mutations(self.p, self.today)
+        self.assertEqual(promoted, 1)
+        current = self.p.checklist_versions.get(is_current=True)
+        by_key = {q["key"]: q for q in current.questions}
+        self.assertNotIn("q_gym", by_key)
+        self.assertIn("q_gym2", by_key)
+        self.assertEqual(
+            [s["key"] for s in by_key["q_gym2"]["items"]], ["s_bench", "s_squat"]
+        )
+
+    def test_key_rename_reattaches_subitems_by_casefolded_label(self):
+        self._queue([
+            {"key": "q_gym3", "label": "  gym "},    # casefold + whitespace variant
+            {"key": "q_water", "label": "Drink water"},
+        ])
+        promoted = apply_pending_mutations(self.p, self.today)
+        self.assertEqual(promoted, 1)
+        current = self.p.checklist_versions.get(is_current=True)
+        by_key = {q["key"]: q for q in current.questions}
+        self.assertIn("q_gym3", by_key)
+        self.assertEqual(
+            [s["key"] for s in by_key["q_gym3"]["items"]], ["s_bench", "s_squat"]
+        )
+
+    def test_genuinely_new_habit_gets_no_items(self):
+        self._queue([
+            {"key": "q_gym", "label": "Gym"},
+            {"key": "q_water", "label": "Drink water"},
+            {"key": "q_new", "label": "Evening walk"},  # no key or label match
+        ])
+        promoted = apply_pending_mutations(self.p, self.today)
+        self.assertEqual(promoted, 1)
+        current = self.p.checklist_versions.get(is_current=True)
+        by_key = {q["key"]: q for q in current.questions}
+        self.assertIn("q_new", by_key)
+        self.assertNotIn("items", by_key["q_new"])
+
+
+class WinRemoveCompletesGoalTests(TestCase):
+    """win_remove: deleting the last OPEN stone of a goal that already has
+    progress (a done/graduated stone) completes the goal, and the JSON
+    response carries north_star_done — mirroring win_action's summit
+    signal so the editor can celebrate instead of showing a stale card."""
+
+    def setUp(self):
+        self.p = DailyParticipant.objects.create(
+            display_name="Tester", kind=DailyParticipant.KIND_EXTERNAL, beta=True
+        )
+        self.c = Client()
+        s = self.c.session
+        s[SESSION_DAILY_PARTICIPANT_ID] = self.p.id
+        s.save()
+
+    def _post(self, url, body):
+        return self.c.post(url, data=json.dumps(body), content_type="application/json")
+
+    def test_remove_last_open_stone_with_progress_completes_goal(self):
+        goal = create_north_star(self.p, "Declutter", ["Closet", "Garage"])
+        s1, s2 = list(goal.stones.order_by("order"))
+        complete_win(s1)  # progress already made on this goal
+
+        r = self._post("/daily/win/remove/", {"id": s2.id})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body.get("north_star_done", {}).get("title"), "Declutter")
+
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, WinItem.STATUS_DONE)
+
+    def test_remove_last_stone_of_untouched_goal_leaves_it_open(self):
+        goal = create_north_star(self.p, "Someday", ["Only step"])
+        (stone,) = list(goal.stones.all())
+
+        r = self._post("/daily/win/remove/", {"id": stone.id})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        self.assertNotIn("north_star_done", body)
+
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, WinItem.STATUS_OPEN)
+
+
+class WinPromoteEndpointTests(TestCase):
+    """win_action action='promote': graduates a one-off win into a recurring
+    habit on the current checklist. Reachable from the UI now; test the
+    endpoint directly, including the checklist-full failure mode."""
+
+    def setUp(self):
+        self.p = DailyParticipant.objects.create(
+            display_name="Tester", kind=DailyParticipant.KIND_EXTERNAL, beta=True
+        )
+        self.c = Client()
+        s = self.c.session
+        s[SESSION_DAILY_PARTICIPANT_ID] = self.p.id
+        s.save()
+
+    def _post(self, url, body):
+        return self.c.post(url, data=json.dumps(body), content_type="application/json")
+
+    def test_promote_graduates_win_into_habit(self):
+        from daily.services.wins import add_win
+
+        win = add_win(self.p, "Stretch every morning")
+        r = self._post("/daily/win/", {"id": win.id, "action": "promote"})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["item"]["core"])
+
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_GRADUATED)
+
+        current = self.p.checklist_versions.get(is_current=True)
+        labels = [q["label"] for q in current.questions]
+        self.assertIn("Stretch every morning", labels)
+
+    def test_promote_when_checklist_full_returns_409_and_does_not_graduate(self):
+        from daily.services.checklist import MAX_CHECKLIST_SIZE
+        from daily.services.wins import add_win
+
+        ChecklistVersion.objects.create(
+            participant=self.p,
+            questions=[
+                {"key": f"q_{i}", "label": f"Habit {i}"}
+                for i in range(MAX_CHECKLIST_SIZE)
+            ],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        win = add_win(self.p, "One more thing")
+        r = self._post("/daily/win/", {"id": win.id, "action": "promote"})
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["error"], "checklist_full")
+
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_OPEN)

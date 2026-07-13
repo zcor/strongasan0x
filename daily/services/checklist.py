@@ -161,25 +161,32 @@ def all_version_keys(version) -> set:
 
 def _merge_subitems(current_questions: List[dict], proposed) -> list:
     """Carry each current question's `items` sub-list onto the proposed
-    question with the same key. A proposal that explicitly ships its own
-    `items` for a key wins; one that omits them (the common engine output)
-    inherits the existing drawer instead of erasing it. Non-list input is
-    returned as-is for _is_valid_questions to reject."""
+    question. A proposal that explicitly ships its own `items` for a key wins;
+    one that omits them (the common engine output) inherits the existing
+    drawer instead of erasing it.
+
+    Match by KEY first, then fall back to (case-folded) LABEL: the overnight
+    engine is allowed to mint a fresh key while keeping a habit's wording, and
+    a key-only match would silently drop that habit's curated sub-items on
+    every such rename. Label fallback reattaches them across the rename. Non-
+    list input is returned as-is for _is_valid_questions to reject."""
     if not isinstance(proposed, list):
         return proposed
-    existing_items = {
-        q.get("key"): q.get("items")
-        for q in current_questions
-        if isinstance(q, dict) and q.get("items")
-    }
+    by_key, by_label = {}, {}
+    for q in current_questions:
+        if isinstance(q, dict) and q.get("items"):
+            if q.get("key"):
+                by_key[q["key"]] = q["items"]
+            if isinstance(q.get("label"), str):
+                by_label[q["label"].strip().casefold()] = q["items"]
     merged = []
     for q in proposed:
-        if (
-            isinstance(q, dict)
-            and "items" not in q
-            and q.get("key") in existing_items
-        ):
-            q = dict(q, items=existing_items[q.get("key")])
+        if isinstance(q, dict) and "items" not in q:
+            items = by_key.get(q.get("key"))
+            if items is None and isinstance(q.get("label"), str):
+                items = by_label.get(q["label"].strip().casefold())
+            if items is not None:
+                q = dict(q, items=items)
         merged.append(q)
     return merged
 
