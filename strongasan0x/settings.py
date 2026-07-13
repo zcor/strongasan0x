@@ -212,3 +212,13 @@ STRAVA_CLIENT_SECRET = config("STRAVA_CLIENT_SECRET", default="")
 VAPID_PUBLIC_KEY = config("VAPID_PUBLIC_KEY", default="")
 VAPID_PRIVATE_KEY = config("VAPID_PRIVATE_KEY", default="")
 VAPID_SUBJECT = config("VAPID_SUBJECT", default="mailto:curvedefi@gmail.com")
+
+# --- Daily ("The Climb") app ---
+# Read by daily/services/ai_coach.py and the Telegram /daily link. These were
+# previously read via getattr(settings, ...) with only a code default, so .env
+# could never override them; wired through config() so the .env keys are live.
+# DAILY_LLM_BACKEND: "" = auto (DeepSeek in prod, claude CLI in DEBUG if present);
+#   "claude_cli" forces the local Claude CLI backend (dev only).
+DAILY_APP_BASE_URL = config("DAILY_APP_BASE_URL", default="https://strongasan0x.com")
+DAILY_LLM_BACKEND = config("DAILY_LLM_BACKEND", default="")
+DAILY_LLM_CLAUDE_CLI_MODEL = config("DAILY_LLM_CLAUDE_CLI_MODEL", default="")
