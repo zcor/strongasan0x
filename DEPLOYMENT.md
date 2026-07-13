@@ -6,11 +6,12 @@
 strongasan0x.com
     |
     v
-[DigitalOcean VPS: leviathan-meatpacking]
+[DigitalOcean VPS — SSH host alias: leviathan-api  (api.leviathannews.xyz)]
     - Apache + mod_wsgi serves the Django web app
     - Discord bot runs here (TODO: confirm)
-    - Path: /var/www/ox/strongasan0x/
-    - Venv: /var/www/ox/strongasan0x/ox-env/
+    - Path: /var/www/ox/strongasan0x/  (repo owner: zcor:webdev)
+    - Venv: /var/www/ox/strongasan0x/ox-env/  (NOT auto-activated; the deploy
+      wrapper calls it by full path)
     |
     v
 [DigitalOcean Managed PostgreSQL]
@@ -53,21 +54,54 @@ This is still used for the Garmin dashboard / weekly attestation generation. It 
 - Runs as a long-lived process (polling mode)
 - Start: `python manage.py run_telegram_bot`
 
+## Source of truth for the `daily/` app
+
+The `daily/` ("The Climb" / Daily) app is developed **directly in this repo**
+(`zcor/strongasan0x`). The separate `zcor/daily-climb` repo was a temporary
+extracted working copy used during the Climb reframe; its work was ported here
+via PRs #45 and #47 and it is being retired as an authoring repo. Do not start
+new `daily/` work in daily-climb: branch here, PR against this repo's `main`,
+merge, deploy. There is no automatic sync between the two repos (they share no
+git history), so anything left in daily-climb must be hand-ported until it is
+fully retired.
+
 ## Deploying Updates
 
-### Web app (server)
+### Web app (server) — the ONLY supported path
+
+Deploy with the vetted root-owned wrapper. One command does everything:
+sync the tree to `origin/main` (hard reset, so the deploy tree must never be
+hand-edited), `pip install`, `migrate --noinput`, sync cron from
+`deploy/crontab.ox`, and restart Apache:
 
 ```bash
-ssh leviathan-meatpacking
-cd /var/www/ox/strongasan0x
-source ox-env/bin/activate
-git pull
-pip install -r requirements.txt    # only if dependencies changed
-python manage.py migrate            # only if there are new migrations
-sudo systemctl restart apache2
+ssh leviathan-api "sudo -n /opt/ox/deploy/ox-deploy"
 ```
 
+Notes:
+- **Merge to `main` first.** The wrapper deploys `origin/main`, not a branch or
+  a dirty tree. Workflow: branch, PR, wait for CI green, `gh pr merge`, deploy.
+- Migrations run automatically inside the wrapper. There is no separate manual
+  `migrate` step and no `source ox-env/bin/activate` (the wrapper invokes the
+  venv Python by full path as the repo owner `zcor`).
+- Do NOT `git pull` / edit files directly in `/var/www/ox/strongasan0x` — the
+  wrapper's `git reset --hard origin/main` will discard any local changes.
+
+Run one allowlisted management command on demand (badges, backfills, overnight
+coach, participant pre-build, set_beta):
+
+```bash
+ssh leviathan-api "sudo -n /opt/ox/deploy/ox-run <command> [args]"
+```
+
+The `ox-run` allowlist is baked into `/opt/ox/deploy/ox-run`. Adding a command
+means editing `deploy/wrappers/ox-deploy-setup.sh` AND re-running that setup
+script as root on the box (`sudo bash .../ox-deploy-setup.sh`) — a plain deploy
+does not refresh the wrapper.
+
 ### Telegram bot (Mac Mini)
+
+The Telegram bot runs on the Mac Mini, separate from the server deploy:
 
 ```bash
 cd ~/dev/ox/strongasan0x
@@ -77,20 +111,6 @@ pip install -r requirements.txt    # only if dependencies changed
 python manage.py migrate            # only if there are new migrations
 # Stop the running bot (Ctrl+C or kill the process), then:
 python manage.py run_telegram_bot
-```
-
-### Quick deploy (no dependency or migration changes)
-
-Server:
-```bash
-ssh leviathan-meatpacking
-cd /var/www/ox/strongasan0x && git pull && sudo systemctl restart apache2
-```
-
-Mac Mini:
-```bash
-cd ~/dev/ox/strongasan0x && git pull
-# Restart the Telegram bot
 ```
 
 ## Environment Variables
@@ -106,7 +126,8 @@ Key variables that were added during the open-source migration (not in the old d
 - The database is shared between all deployments (web, bots, legacy)
 - Tables use the `rollcall_` prefix (renamed from `garmin_data_` during open-source migration)
 - The legacy `0xfitness` deployment still expects `garmin_data_` prefixed tables, so if you remove the legacy deployment, no action needed; if you need to run both simultaneously, the legacy one will break on renamed tables
-- Migrations are managed via Django — always run `python manage.py migrate` after pulling if `showmigrations` shows unapplied migrations
+- Migrations are managed via Django. On the SERVER they run automatically inside `ox-deploy` (no manual step). On the Mac Mini bot checkout, run `python manage.py migrate` after pulling if `showmigrations` shows unapplied migrations.
+- Current daily-app schema head: `0015_dailycheckinanswer_derived` (0012–0015 applied in prod as of the Climb beta deploy). There is no 0016.
 
 ## Troubleshooting
 
