@@ -60,9 +60,42 @@ class Command(BaseCommand):
                             help="Report what would happen; change nothing.")
         parser.add_argument("--mapping", type=int, default=None,
                             help="Only this TelegramUserMapping id (testing).")
+        parser.add_argument("--beta", type=str, default=None, metavar="NAME",
+                            help="Flip the Climb `beta` flag ON for the participant "
+                                 "with this display_name (case-insensitive; support-only "
+                                 "Jamie, ai_mutations off). Refuses ambiguous names. "
+                                 "Does the beta flip only, then exits.")
 
     def handle(self, *args, **opts):
         dry = opts["dry_run"]
+
+        # Targeted beta-flip mode: set the Climb `beta` flag on ONE named
+        # participant and exit. Lives here (not a separate command) so it rides
+        # the existing ox-run allowlist for provision_daily_participants — no new
+        # privileged command, no wrapper re-arm. Safety: exact case-insensitive
+        # name match, refuse >1 match rather than guess.
+        if opts["beta"] is not None:
+            name = opts["beta"].strip()
+            matches = list(DailyParticipant.objects.filter(display_name__iexact=name))
+            if not matches:
+                self.stderr.write(f"No DailyParticipant with display_name '{name}'.")
+                return
+            if len(matches) > 1:
+                ids = ", ".join(str(p.id) for p in matches)
+                self.stderr.write(f"Ambiguous: {len(matches)} participants named '{name}' "
+                                  f"(ids: {ids}). Refusing to guess.")
+                return
+            p = matches[0]
+            self.stdout.write(f"{p.display_name} (id={p.id}): beta {p.beta} -> True, "
+                              f"ai_mutations_enabled {p.ai_mutations_enabled} -> False")
+            if dry:
+                self.stdout.write("dry-run: no change saved.")
+                return
+            p.beta = True
+            p.ai_mutations_enabled = False
+            p.save(update_fields=["beta", "ai_mutations_enabled", "updated_at"])
+            self.stdout.write(self.style.SUCCESS("saved."))
+            return
 
         # FIRST, protect every EXISTING engaged user (warrior OR external) from
         # the naked-user onboarding. Onboarding replaces a participant's current
