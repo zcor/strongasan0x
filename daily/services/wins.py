@@ -3,10 +3,9 @@ Wins backlog: the positive face of a put-off thing (see
 daily/CLIMB_REFRAME_PLAN.md sections 2b / 2c). Beta-only.
 
 The backlog is a pile of WinItem rows that is NEVER rendered all at once, or
-even counted, on the daily surface. Exactly ONE open item is "surfaced" as
-today's win at a time (surface-one). "Not today" defers (back to the pile,
-surface a different one), never deletes. A win that starts sticking can
-graduate into a recurring habit.
+even counted, on the daily surface. The user explicitly selects at most one
+open leaf as Today's Win. "Not today" returns it to the pile, never deletes it.
+A win that starts sticking can graduate into a recurring habit.
 
 Every function here scopes strictly to the passed participant — the single-user
 authorization invariant (see plan section 8a). Callers must pass a participant
@@ -19,7 +18,7 @@ from datetime import date as date_cls, timedelta
 from typing import List, Optional, Tuple
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from ..models import DailyParticipant, WinItem
@@ -36,38 +35,49 @@ MAX_WINS_BACKLOG = 200
 
 
 def get_todays_win(participant: DailyParticipant, today: date_cls) -> Optional[WinItem]:
-    """Return the WinItem surfaced as today's win, surfacing the next eligible
-    one if none is yet. Resting state is strictly ONE item (or None when the
-    pile is empty or everything open was deferred today). Idempotent per day.
+    """Return the leaf the user explicitly selected as today's win.
 
-    Selection rule (v1): user-ordered — the lowest-order open item not already
-    deferred today. Jamie suggests but does not impose; a swap ("Not today")
-    cycles to the next.
-
-    Only LEAVES are ever surfaced: a standalone win or a north star's next open
-    stepping stone. A north star (is_goal=True) is never surfaced on its own; it
-    completes when its last stone is done (see complete_win).
+    Nothing is auto-selected from the backlog. A standalone win or north-star
+    step only reaches the daily card through ``select_todays_win``.
     """
-    surfaced = participant.wins.filter(
+    return participant.wins.filter(
         status=WinItem.STATUS_OPEN, is_goal=False, surfaced_on=today
     ).select_related("parent").order_by("order", "created_at").first()
-    if surfaced is not None:
-        return surfaced
 
+
+def select_todays_win(
+    participant: DailyParticipant, win: WinItem, today: date_cls
+) -> WinItem:
+    """Make ``win`` the participant's one explicit selection for ``today``."""
     with transaction.atomic():
-        nxt = (
-            participant.wins.select_for_update(of=("self",))
-            .select_related("parent")
-            .filter(status=WinItem.STATUS_OPEN, is_goal=False)
-            .exclude(deferred_on=today)
-            .order_by("order", "created_at")
-            .first()
+        participant.wins.select_for_update().filter(
+            status=WinItem.STATUS_OPEN, is_goal=False, surfaced_on=today
+        ).exclude(id=win.id).update(surfaced_on=None)
+        # Do not join the optional parent while locking. PostgreSQL rejects
+        # FOR UPDATE on the nullable side of the LEFT OUTER JOIN, which made
+        # selecting a standalone one-off fail even though no parent is needed
+        # for this mutation.
+        selected = participant.wins.select_for_update().get(
+            id=win.id, status=WinItem.STATUS_OPEN, is_goal=False
         )
-        if nxt is None:
-            return None
-        nxt.surfaced_on = today
-        nxt.save(update_fields=["surfaced_on"])
-        return nxt
+        selected.surfaced_on = today
+        if selected.deferred_on == today:
+            selected.deferred_on = None
+            selected.save(update_fields=["surfaced_on", "deferred_on"])
+        else:
+            selected.save(update_fields=["surfaced_on"])
+    return selected
+
+
+def get_completed_todays_win(
+    participant: DailyParticipant, today: date_cls
+) -> Optional[WinItem]:
+    """Return the most recently checked-off featured win for ``today``."""
+    return participant.wins.filter(
+        status=WinItem.STATUS_DONE,
+        is_goal=False,
+        surfaced_on=today,
+    ).select_related("parent").order_by("-done_at", "-created_at").first()
 
 
 def add_win(participant: DailyParticipant, text: str) -> Optional[WinItem]:
@@ -89,41 +99,84 @@ def add_win(participant: DailyParticipant, text: str) -> Optional[WinItem]:
     )
 
 
-def complete_win(win: WinItem) -> Tuple[WinItem, Optional[WinItem]]:
-    """Mark a win done. This is the whole point — a put-off thing knocked down.
+def complete_win(
+    win: WinItem, featured_on: Optional[date_cls] = None
+) -> Tuple[WinItem, Optional[WinItem]]:
+    """Check off a standalone win or north-star step.
 
-    Returns (win, completed_goal). When the win is the LAST open stone of a
-    north star, that north star is completed too and returned as the second
-    element (else None) — the summit moment the daily surface celebrates and the
-    week strip stars.
+    The parent north star deliberately remains open after its last step. The
+    user finishes that group explicitly with ``complete_goal`` once every step
+    is checked. The second tuple value remains for backwards-compatible callers
+    and is always ``None``.
     """
     now = timezone.now()
     with transaction.atomic():
         win.status = WinItem.STATUS_DONE
         win.done_at = now
-        win.surfaced_on = None
+        # A featured completion retains the selection date. An arbitrary step
+        # checked in the editor remains unsurfaced and never earns a week star.
+        win.surfaced_on = featured_on
         win.save(update_fields=["status", "done_at", "surfaced_on"])
-        completed_goal = _maybe_complete_parent(win, now)
-    return win, completed_goal
+    return win, None
 
 
-def _maybe_complete_parent(win: WinItem, now) -> Optional[WinItem]:
-    """If `win` was the LAST open stone of its north star, complete the star
-    and return it (else None). Must run inside the transaction that already
-    closed `win` (done OR graduated) — every path that removes a stone from
-    the open set (complete_win, promote_to_habit) must call this, or the
-    goal is stranded permanently OPEN with nothing left to surface."""
-    if not win.parent_id:
-        return None
-    goal = WinItem.objects.select_for_update().get(id=win.parent_id)
-    more_open = goal.stones.filter(status=WinItem.STATUS_OPEN).exists()
-    if goal.status != WinItem.STATUS_OPEN or more_open:
-        return None
-    goal.status = WinItem.STATUS_DONE
-    goal.done_at = now
-    goal.surfaced_on = None
-    goal.save(update_fields=["status", "done_at", "surfaced_on"])
-    return goal
+def uncomplete_win(win: WinItem, today: date_cls) -> WinItem:
+    """Reopen a checked North Star step.
+
+    If it was the selected win completed today, restore it to today's card.
+    Older selection dates are cleared along with their completed state.
+    """
+    with transaction.atomic():
+        restore_today = win.surfaced_on == today
+        win.status = WinItem.STATUS_OPEN
+        win.done_at = None
+        win.surfaced_on = today if restore_today else None
+        win.save(update_fields=["status", "done_at", "surfaced_on"])
+    return win
+
+
+def complete_goal(goal: WinItem) -> Optional[WinItem]:
+    """Complete a north star once it has steps and none remain unchecked."""
+    with transaction.atomic():
+        locked = WinItem.objects.select_for_update().get(id=goal.id, is_goal=True)
+        if locked.status != WinItem.STATUS_OPEN:
+            return None
+        stones = locked.stones.all()
+        if not stones.exists() or stones.filter(status=WinItem.STATUS_OPEN).exists():
+            return None
+        locked.status = WinItem.STATUS_DONE
+        locked.done_at = timezone.now()
+        locked.surfaced_on = None
+        locked.save(update_fields=["status", "done_at", "surfaced_on"])
+    return locked
+
+
+def archive_goal(goal: WinItem) -> WinItem:
+    """Move an active North Star out of Working toward without deleting it."""
+    with transaction.atomic():
+        locked = WinItem.objects.select_for_update().get(
+            id=goal.id, is_goal=True, status=WinItem.STATUS_OPEN
+        )
+        locked.status = WinItem.STATUS_ARCHIVED
+        locked.done_at = None
+        locked.surfaced_on = None
+        locked.save(update_fields=["status", "done_at", "surfaced_on"])
+        # An open selected step cannot remain on today's card after its parent
+        # leaves active work. Completed steps retain their historical dates.
+        locked.stones.filter(status=WinItem.STATUS_OPEN).update(surfaced_on=None)
+    return locked
+
+
+def restore_goal(goal: WinItem) -> WinItem:
+    """Return an archived North Star to Working toward with steps intact."""
+    with transaction.atomic():
+        locked = WinItem.objects.select_for_update().get(
+            id=goal.id, is_goal=True, status=WinItem.STATUS_ARCHIVED
+        )
+        locked.status = WinItem.STATUS_OPEN
+        locked.done_at = None
+        locked.save(update_fields=["status", "done_at"])
+    return locked
 
 
 def create_north_star(
@@ -132,8 +185,7 @@ def create_north_star(
     """Create a north star (the big scope) that owns an ordered ladder of
     stepping stones. Returns the goal WinItem, or None on empty input / at cap.
 
-    The goal itself is never surfaced; its stones are appended to the pile like
-    ordinary leaves, so surface-one walks them one per day.
+    The goal itself is never surfaced; its stones are selectable leaves.
     """
     goal_text = (goal_text or "").strip()[:200]
     stones = [s.strip()[:200] for s in (stone_texts or []) if s and s.strip()]
@@ -164,7 +216,7 @@ def add_stone(participant: DailyParticipant, goal: WinItem, text: str) -> Option
     text = (text or "").strip()[:200]
     if not text or not goal.is_goal:
         return None
-    if goal.stones.filter(status=WinItem.STATUS_OPEN).count() >= MAX_STONES_PER_GOAL:
+    if goal.stones.count() >= MAX_STONES_PER_GOAL:
         logger.warning("daily.wins: stone cap reached on goal %s", goal.id)
         return None
     with transaction.atomic():
@@ -183,49 +235,138 @@ def add_stone(participant: DailyParticipant, goal: WinItem, text: str) -> Option
 def remove_win(win: WinItem) -> Optional[WinItem]:
     """Delete a win. Removing a north star cascades to its stones (FK CASCADE).
 
-    Deleting a STONE removes it from the open set, so the parent goal must be
-    re-checked (the _maybe_complete_parent invariant) — but only a goal with
-    at least one done/graduated stone completes; deleting every stone of an
-    untouched goal leaves it OPEN (the user can add fresh stones in the
-    editor), it doesn't fake an achievement. Returns the completed goal or
-    None, same contract as complete_win's second element.
+    Removing a step never completes its parent. Even when no unchecked steps
+    remain, the north star waits for the user's explicit Complete action.
     """
     with transaction.atomic():
-        win.delete()  # clears pk; parent_id survives for the check below
-        if not win.parent_id:
-            return None
-        had_progress = WinItem.objects.filter(parent_id=win.parent_id).exclude(
-            status=WinItem.STATUS_OPEN
-        ).exists()
-        if not had_progress:
-            return None
-        return _maybe_complete_parent(win, timezone.now())
+        win.delete()
+    return None
 
 
 def list_backlog(participant: DailyParticipant):
     """Everything for the editor ("your list" door): north stars with their
     stones, plus standalone one-off wins. The ONLY place size/counts are shown.
 
-    Returns {"goals": [{"goal": WinItem, "stones": [WinItem, ...]}, ...],
-             "singles": [WinItem, ...]} — open items only.
+    Returns open goals with all their steps (including crossed-off ones), plus
+    open standalone wins.
     """
-    open_wins = list(
-        participant.wins.filter(status=WinItem.STATUS_OPEN).order_by("order", "created_at")
+    # One query supplies the complete active editor plus the two group-status
+    # flags. Avoid five WAN round trips (goals, stones, singles, achieved,
+    # archived) when the web app is talking to managed PostgreSQL.
+    rows = list(
+        participant.wins.filter(
+            Q(parent__isnull=True, status=WinItem.STATUS_OPEN)
+            | Q(parent__status=WinItem.STATUS_OPEN)
+            | Q(
+                is_goal=True,
+                status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
+            )
+        )
+        .select_related("parent")
+        .order_by("order", "created_at")
     )
-    goals = [w for w in open_wins if w.is_goal]
-    stones_by_goal = {}
-    singles = []
-    for w in open_wins:
-        if w.is_goal:
-            continue
-        if w.parent_id:
-            stones_by_goal.setdefault(w.parent_id, []).append(w)
-        else:
-            singles.append(w)
+    goals = [
+        row for row in rows
+        if row.is_goal and row.status == WinItem.STATUS_OPEN
+    ]
+    stones_by_goal = {g.id: [] for g in goals}
+    for stone in rows:
+        if stone.parent_id in stones_by_goal:
+            stones_by_goal[stone.parent_id].append(stone)
+    singles = [
+        row for row in rows
+        if (
+            row.status == WinItem.STATUS_OPEN
+            and not row.is_goal
+            and row.parent_id is None
+        )
+    ]
     return {
-        "goals": [{"goal": g, "stones": stones_by_goal.get(g.id, [])} for g in goals],
+        "goals": [
+            {
+                "goal": g,
+                "stones": stones_by_goal[g.id],
+                "open_count": sum(
+                    s.status == WinItem.STATUS_OPEN for s in stones_by_goal[g.id]
+                ),
+                "can_complete": bool(stones_by_goal[g.id]) and all(
+                    s.status != WinItem.STATUS_OPEN for s in stones_by_goal[g.id]
+                ),
+            }
+            for g in goals
+        ],
         "singles": singles,
+        "has_achieved": any(
+            row.is_goal and row.status == WinItem.STATUS_DONE for row in rows
+        ),
+        "has_archived": any(
+            row.is_goal and row.status == WinItem.STATUS_ARCHIVED for row in rows
+        ),
     }
+
+
+def get_dashboard_wins(
+    participant: DailyParticipant,
+    start: date_cls,
+    today: date_cls,
+):
+    """Load the week-strip win markers and today's card state in one query.
+
+    The full backlog belongs to the lazy wins dialog and is intentionally not
+    pulled into the dashboard's critical render path.
+    """
+    rows = list(
+        participant.wins.filter(
+            Q(
+                status=WinItem.STATUS_OPEN,
+                is_goal=False,
+                surfaced_on=today,
+            )
+            | Q(
+                status=WinItem.STATUS_DONE,
+                is_goal=False,
+                surfaced_on__gte=start,
+                surfaced_on__lte=today,
+            )
+        )
+        .select_related("parent")
+        .order_by("order", "created_at")
+    )
+    selected = next(
+        (row for row in rows if row.status == WinItem.STATUS_OPEN),
+        None,
+    )
+    completed_rows = [
+        row
+        for row in rows
+        if row.status == WinItem.STATUS_DONE and row.surfaced_on == today
+    ]
+    completed = max(
+        completed_rows,
+        key=lambda row: (row.done_at is not None, row.done_at, row.created_at),
+        default=None,
+    )
+    return {
+        "selected": selected,
+        "completed": completed,
+        "done_dates": {
+            row.surfaced_on
+            for row in rows
+            if row.status == WinItem.STATUS_DONE and row.surfaced_on is not None
+        },
+    }
+
+
+def todays_win_done_dates(
+    participant: DailyParticipant, start: date_cls, end: date_cls
+):
+    """Dates whose explicit Today's Win was checked off."""
+    return set(participant.wins.filter(
+        is_goal=False,
+        status=WinItem.STATUS_DONE,
+        surfaced_on__gte=start,
+        surfaced_on__lte=end,
+    ).values_list("surfaced_on", flat=True))
 
 
 def north_star_done_dates(participant: DailyParticipant, start: date_cls, end: date_cls):
@@ -251,8 +392,7 @@ def north_star_done_dates(participant: DailyParticipant, start: date_cls, end: d
 
 
 def defer_win(win: WinItem, today: date_cls) -> WinItem:
-    """"Not today": send the surfaced item back to the pile and mark it deferred
-    today so surface-one picks a different one. Never punished, never deleted."""
+    """"Not today": return the selected item to the pile without replacing it."""
     win.surfaced_on = None
     win.deferred_on = today
     win.defer_count = (win.defer_count or 0) + 1
@@ -263,10 +403,9 @@ def defer_win(win: WinItem, today: date_cls) -> WinItem:
 def promote_to_habit(win: WinItem, participant: DailyParticipant):
     """A win that has started sticking graduates into a recurring habit (plan
     section 1a). Appends it to the current checklist and marks the win
-    graduated. Returns (item, completed_goal): the new habit item dict plus
-    the win's north star if graduating its last open stone completed it
-    (same summit semantics as complete_win). (None, None) if the checklist
-    is full. Caller owns the label -> habit wording.
+    graduated. The parent north star remains open for the user's explicit
+    Complete action. Returns (item, None), or (None, None) if the checklist is
+    full. Caller owns the label -> habit wording.
     """
     from .checklist import MAX_CHECKLIST_SIZE, all_version_keys
     from ..models import ChecklistVersion
@@ -285,5 +424,4 @@ def promote_to_habit(win: WinItem, participant: DailyParticipant):
         win.status = WinItem.STATUS_GRADUATED
         win.surfaced_on = None
         win.save(update_fields=["status", "surfaced_on"])
-        completed_goal = _maybe_complete_parent(win, timezone.now())
-    return item, completed_goal
+    return item, None

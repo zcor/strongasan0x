@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -50,9 +51,11 @@ from .services.checklist import (
     MAX_CHECKLIST_SIZE,
     all_version_keys,
     apply_pending_mutations,
+    dismiss_pending_mutations,
     revert_to_baseline,
 )
 from .services.coach_runner import coach_prior_day, run_coach
+from .services.streaks import current_streak, refresh_streak_cache
 from .services.tz import participant_today
 
 logger = logging.getLogger(__name__)
@@ -129,7 +132,10 @@ def _is_beta(request, participant) -> bool:
     return bool(getattr(participant, "beta", False))
 
 
-def _dev_qr(request, participant):
+_ACTIVE_TOKEN_UNSET = object()
+
+
+def _dev_qr(request, participant, active_token=_ACTIVE_TOKEN_UNSET):
     """LOCAL DEV only: a scannable QR that opens THIS app on a phone over the
     LAN (token URL, gate auto-skipped by DEBUG, beta on). Returns
     {"url","svg","ip"} or None. Never runs outside DEBUG; degrades to None if
@@ -150,7 +156,11 @@ def _dev_qr(request, participant):
         import segno
     except ImportError:
         return None
-    tok = _active_token(participant)
+    tok = (
+        _active_token(participant)
+        if active_token is _ACTIVE_TOKEN_UNSET
+        else active_token
+    )
     if not tok:
         return None
     # Best-effort primary LAN IP (no packets actually sent by the UDP connect).
@@ -270,6 +280,7 @@ def _morning_note(participant: DailyParticipant, today: date):
             check_in__date__lt=today,
         )
         .exclude(status=CoachSuggestion.STATUS_DISMISSED)
+        .select_related("applied_version__derived_from")
         .order_by("-created_at")
     )
     note = qs.first()
@@ -309,71 +320,6 @@ def _get_or_create_today(participant: DailyParticipant, today: date, version: Ch
         defaults={"checklist_version": version, "source": DailyCheckIn.SOURCE_WEB},
     )
     return check_in
-
-
-# The streak bar SELF-CALIBRATES to each user (persona principle): it should
-# require roughly what THAT person reliably does, so it stays meaningful for a
-# power user (Spencer does ~5/day → his streak demands real effort) without
-# punishing a beginner (Amy just shows up → showing up IS her streak).
-#
-# Floor = 1 so the lowest-engagement users keep a streak simply by using the
-# app daily. Cap = 3 so the bar never exceeds a full core sweep (the core is 3).
-STREAK_FLOOR = 1
-STREAK_CAP = 3
-
-
-def _day_done_count(ci: DailyCheckIn) -> int:
-    """Items done that day, counting BOTH core and bonus."""
-    return sum(1 for a in ci.answers.all() if a.state == DailyCheckInAnswer.STATE_DONE)
-
-
-def _streak_bar(done_counts: list) -> int:
-    """The per-user threshold: what this person reliably hits on a normal day.
-    Use the MEDIAN of their recent daily done-counts (robust to one big/zero
-    day), clamped to [FLOOR, CAP]. A user who routinely sweeps all 3 gets a bar
-    of 3; one who routinely does 1-2 gets a bar of 1-2."""
-    if not done_counts:
-        return STREAK_FLOOR
-    s = sorted(done_counts)
-    median = s[len(s) // 2]
-    return max(STREAK_FLOOR, min(STREAK_CAP, median))
-
-
-def _current_streak(participant: DailyParticipant, today: date) -> int:
-    """Consecutive days (back from today, or yesterday if today isn't done yet)
-    where the user hit THEIR OWN bar. An unfinished today does NOT break a
-    streak that was alive yesterday."""
-    recent = {
-        ci.date: ci
-        for ci in DailyCheckIn.objects.filter(
-            participant=participant, date__lte=today, date__gte=today - timedelta(days=400)
-        ).select_related("checklist_version").prefetch_related("answers")
-    }
-    if not recent:
-        return 0
-
-    # Calibrate the bar from the user's recent ENGAGED days (last ~21 with any
-    # activity) — so a string of zeros before they joined doesn't drag it down.
-    recent_counts = [
-        _day_done_count(ci)
-        for d, ci in sorted(recent.items(), reverse=True)
-        if _day_done_count(ci) > 0
-    ][:21]
-    bar = _streak_bar(recent_counts)
-
-    streak = 0
-    d = today
-    today_ci = recent.get(today)
-    if not (today_ci and _day_done_count(today_ci) >= bar):
-        d = today - timedelta(days=1)   # don't punish an in-progress today
-    while True:
-        ci = recent.get(d)
-        if ci is not None and _day_done_count(ci) >= bar:
-            streak += 1
-            d -= timedelta(days=1)
-        else:
-            break
-    return streak
 
 
 def _needs_onboarding(participant) -> bool:
@@ -429,7 +375,7 @@ def _render_checkin(request, from_token=""):
     if settings.DEBUG:
         if request.GET.get("devreset") == "1":
             for _k in ("daily_beta_override", "daily_qr_hidden", "daily_gate_forced",
-                       "daily_streak_forced"):
+                       "daily_streak_forced", "daily_notification_preview"):
                 request.session.pop(_k, None)
         _g = request.GET.get("gate")
         if _g == "1":
@@ -441,6 +387,11 @@ def _render_checkin(request, from_token=""):
             request.session["daily_streak_forced"] = True
         elif _s == "0":
             request.session.pop("daily_streak_forced", None)
+        _n = request.GET.get("notification_preview")
+        if _n == "1":
+            request.session["daily_notification_preview"] = True
+        elif _n == "0":
+            request.session.pop("daily_notification_preview", None)
     today = _resolve_today(request)
     backfill = _is_backfill(request)
     is_beta = _is_beta(request, participant)
@@ -485,7 +436,25 @@ def _render_checkin(request, from_token=""):
             logger.info("daily.checkin: applied %d pending mutations for %s", applied, participant)
 
     current_version = participant.get_or_create_current_checklist()
-    existing = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    # The visible page only needs today plus the six preceding circles. Long
+    # streak history is maintained as compact persisted rollups on answer
+    # writes, rather than loading full historical objects on every dashboard.
+    history_start = today - timedelta(days=6)
+    active_suggestions = CoachSuggestion.objects.filter(
+        check_in_id=OuterRef("pk")
+    ).exclude(status=CoachSuggestion.STATUS_DISMISSED)
+    recent_checkins = {
+        check_in.date: check_in
+        for check_in in DailyCheckIn.objects.filter(
+            participant=participant,
+            date__gte=history_start,
+            date__lte=today,
+        )
+        .select_related("checklist_version")
+        .annotate(has_active_suggestion=Exists(active_suggestions))
+        .prefetch_related("answers")
+    }
+    existing = recent_checkins.get(today)
     states = existing.answers_by_key() if existing else {}
 
     # A past day renders with the checklist it actually had that day.
@@ -493,21 +462,11 @@ def _render_checkin(request, from_token=""):
 
     note = None
     note_core_changed = False
-    if not backfill:
-        if not run_engine:
-            # Support-only Jamie never rewrites the list, so a queued mutation
-            # (a pre-beta overnight suggestion, a leftover evening plan) must
-            # not linger: its note would claim a change that never happened,
-            # and a weeks-stale plan would silently fire if mutations were
-            # ever re-enabled. Dismiss them outright; plain notes still show.
-            CoachSuggestion.objects.filter(
-                check_in__participant=participant,
-                proposed_questions__isnull=False,
-                status=CoachSuggestion.STATUS_PENDING,
-            ).update(
-                status=CoachSuggestion.STATUS_DISMISSED,
-                responded_at=timezone.now(),
-            )
+    # The beta UI only shows coach notes inside its chat sheet, so resolving
+    # and marking a note here would put chat work back on the dashboard's
+    # critical path. The lazy chat_history endpoint does it on first open.
+    # Legacy still needs the note immediately for its load modal.
+    if not backfill and not is_beta:
         note = _morning_note(participant, today)
         if note and note.status == CoachSuggestion.STATUS_PENDING:
             note.status = CoachSuggestion.STATUS_SHOWN
@@ -520,18 +479,20 @@ def _render_checkin(request, from_token=""):
 
     # The morning note becomes the first coach CHAT message of the day, so it
     # lives in the conversation thread (not a separate card). Seed it once.
-    from .models import CoachChatMessage
     chat_history = []
     chat_unread = False
-    if not backfill:
-        if note and not CoachChatMessage.objects.filter(suggestion=note).exists():
-            CoachChatMessage.objects.create(
+    if not backfill and not is_beta:
+        from .models import CoachChatMessage
+        chat_messages = _chat_history(participant)
+        if note and not any(message.suggestion_id == note.id for message in chat_messages):
+            seeded_message = CoachChatMessage.objects.create(
                 participant=participant, role=CoachChatMessage.ROLE_COACH,
                 text=note.suggestion_text, date=today, suggestion=note,
             )
+            chat_messages.append(seeded_message)
         chat_history = [
             {"role": m.role, "text": m.text, "at": m.created_at.strftime("%-I:%M %p")}
-            for m in _chat_history(participant)
+            for m in chat_messages
         ]
         # "Unread" = the most recent message is from the coach (a fresh note or
         # a reply the user hasn't opened the chat to see). Drives the FAB dot
@@ -586,8 +547,14 @@ def _render_checkin(request, from_token=""):
 
     # First-run intro: shown until the participant has marked anything, ever.
     # ?intro=1 force-shows it on demand (preview the onboarding anytime).
-    first_visit = not DailyCheckInAnswer.objects.filter(
-        check_in__participant=participant
+    has_recent_activity = any(
+        answer.state != DailyCheckInAnswer.STATE_PENDING
+        for check_in in recent_checkins.values()
+        for answer in check_in.answers.all()
+    )
+    first_visit = not has_recent_activity and not DailyCheckInAnswer.objects.filter(
+        check_in__participant=participant,
+        check_in__date__lt=history_start,
     ).exclude(state=DailyCheckInAnswer.STATE_PENDING).exists()
     if request.GET.get("intro") == "1":
         first_visit = True
@@ -600,29 +567,24 @@ def _render_checkin(request, from_token=""):
 
     # Wrapped: today already has a sealed coach reflection (via the
     # "Wrap up my day" button).
-    wrapped = existing is not None and existing.suggestions.exclude(
-        status=CoachSuggestion.STATUS_DISMISSED
-    ).exists()
+    wrapped = bool(existing and existing.has_active_suggestion)
 
     # Last 7 days (oldest → today) for the week strip. Each day scored
     # against the checklist version that was active THAT day.
     week = []
-    by_date = {
-        ci.date: ci for ci in DailyCheckIn.objects.filter(
-            participant=participant,
-            date__gte=today - timedelta(days=6),
-            date__lte=today,
-        ).select_related("checklist_version").prefetch_related("answers")
-    }
+    by_date = recent_checkins
     MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
     real_today = _real_today(request)
-    # Beta: days a whole north star was finished get a gold star in the ring
-    # (the arc still carries habits). Rare and earned; usually the empty set.
+    # Beta: a gold star marks only a checked-off, explicitly selected daily win.
+    dashboard_wins = None
     if is_beta:
-        from .services.wins import north_star_done_dates
-        ns_days = north_star_done_dates(participant, today - timedelta(days=6), today)
+        from .services.wins import get_dashboard_wins
+        dashboard_wins = get_dashboard_wins(
+            participant, today - timedelta(days=6), today
+        )
+        win_days = dashboard_wins["done_dates"]
     else:
-        ns_days = set()
+        win_days = set()
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         ci = by_date.get(d)
@@ -634,12 +596,13 @@ def _render_checkin(request, from_token=""):
             "total": total,
             "offset": round(MINI_C * (1 - done / total), 1) if total else MINI_C,
             "is_today": d == today,
-            # A north star landed this day → gold star in the center of the ring.
-            "north_star": d in ns_days,
+            # A selected Today's Win was checked off on this day.
+            "todays_win_done": d in win_days,
             # Tap a past day to backfill it; today links back to the plain page.
             "href": "/daily/checkin/" if d == real_today else f"/daily/checkin/?day={d.isoformat()}",
         })
 
+    active_token = _active_token(participant)
     context = {
         "participant": participant,
         "today": today,
@@ -671,14 +634,14 @@ def _render_checkin(request, from_token=""):
         # stashing the token in the PWA's localStorage on a successful load, the
         # signed-out page can self-heal by re-hitting the token URL INSIDE the
         # PWA jar (where the cookie then sticks). See daily/templates signed_out.
-        "self_token": str(_active_token(participant) or ""),
+        "self_token": str(active_token or ""),
         # Non-empty ONLY when rendering AT the token URL (/daily/c/<token>/).
         # Drives a per-token <link rel=manifest> whose start_url is the token
         # URL, so an iOS "Add to Home Screen" from here installs a token-bearing
         # icon that cold-launches authenticated in the PWA's own jar.
         "from_token": from_token,
         "done_count": done_count,
-        "streak": _current_streak(participant, today) if not backfill else 0,
+        "streak": current_streak(participant, today) if not backfill else 0,
         "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
         "comment": existing.comment if existing else "",
         "is_baseline": _is_baseline_questions(current_version.questions),
@@ -690,16 +653,20 @@ def _render_checkin(request, from_token=""):
         "beta_toggle": settings.DEBUG,
         # DEV: whether the install/notification gate is force-shown (session).
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
+        "dev_notification_preview": settings.DEBUG and request.session.get("daily_notification_preview", False),
     }
     if is_beta:
         # The combined win + habit screen. Add the wins-facet context; the habit
         # core context above is shared with the frozen path.
-        from .services.wins import get_todays_win
-        todays_win = get_todays_win(participant, today) if not backfill else None
+        todays_win = dashboard_wins["selected"] if dashboard_wins and not backfill else None
+        completed_todays_win = (
+            dashboard_wins["completed"] if dashboard_wins and not backfill else None
+        )
         context["is_beta"] = True
         context["todays_win"] = _win_json(todays_win)
+        context["completed_todays_win"] = _win_json(completed_todays_win)
         context["ai_mutations_enabled"] = participant.ai_mutations_enabled
-        context["dev_qr"] = _dev_qr(request, participant)
+        context["dev_qr"] = _dev_qr(request, participant, active_token)
         # DEV: force-show the streak pill even when the real streak is < 2, so its
         # look can be previewed on a fresh account. Keeps a real streak (>=2)
         # honest; only fabricates a demo number when there's nothing to show.
@@ -713,6 +680,7 @@ def _render_checkin(request, from_token=""):
                 "qr": not request.session.get("daily_qr_hidden", False),
                 "gate": request.session.get("daily_gate_forced", False),
                 "streak": request.session.get("daily_streak_forced", False),
+                "notification_preview": request.session.get("daily_notification_preview", False),
             }
         return render(request, "daily/checkin_beta.html", context)
     context["is_beta"] = False
@@ -846,6 +814,17 @@ def set_item_state(request):
 
     core_keys = version.question_keys()
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
+    # Persist the daily rollup and participant streak after every check,
+    # uncheck, skip, or backfill. This keeps dashboard GETs history-free.
+    refresh_streak_cache(
+        participant,
+        today=_real_today(request),
+        changed_check_in=check_in,
+        done_count=sum(
+            1 for answer_state in states.values()
+            if answer_state == DailyCheckInAnswer.STATE_DONE
+        ),
+    )
 
     # Live drip triggers (never in backfill):
     #  (a) completed a BONUS → refill the pile with a fresh one
@@ -993,8 +972,7 @@ def _generate_core_item(participant, version, check_in):
 @require_http_methods(["POST"])
 def add_item(request):
     """Add a NEW core item to the current checklist, instantly. Body (JSON or
-    form): mode = "custom" (use `label`) | "auto" (AI-suggested). The list has
-    no size cap — the user curates it themselves."""
+    form): mode = "custom" (use `label`) | "auto" (AI-suggested)."""
     participant = request.daily_participant
     today = _resolve_today(request)
     if _is_backfill(request):
@@ -1031,6 +1009,79 @@ def add_item(request):
         defaults={"state": DailyCheckInAnswer.STATE_PENDING},
     )
     return JsonResponse({"ok": True, "item": {**item, "core": True}})
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def edit_item(request):
+    """Rename a core habit without changing its stable key, answer state, or
+    nested detail items. Body (JSON or form): key, label."""
+    participant = request.daily_participant
+    if _is_backfill(request):
+        return JsonResponse({"ok": False, "error": "no_edit_in_backfill"}, status=400)
+
+    body, err = _json_body(request)
+    if err:
+        return err
+    key = str(body.get("key", "")).strip()
+    label = str(body.get("label", "")).strip()[:60]
+    if not label:
+        return JsonResponse({"ok": False, "error": "empty_label"}, status=400)
+
+    version = participant.get_or_create_current_checklist()
+    with transaction.atomic():
+        current = ChecklistVersion.objects.select_for_update().get(id=version.id)
+        if not any(q["key"] == key for q in current.questions):
+            return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+        current.questions = [
+            {**q, "label": label} if q["key"] == key else q
+            for q in current.questions
+        ]
+        current.save(update_fields=["questions"])
+
+    return JsonResponse({"ok": True, "item": {"key": key, "label": label, "core": True}})
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def remove_item(request):
+    """Remove a core habit and its detail items from the current checklist.
+    Today's answers for the removed keys are discarded; older answer rows are
+    kept as historical data. Body (JSON or form): key."""
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    if _is_backfill(request):
+        return JsonResponse({"ok": False, "error": "no_edit_in_backfill"}, status=400)
+
+    body, err = _json_body(request)
+    if err:
+        return err
+    key = str(body.get("key", "")).strip()
+
+    version = participant.get_or_create_current_checklist()
+    check_in = DailyCheckIn.objects.filter(participant=participant, date=today).first()
+    with transaction.atomic():
+        current = ChecklistVersion.objects.select_for_update().get(id=version.id)
+        item = next((q for q in current.questions if q["key"] == key), None)
+        if item is None:
+            return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+        removed_keys = [key] + [s["key"] for s in (item.get("items") or [])]
+        current.questions = [q for q in current.questions if q["key"] != key]
+        current.save(update_fields=["questions"])
+        DailyCheckInAnswer.objects.filter(
+            check_in__participant=participant,
+            check_in__date=today,
+            question_key__in=removed_keys,
+        ).delete()
+
+    if check_in is not None:
+        refresh_streak_cache(
+            participant,
+            today=_real_today(request),
+            changed_check_in=check_in,
+        )
+
+    return JsonResponse({"ok": True, "removed_key": key})
 
 
 @require_daily_actor
@@ -1117,12 +1168,21 @@ def remove_subitem(request):
         parent_update = _derive_parent(
             check_in, parent_key, [s["key"] for s in remaining_subs], states,
         )
+    refresh_streak_cache(
+        participant,
+        today=_real_today(request),
+        changed_check_in=check_in,
+        done_count=sum(
+            1 for answer_state in states.values()
+            if answer_state == DailyCheckInAnswer.STATE_DONE
+        ),
+    )
     return JsonResponse({"ok": True, "parent": parent_update})
 
 
 # ===== Wins backlog (beta) ================================================
 # The positive face of a put-off thing. A pile that is never rendered all at
-# once or counted; surface-one shows a single "today's win." Every endpoint
+# once or counted; the user selects a single "today's win." Every endpoint
 # scopes to request.daily_participant (single-user authorization invariant,
 # plan section 8a) — the win id from the client is validated against the
 # participant's OWN wins, so a foreign id 404s.
@@ -1140,12 +1200,23 @@ def _win_json(win):
     }
 
 
+def _wins_state_json(participant, today):
+    """The complete daily-card state returned by every wins mutation."""
+    from .services.wins import get_completed_todays_win, get_todays_win
+
+    completed_today = get_completed_todays_win(participant, today)
+    return {
+        "next": _win_json(get_todays_win(participant, today)),
+        "completed_today": _win_json(completed_today),
+        "today_has_completed_win": completed_today is not None,
+    }
+
+
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_add(request):
-    """Add a win to the backlog (the user's own words). Beta-only. Returns
-    today's surfaced win afterward so the crown can render immediately."""
-    from .services.wins import add_win, get_todays_win
+    """Add a win to the backlog without auto-selecting it. Beta-only."""
+    from .services.wins import add_win
 
     participant = request.daily_participant
     if not _is_beta(request, participant):
@@ -1160,17 +1231,45 @@ def win_add(request):
     win = add_win(participant, text)
     if win is None:
         return JsonResponse({"ok": False, "error": "empty_or_full"}, status=400)
-    surfaced = get_todays_win(participant, today)
-    return JsonResponse({"ok": True, "win": _win_json(surfaced)})
+    return JsonResponse({
+        "ok": True,
+        "added": _stone_json(win, today),
+        **_wins_state_json(participant, today),
+    })
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_select(request):
+    """Let the user explicitly choose the leaf shown as Today's Win."""
+    from .services.wins import select_todays_win
+
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    try:
+        win = participant.wins.get(
+            id=body.get("id"), status=WinItem.STATUS_OPEN, is_goal=False
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    today = _resolve_today(request)
+    selected = select_todays_win(participant, win, today)
+    return JsonResponse({
+        "ok": True,
+        "selected": _stone_json(selected, today),
+        **_wins_state_json(participant, today),
+    })
 
 
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_action(request):
-    """Act on the surfaced win: `action` in {did_it, not_today, promote}.
-    Returns the NEXT surfaced win (or null) so the crown updates in place.
-    Beta-only. The win id is validated against the participant's own pile."""
-    from .services.wins import complete_win, defer_win, promote_to_habit, get_todays_win
+    """Check off, defer, or promote a participant-owned win leaf."""
+    from .services.wins import complete_win, defer_win, promote_to_habit, uncomplete_win
 
     participant = request.daily_participant
     if not _is_beta(request, participant):
@@ -1184,34 +1283,58 @@ def win_action(request):
     action = str(body.get("action", "")).strip()
 
     try:
-        # is_goal=False: only leaves (standalone wins / stepping stones) can be
-        # acted on. A north star completes via its last stone, never directly —
-        # acting on one here would skip the summit moment.
-        win = participant.wins.get(id=win_id, is_goal=False)
+        if action == "uncheck":
+            # Undo is available only for a checked step whose North Star is
+            # still in Working toward. Graduated habit steps are not undone.
+            win = participant.wins.select_related("parent").get(
+                id=win_id,
+                is_goal=False,
+                status=WinItem.STATUS_DONE,
+                parent__is_goal=True,
+                parent__status=WinItem.STATUS_OPEN,
+            )
+        else:
+            # is_goal=False: only leaves (standalone wins / stepping stones)
+            # can be acted on. A North Star has its own completion endpoint.
+            win = participant.wins.get(
+                id=win_id, is_goal=False, status=WinItem.STATUS_OPEN
+            )
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
     graduated_item = None
-    completed_goal = None
     if action == "did_it":
-        _, completed_goal = complete_win(win)
+        # The daily-card action is valid only for the leaf explicitly selected
+        # today. This is the sole path that earns the week-strip star.
+        if win.surfaced_on != today:
+            return JsonResponse({"ok": False, "error": "not_selected"}, status=409)
+        completed, _ = complete_win(win, featured_on=today)
+    elif action == "check_off":
+        # The editor may check any north-star step. If it is also today's
+        # explicit selection, preserve the same daily-win semantics.
+        featured_on = today if win.surfaced_on == today else None
+        completed, _ = complete_win(win, featured_on=featured_on)
+    elif action == "uncheck":
+        reopened = uncomplete_win(win, today)
     elif action == "not_today":
+        if win.surfaced_on != today:
+            return JsonResponse({"ok": False, "error": "not_selected"}, status=409)
         defer_win(win, today)
     elif action == "promote":
-        graduated_item, completed_goal = promote_to_habit(win, participant)
+        graduated_item, _ = promote_to_habit(win, participant)
         if graduated_item is None:
             return JsonResponse({"ok": False, "error": "checklist_full"}, status=409)
     else:
         return JsonResponse({"ok": False, "error": "bad_action"}, status=400)
 
-    nxt = get_todays_win(participant, today)
-    payload = {"ok": True, "next": _win_json(nxt)}
+    payload = {"ok": True, **_wins_state_json(participant, today)}
+    if action in {"did_it", "check_off"}:
+        payload["completed"] = _stone_json(completed, today)
+        payload["featured_done"] = completed.surfaced_on == today
+    elif action == "uncheck":
+        payload["reopened"] = _stone_json(reopened, today)
     if graduated_item is not None:
         payload["item"] = {**graduated_item, "core": True}
-    # A finished north star: signal the summit so the client celebrates and drops
-    # a gold star on today's ring in the week strip.
-    if completed_goal is not None:
-        payload["north_star_done"] = {"title": completed_goal.text}
     return JsonResponse(payload)
 
 
@@ -1221,8 +1344,14 @@ def win_action(request):
 # page does. All endpoints scope to request.daily_participant.
 
 
-def _stone_json(win):
-    return {"id": win.id, "text": win.text}
+def _stone_json(win, today=None):
+    return {
+        "id": win.id,
+        "text": win.text,
+        "status": win.status,
+        "done": win.status != WinItem.STATUS_OPEN,
+        "selected_today": bool(today and win.surfaced_on == today),
+    }
 
 
 @require_daily_actor
@@ -1236,16 +1365,18 @@ def wins_edit(request):
     if not _is_beta(request, participant):
         return redirect("daily:checkin")
 
+    today = _resolve_today(request)
     backlog = list_backlog(participant)
+    wins_dialog = request.GET.get("fragment") == "1"
     context = {
         "participant": participant,
         "goals": backlog["goals"],   # [{"goal": WinItem, "stones": [WinItem, ...]}]
         "singles": backlog["singles"],
-        # Drives the quiet "Achieved ›" link on the Working-toward card.
-        "has_achieved": participant.wins.filter(
-            is_goal=True, status=WinItem.STATUS_DONE
-        ).exists(),
-        "self_token": str(_active_token(participant) or ""),
+        "today": today,
+        "has_achieved": backlog["has_achieved"],
+        "has_archived": backlog["has_archived"],
+        "wins_dialog": wins_dialog,
+        "self_token": "" if wins_dialog else str(_active_token(participant) or ""),
         "theme": _resolve_theme(request),
         # Same gate controls the check-in uses, so the install/notification gate
         # auto-skips in DEV here too (otherwise base.html traps this page behind
@@ -1253,7 +1384,8 @@ def wins_edit(request):
         "beta_toggle": settings.DEBUG,
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
     }
-    return render(request, "daily/wins_edit.html", context)
+    template = "daily/_wins_editor.html" if wins_dialog else "daily/wins_edit.html"
+    return render(request, template, context)
 
 
 @require_daily_actor
@@ -1284,6 +1416,36 @@ def wins_achieved(request):
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
     }
     return render(request, "daily/wins_achieved.html", context)
+
+
+@require_daily_actor
+@require_http_methods(["GET"])
+def wins_archived(request):
+    """Restorable North Stars removed from active work."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return redirect("daily:checkin")
+
+    goals = list(participant.wins.filter(
+        is_goal=True, status=WinItem.STATUS_ARCHIVED
+    ).order_by("-created_at")[:50])
+    stones_by_goal = {}
+    for stone in participant.wins.filter(parent__in=goals).order_by("order", "created_at"):
+        stones_by_goal.setdefault(stone.parent_id, []).append(stone)
+    wins_dialog = request.GET.get("fragment") == "1"
+    context = {
+        "participant": participant,
+        "archived": [
+            {"goal": goal, "stones": stones_by_goal.get(goal.id, [])}
+            for goal in goals
+        ],
+        "wins_dialog": wins_dialog,
+        "theme": _resolve_theme(request),
+        "beta_toggle": settings.DEBUG,
+        "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
+    }
+    template = "daily/_wins_archived_panel.html" if wins_dialog else "daily/wins_archived.html"
+    return render(request, template, context)
 
 
 def _json_body(request):
@@ -1319,12 +1481,17 @@ def win_goal_add(request):
     goal = create_north_star(participant, goal_text, stones)
     if goal is None:
         return JsonResponse({"ok": False, "error": "empty_or_full"}, status=400)
+    today = _resolve_today(request)
     return JsonResponse({
         "ok": True,
+        **_wins_state_json(participant, today),
         "goal": {
             "id": goal.id,
             "text": goal.text,
-            "stones": [_stone_json(s) for s in goal.stones.order_by("order", "created_at")],
+            "stones": [
+                _stone_json(s, today)
+                for s in goal.stones.order_by("order", "created_at")
+            ],
         },
     })
 
@@ -1349,7 +1516,104 @@ def win_stone_add(request):
     stone = add_stone(participant, goal, str(body.get("text", "")))
     if stone is None:
         return JsonResponse({"ok": False, "error": "empty_or_full"}, status=400)
-    return JsonResponse({"ok": True, "stone": _stone_json(stone)})
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "stone": _stone_json(stone, today),
+        **_wins_state_json(participant, today),
+    })
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_goal_complete(request):
+    """Complete a north star after every one of its steps is checked."""
+    from .services.wins import complete_goal
+
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    try:
+        goal = participant.wins.get(
+            id=body.get("id"), is_goal=True, status=WinItem.STATUS_OPEN
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    completed = complete_goal(goal)
+    if completed is None:
+        return JsonResponse({"ok": False, "error": "steps_remaining"}, status=409)
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "north_star_done": {"id": completed.id, "title": completed.text},
+        **_wins_state_json(participant, today),
+    })
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_goal_archive(request):
+    """Soft-delete an active North Star by moving it to Archived."""
+    from .services.wins import archive_goal
+
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    try:
+        goal = participant.wins.get(
+            id=body.get("id"), is_goal=True, status=WinItem.STATUS_OPEN
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    archived = archive_goal(goal)
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "archived": {"id": archived.id, "title": archived.text},
+        **_wins_state_json(participant, today),
+    })
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_goal_restore(request):
+    """Restore a participant-owned North Star from Archived."""
+    from .services.wins import restore_goal
+
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    try:
+        goal = participant.wins.get(
+            id=body.get("id"), is_goal=True, status=WinItem.STATUS_ARCHIVED
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    restored = restore_goal(goal)
+    if request.content_type != "application/json":
+        return redirect("daily:wins_archived")
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "goal": {
+            "id": restored.id,
+            "text": restored.text,
+            "stones": [
+                _stone_json(stone, today)
+                for stone in restored.stones.order_by("order", "created_at")
+            ],
+        },
+        **_wins_state_json(participant, today),
+    })
 
 
 @require_daily_actor
@@ -1369,14 +1633,9 @@ def win_remove(request):
         win = participant.wins.get(id=body.get("id"))
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    # Deleting the last open stone of a goal that already had progress
-    # completes that goal — surface it the SAME way win_action does, so the
-    # editor can celebrate the summit instead of leaving a stale, empty card.
-    completed_goal = remove_win(win)
-    payload = {"ok": True}
-    if completed_goal is not None:
-        payload["north_star_done"] = {"title": completed_goal.text}
-    return JsonResponse(payload)
+    remove_win(win)
+    today = _resolve_today(request)
+    return JsonResponse({"ok": True, **_wins_state_json(participant, today)})
 
 
 def _generate_and_append_bonus(participant, version, check_in, states):
@@ -1614,6 +1873,49 @@ def _chat_history(participant, limit=40):
     )
     msgs.reverse()
     return msgs
+
+
+@require_daily_actor
+@require_http_methods(["GET"])
+def chat_history(request):
+    """Return the beta coach conversation when the chat sheet first opens.
+
+    Keeping this separate from the dashboard render avoids loading up to 40
+    messages (and resolving the morning note) for visits where chat is never
+    opened. Legacy still renders its conversation server-side.
+    """
+    from .models import CoachChatMessage
+
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    note = _morning_note(participant, today)
+    if note and note.status == CoachSuggestion.STATUS_PENDING:
+        note.status = CoachSuggestion.STATUS_SHOWN
+        note.save(update_fields=["status"])
+
+    messages = _chat_history(participant)
+    if note and not any(message.suggestion_id == note.id for message in messages):
+        messages.append(CoachChatMessage.objects.create(
+            participant=participant,
+            role=CoachChatMessage.ROLE_COACH,
+            text=note.suggestion_text,
+            date=today,
+            suggestion=note,
+        ))
+
+    response = JsonResponse({
+        "ok": True,
+        "messages": [
+            {
+                "role": message.role,
+                "text": message.text,
+                "at": message.created_at.strftime("%-I:%M %p"),
+            }
+            for message in messages
+        ],
+    })
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @require_daily_actor
@@ -2253,4 +2555,6 @@ def submit_onboarding_beta(request):
         participant.save(update_fields=[
             "focus", "ai_mutations_enabled", "onboarded_at", "source", "updated_at",
         ])
+    if not participant.ai_mutations_enabled:
+        dismiss_pending_mutations(participant)
     return JsonResponse({"ok": True, "redirect": "/daily/checkin/"})

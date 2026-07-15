@@ -7,7 +7,12 @@ stones list). Include AFTER _climb_core.html and BEFORE the page's own style.
     .wedit { display: flex; flex-direction: column; gap: 14px; padding: 6px 0 40px; }
 
     .wehead { padding: 6px 2px 2px; }
-    .weback { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: .84rem; text-decoration: none; margin-bottom: 16px; }
+    .weback {
+        display: inline-flex; align-items: center; gap: 4px; min-height: 44px;
+        padding: 10px 6px; color: var(--text-dim); font-size: .84rem;
+        background: none; border: 0; font-family: inherit; cursor: pointer;
+        text-decoration: none; margin: -10px -6px 6px;
+    }
     .weback svg { width: 16px; height: 16px; }
     .weback:hover { color: var(--text); }
     .wetitle {
@@ -31,7 +36,7 @@ stones list). Include AFTER _climb_core.html and BEFORE the page's own style.
     .stone + .stone { border-top: 1px solid var(--line-soft); }
     .stone .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); flex: none; }
     .stone .rlabel { font-size: .92rem; }
-    .stone.done .rlabel { color: var(--text-dim); }
+    .stone.done .rlabel { color: var(--text-dim); text-decoration: line-through; text-decoration-thickness: 1px; }
 
     .empty { font-size: .88rem; color: var(--text-dim); font-weight: 300; line-height: 1.5; }
 </style>

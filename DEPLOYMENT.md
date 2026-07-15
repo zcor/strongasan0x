@@ -120,6 +120,10 @@ Both deployments use a `.env` file in the project root. See `.env.example` for a
 Key variables that were added during the open-source migration (not in the old deployment):
 - `SECRET_KEY` — Django secret key (was previously hardcoded)
 - `ALLOWED_HOSTS` — Server should include `strongasan0x.com,www.strongasan0x.com,localhost,127.0.0.1`
+- `DB_PRIVATE_HOST` — same-VPC managed PostgreSQL hostname used in preference
+  to the public `DB_HOST` by production web workers
+- `DB_CONN_MAX_AGE` — persistent Django database connection lifetime; use `60`
+  under Apache/mod_wsgi (`DEBUG=True` defaults to `0` locally)
 
 ## Database Notes
 
@@ -127,7 +131,7 @@ Key variables that were added during the open-source migration (not in the old d
 - Tables use the `rollcall_` prefix (renamed from `garmin_data_` during open-source migration)
 - The legacy `0xfitness` deployment still expects `garmin_data_` prefixed tables, so if you remove the legacy deployment, no action needed; if you need to run both simultaneously, the legacy one will break on renamed tables
 - Migrations are managed via Django. On the SERVER they run automatically inside `ox-deploy` (no manual step). On the Mac Mini bot checkout, run `python manage.py migrate` after pulling if `showmigrations` shows unapplied migrations.
-- Current daily-app schema head: `0015_dailycheckinanswer_derived` (0012–0015 applied in prod as of the Climb beta deploy). There is no 0016.
+- Current daily-app schema head: `0019_streak_cache`.
 
 ## Troubleshooting
 

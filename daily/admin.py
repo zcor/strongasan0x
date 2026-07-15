@@ -44,12 +44,24 @@ class DailyCheckInAnswerInline(admin.TabularInline):
 
 @admin.register(DailyCheckIn)
 class DailyCheckInAdmin(admin.ModelAdmin):
-    list_display = ("participant", "date", "score", "source", "submitted_at")
+    list_display = ("participant", "date", "score", "done_count", "source", "submitted_at")
     list_filter = ("source", "date")
     search_fields = ("participant__display_name", "comment")
     raw_id_fields = ("participant", "checklist_version")
     date_hierarchy = "date"
     inlines = [DailyCheckInAnswerInline]
+
+    def save_formset(self, request, form, formset, change):
+        """Keep derived streak state correct when answers are edited in admin."""
+        super().save_formset(request, form, formset, change)
+        if formset.model is DailyCheckInAnswer:
+            from .services.streaks import refresh_streak_cache
+
+            check_in = form.instance
+            refresh_streak_cache(
+                check_in.participant,
+                changed_check_in=check_in,
+            )
 
 
 @admin.register(CoachSuggestion)

@@ -105,7 +105,9 @@
             min-height: 100vh;
             min-height: 100dvh;   /* cover the dynamic viewport on mobile Safari */
             color: var(--text);
-            padding: 16px;
+            /* `viewport-fit=cover` puts the page beneath iOS's translucent
+               status bar. Keep controls clear of it in the installed PWA. */
+            padding: calc(16px + env(safe-area-inset-top)) 16px 16px;
             padding-bottom: 48px;
         }
         .wrap {
@@ -269,7 +271,7 @@
             padding: 0 5px; line-height: 1.5; font-weight: 700;
         }
 
-        /* --- Full-screen gate: shown until install + notifications pass.
+        /* --- Full-screen prompt: shown for install instructions or notifications.
            Hidden by default; JS reveals it (fail-open: if JS never runs, the
            app underneath stays usable — we never trap a user behind a blank). */
         #gate {
@@ -277,9 +279,10 @@
             background: var(--bg);
             display: none; flex-direction: column; align-items: center;
             justify-content: center; text-align: center;
-            padding: 32px 24px; padding-bottom: calc(32px + env(safe-area-inset-bottom));
+            padding: 32px 24px; padding-bottom: calc(32px + env(safe-area-inset-bottom)); overflow-y: auto;
         }
         #gate.show { display: flex; }
+        html.gate-open, body.gate-open { overflow: hidden; }
         #gate .gate-icon { width: 76px; height: 76px; border-radius: 17px; margin-bottom: 22px; }
         #gate h2 { color: var(--accent); font-size: 1.35rem; margin: 0 0 10px; }
         #gate p { color: var(--text-dim); font-size: 1rem; line-height: 1.5; margin: 0 0 8px; max-width: 340px; }
@@ -302,6 +305,10 @@
             border-radius: 11px; padding: 12px 22px; font-size: 0.95rem; cursor: pointer;
         }
         #gate .gate-copy.copied { background: rgba(120,200,120,0.2); border-color: rgba(120,200,120,0.55); color: var(--done-bright); }
+        #gate .gate-skip {
+            margin-top: 12px; padding: 8px 12px; border: 0; background: transparent;
+            color: var(--text-dim); font: inherit; font-size: 0.9rem; text-decoration: underline; cursor: pointer;
+        }
         #gate .gate-arrow {
             position: fixed; right: 26px; bottom: 18px; width: 30px; height: 36px;
             color: var(--accent); display: none;
@@ -331,6 +338,33 @@
         }
         #gate .gt-row.gt-done { color: var(--done-bright); background: rgba(120,200,120,0.12); }
         #gate .gt-row.gt-done span { background: var(--done); border-color: var(--done); color: var(--on-done); }
+        /* Stays available in the browser after the optional install prompt. */
+        #dashboard-controls {
+            /* Dashboard actions scroll with the page; avoid fixed or nested-scroll controls. */
+            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 20px; z-index: 39;
+            display: flex; align-items: center; gap: 12px;
+        }
+        #install-help { display: none; position: relative; }
+        #install-help.show { display: block; }
+        #install-help-toggle {
+            display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
+            border: 1px solid var(--panel-border); border-radius: 50%; background: var(--bg-solid); color: var(--accent); cursor: pointer;
+        }
+        #install-help-toggle:hover, #install-help-toggle[aria-expanded="true"] { color: var(--accent); background: var(--panel); }
+        #install-help-toggle svg { width: 19px; height: 19px; }
+        #install-help-menu {
+            display: none; position: absolute; top: 38px; right: 0; width: 210px;
+            padding: 5px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--bg-solid);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+        }
+        #install-help-menu.show { display: block; }
+        #install-help-menu button {
+            display: flex; align-items: center; width: 100%; min-height: 54px;
+            border: 0; border-radius: 7px; padding: 14px 10px; background: transparent;
+            color: var(--text); font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; white-space: nowrap;
+        }
+        #install-help-menu button + button { border-top: 1px solid var(--panel-border); }
+        #install-help-menu button:hover { background: var(--panel); }
     </style>
 </head>
 <body>
@@ -366,11 +400,23 @@
         <p id="gate-body"></p>
         <button type="button" id="gate-btn" class="gate-btn" style="display:none"></button>
         <button type="button" id="gate-copy" class="gate-copy" style="display:none">Copy link for Safari</button>
+        <button type="button" id="gate-skip" class="gate-skip" style="display:none">Skip for now</button>
         <div class="gate-hint" id="gate-hint"></div>
         <svg class="gate-arrow" viewBox="0 0 30 36" fill="none" aria-hidden="true">
             <path d="M15 2v28" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
             <path d="M5 22l10 12 10-12" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
+    </div>
+    <div id="dashboard-controls">
+    <div id="install-help">
+        <button type="button" id="install-help-toggle" aria-label="App settings" aria-expanded="false" aria-controls="install-help-menu">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+        </button>
+        <div id="install-help-menu" role="menu">
+            <button type="button" id="install-help-btn" role="menuitem">Add to Home Screen</button>
+            <button type="button" id="notification-help-btn" role="menuitem">Turn on notifications</button>
+        </div>
+    </div>
     </div>
 
     <script>
@@ -383,7 +429,13 @@
         // DEV: whether to FORCE-show the install/notification gate (session flag,
         // toggled from the dev config panel). Off = the gate is auto-skipped.
         var DEV_GATE = {% if dev_gate %}true{% else %}false{% endif %};
-
+        // A first visit gets one full-screen Welcome/setup flow. It shares the
+        // existing intro version key so the dashboard never stacks a second
+        // welcome dialog after this one is dismissed.
+        var FIRST_VISIT = {% if first_visit %}true{% else %}false{% endif %};
+        var INTRO_SEEN_KEY = "daily_intro_version_seen";
+        var INTRO_VERSION = "1";
+        var FORCE_WELCOME = new URLSearchParams(window.location.search).get("intro") === "1";
         // 1) Register the service worker (makes the app installable; keeps
         //    navigations fresh — it does not cache the live checklist).
         if ("serviceWorker" in navigator) {
@@ -400,6 +452,7 @@
         var isIOS = /iphone|ipad|ipod/i.test(ua)
             || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
         var isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+        var isBrave = /brave/i.test(ua) || !!(navigator.brave && navigator.brave.isBrave);
         // In-app browsers (Telegram/Meta/etc.) can't "Add to Home Screen" — steer
         // the user to Safari instead of showing dead Share-button instructions.
         // CRITICAL: Telegram's iOS webview often ships a UA *identical* to real
@@ -413,8 +466,8 @@
                   || (window.external && window.external.notify));
 
 
-        // --- The GATE: a hard front door. Two checks before the app is usable.
-        //   1. Not installed  -> install instructions only.
+        // --- Optional install prompt + notification gate.
+        //   1. Not installed  -> offer install instructions, but allow browser use.
         //   2. Installed, notifications not granted -> enable-notifications only.
         //   Pass -> reveal the app underneath. FAIL-OPEN: anything uncertain
         //   (desktop, unknown browser, no Notification API) shows the app, never
@@ -424,12 +477,46 @@
         var gBody = document.getElementById("gate-body");
         var gBtn = document.getElementById("gate-btn");
         var gCopy = document.getElementById("gate-copy");
+        var gSkip = document.getElementById("gate-skip");
         var gHint = document.getElementById("gate-hint");
+        var installHelp = document.getElementById("install-help");
+        var installHelpToggle = document.getElementById("install-help-toggle");
+        var installHelpMenu = document.getElementById("install-help-menu");
+        var installHelpBtn = document.getElementById("install-help-btn");
+        var notificationHelpBtn = document.getElementById("notification-help-btn");
         var notifSupported = ("Notification" in window);
 
-        function showGate() { if (gate) gate.classList.add("show"); }
-        function passGate() { if (gate) gate.classList.remove("show", "gate-arrow-on", "gate-teaser-on"); }
+        function showGate() {
+            if (gate) gate.classList.add("show");
+            document.documentElement.classList.add("gate-open");
+            document.body.classList.add("gate-open");
+        }
+        function passGate() {
+            if (gate) gate.classList.remove("show", "gate-arrow-on", "gate-teaser-on");
+            document.documentElement.classList.remove("gate-open");
+            document.body.classList.remove("gate-open");
+        }
         function showTeaser() { if (gate) gate.classList.add("gate-teaser-on"); }
+        function refreshInstallHelp() {
+            var canEnableNotifications = notifSupported && Notification.permission !== "granted";
+            if (installHelpBtn) installHelpBtn.style.display = "";
+            if (notificationHelpBtn) notificationHelpBtn.style.display = canEnableNotifications ? "" : "none";
+            return true;  // Keep the settings gear available on the dashboard.
+        }
+        function showInstallHelp() {
+            if (installHelp && refreshInstallHelp()) installHelp.classList.add("show");
+        }
+        function closeInstallHelpMenu() {
+            if (installHelpMenu) installHelpMenu.classList.remove("show");
+            if (installHelpToggle) installHelpToggle.setAttribute("aria-expanded", "false");
+        }
+        function welcomeSeen() {
+            try { return localStorage.getItem(INTRO_SEEN_KEY) === INTRO_VERSION; } catch (e) { return false; }
+        }
+        function finishWelcome() {
+            try { localStorage.setItem(INTRO_SEEN_KEY, INTRO_VERSION); } catch (e) {}
+            passGate(); showInstallHelp();
+        }
 
         function gateCopyLink() {
             var url = window.location.href;
@@ -447,11 +534,17 @@
             } catch (e) {}
         }
 
-        function renderInstallGate() {
+        function renderInstallGate(onSkip) {
             gBtn.style.display = "none";
-            if (isInAppBrowser) {
+            gCopy.style.display = "none";
+            gSkip.textContent = "Skip for now";
+            gSkip.style.display = "inline-block";
+            gSkip.onclick = onSkip || function () { passGate(); showInstallHelp(); };
+            if (isInAppBrowser || (isIOS && isBrave)) {
                 gTitle.textContent = "Open in Safari to install";
-                gBody.innerHTML = "This is a home-screen app. Copy the link, open it in "
+                gBody.innerHTML = isBrave
+                    ? "Brave cannot add this as a standalone home-screen app. Copy the link, open it in "
+                    : "This is a home-screen app. Copy the link, open it in "
                     + "<b>Safari</b>, then add it to your home screen.";
                 gCopy.style.display = "inline-block";
                 gCopy.onclick = gateCopyLink;
@@ -472,8 +565,10 @@
                 return;
             } else {
                 // Android/desktop: try the native install prompt if we captured it.
-                gTitle.textContent = "Install this app";
-                gBody.innerHTML = "Add it to your device, then open it from the icon to continue.";
+                gTitle.textContent = "Add Daily to your home screen";
+                gBody.innerHTML = window.__deferredInstall
+                    ? "Tap below to add the Daily icon to your device."
+                    : "Open your browser menu and choose <b>Install app</b> or <b>Add to Home screen</b>.";
                 if (window.__deferredInstall) {
                     gBtn.textContent = "Install"; gBtn.style.display = "inline-block";
                     gBtn.onclick = function () { window.__deferredInstall.prompt(); };
@@ -483,60 +578,145 @@
             showGate();
         }
 
+        function renderInstalledGate() {
+            gate.classList.remove("gate-arrow-on", "gate-teaser-on");
+            gTitle.textContent = "Already on your Home Screen";
+            gBody.textContent = "Daily is already running from its Home Screen icon.";
+            gBtn.style.display = "none";
+            gCopy.style.display = "none";
+            gSkip.textContent = "Done";
+            gSkip.style.display = "inline-block";
+            gSkip.onclick = passGate;
+            gHint.textContent = "";
+            showGate();
+        }
+
+        function renderWelcomeGate() {
+            var welcomeIntro = "Glad you're here. Daily is one small check-in a day: "
+                + "a few things that matter to you, one tap when they're done. Little wins add up.";
+            gate.classList.remove("gate-arrow-on", "gate-teaser-on");
+            gCopy.style.display = "none";
+            gBtn.style.display = "none";
+            gSkip.textContent = "Skip for now";
+            gSkip.style.display = "inline-block";
+            gSkip.onclick = finishWelcome;
+            gTitle.textContent = "Welcome to Daily";
+
+            if (!isStandalone) {
+                gBody.innerHTML = welcomeIntro + "<br><br>Before we start, would you like to add a Daily icon to your home screen? "
+                    + "It makes it easier to quickly view your daily check-ins.";
+                gBtn.textContent = "Yes, I want to add a home icon";
+                gBtn.style.display = "inline-block";
+                gBtn.onclick = function () { renderInstallGate(finishWelcome); };
+                gHint.textContent = "You can add it later from the menu.";
+            } else if (notifSupported && Notification.permission !== "granted") {
+                gBody.innerHTML = welcomeIntro;
+                gSkip.textContent = "Let's get started";
+                gHint.textContent = "You can turn on notifications later from Settings.";
+            } else {
+                gBody.innerHTML = welcomeIntro;
+                gHint.textContent = "You can change app settings later from the menu.";
+            }
+            showGate();
+        }
+
         function renderNotifGate() {
             gate.classList.remove("gate-arrow-on", "gate-teaser-on");  // teaser is install-only
             gCopy.style.display = "none";
+            gSkip.textContent = "Skip for now";
+            gSkip.style.display = "inline-block";
+            gSkip.onclick = function () { passGate(); showInstallHelp(); };
             if (notifSupported && Notification.permission === "denied") {
                 // iOS locked it after a prior "Don't Allow" — can't re-prompt.
-                // Honest escape hatch: send them to Settings, no dead button.
                 gTitle.textContent = "Turn on notifications";
-                gBody.innerHTML = "Reminders are required. Open <b>iOS Settings → Daily → "
-                    + "Notifications</b>, switch them on, then reopen the app.";
+                gBody.innerHTML = "Notifications power your app-icon counter: a small number on "
+                    + "the Daily icon showing <b>how many to-dos you have left today</b>. One "
+                    + "glance at your home screen keeps you on track."
+                    + "<br><br>To turn it on, open <b>iOS Settings → Daily → Notifications</b> "
+                    + "and switch them on.";
                 gBtn.style.display = "none";
-                gHint.textContent = "This page will let you in automatically once they're on.";
+                gHint.textContent = "You can continue without notifications and turn them on later.";
             } else {
                 gTitle.textContent = "Turn on your daily counter";
                 // Amy's confusion: she didn't know the red "5" was her todo count.
                 // Explain the mechanism plainly — it's a counter, not a message.
-                gBody.innerHTML = "The app icon shows a number — <b>how many to-dos you "
-                    + "have left today</b> — counting down to zero as you check them off. "
-                    + "We never send you messages; it's just your counter.";
+                gBody.innerHTML = "The app icon shows a number, <b>how many to-dos you "
+                    + "have left today</b>, counting down to zero as you check them off."
+                    + "<br><br>It refreshes each morning, so one glance at your home screen "
+                    + "keeps you on track. We never send you messages; it's just your counter.";
                 gBtn.textContent = "Turn on my counter"; gBtn.style.display = "inline-block";
                 gBtn.onclick = function () {
                     Notification.requestPermission().then(function (p) {
                         if (p === "granted") {
                             subscribePush();   // register for the morning badge push
-                            passGate(); if (window.__syncBadge) window.__syncBadge();
+                            passGate(); refreshInstallHelp(); if (window.__syncBadge) window.__syncBadge();
                         } else renderNotifGate();   // denied -> re-render with Settings path
                     });
                 };
-                gHint.textContent = "iOS calls this “notifications,” but you'll only ever see the number.";
+                gHint.textContent = "Optional: iOS calls this “notifications,” but you'll only ever see the number.";
             }
             showGate();
         }
 
         function evaluateGate() {
+            var isMobile = isIOS || /android/i.test(ua);
+            if ((FIRST_VISIT || FORCE_WELCOME) && (!welcomeSeen() || FORCE_WELCOME)) {
+                renderWelcomeGate();
+                return;
+            }
             // LOCAL DEV (DEBUG): auto-skip the install/notification gate so a
             // phone on the LAN can just view the app in Safari. The gate exists
             // to enforce home-screen install + notifications, which is pointless
             // in dev. Append ?gate=1 to force-show it for testing. DEV renders
             // false in production, so the real gate always applies there.
-            if (DEV && !DEV_GATE) { passGate(); return; }
+            if (DEV && !DEV_GATE) {
+                passGate();
+                if (isMobile) showInstallHelp();
+                return;
+            }
             // FAIL-OPEN: non-mobile or no standalone concept → don't gate at all.
-            // Only iOS/Android mobile users are required to install + enable.
-            var isMobile = isIOS || /android/i.test(ua);
-            if (!isMobile) { passGate(); return; }
-            if (!isStandalone) { renderInstallGate(); return; }   // gate 1
+            // Mobile browser users can continue and return to installation help later.
+            if (!isMobile) { passGate(); showInstallHelp(); return; }
+            if (!isStandalone) {
+                showInstallHelp();
+                renderInstallGate();
+                return;
+            }
             // Installed. Gate 2: notifications. If the API is missing entirely,
             // fail open (can't require what the browser can't offer).
-            if (!notifSupported) { passGate(); return; }
-            if (Notification.permission === "granted") { passGate(); return; }
-            renderNotifGate();                                    // gate 2
+            if (!notifSupported) { passGate(); showInstallHelp(); return; }
+            if (Notification.permission === "granted") { passGate(); showInstallHelp(); return; }
+            passGate();
+            showInstallHelp();
         }
 
         // Capture Android's install prompt if offered (no-op on iOS).
         window.addEventListener("beforeinstallprompt", function (e) {
             e.preventDefault(); window.__deferredInstall = e;
+        });
+
+        if (installHelpBtn) {
+            installHelpBtn.onclick = function () {
+                closeInstallHelpMenu();
+                if (isStandalone) renderInstalledGate();
+                else renderInstallGate();
+            };
+        }
+        if (notificationHelpBtn) {
+            notificationHelpBtn.onclick = function () {
+                closeInstallHelpMenu();
+                renderNotifGate();
+                showGate();
+            };
+        }
+        if (installHelpToggle) {
+            installHelpToggle.onclick = function () {
+                var open = installHelpMenu && installHelpMenu.classList.toggle("show");
+                installHelpToggle.setAttribute("aria-expanded", open ? "true" : "false");
+            };
+        }
+        document.addEventListener("click", function (e) {
+            if (installHelp && !installHelp.contains(e.target)) closeInstallHelpMenu();
         });
 
         evaluateGate();

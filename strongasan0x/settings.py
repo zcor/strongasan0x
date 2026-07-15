@@ -71,14 +71,22 @@ WSGI_APPLICATION = "strongasan0x.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+DB_CONN_MAX_AGE = config("DB_CONN_MAX_AGE", default=0 if DEBUG else 60, cast=int)
+DB_PUBLIC_HOST = config("DB_HOST", default="localhost")
+DB_HOST = config("DB_PRIVATE_HOST", default="").strip() or DB_PUBLIC_HOST
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": config("DB_NAME", default="rollcall"),
         "USER": config("DB_USER", default="rollcall_user"),
         "PASSWORD": config("DB_PASSWORD", default=""),
-        "HOST": config("DB_HOST", default="localhost"),
+        "HOST": DB_HOST,
         "PORT": config("DB_PORT", default="5432"),
+        # Reuse PostgreSQL connections under Apache/mod_wsgi in production.
+        # Local runserver stays at 0 because it creates a new thread per request.
+        "CONN_MAX_AGE": DB_CONN_MAX_AGE,
+        "CONN_HEALTH_CHECKS": DB_CONN_MAX_AGE > 0,
     }
 }
 

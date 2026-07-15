@@ -43,6 +43,7 @@ from daily.models import (
     DailyParticipant,
 )
 from daily.services.ai_coach import derive_stretch_item
+from daily.services.checklist import dismiss_pending_mutations
 from rollcall.models import Attestation, TelegramUserMapping
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class Command(BaseCommand):
             p.beta = True
             p.ai_mutations_enabled = False
             p.save(update_fields=["beta", "ai_mutations_enabled", "updated_at"])
+            dismiss_pending_mutations(p)
             self.stdout.write(self.style.SUCCESS("saved."))
             return
 

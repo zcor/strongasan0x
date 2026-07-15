@@ -122,6 +122,15 @@ class DailyParticipant(models.Model):
         max_length=10, blank=True, default="", choices=FOCUS_CHOICES,
         help_text="Beta: soft health/life focus set in onboarding.",
     )
+    # Cached streak state. Answers remain the source of truth; this compact
+    # rollup is refreshed whenever an answer changes so a dashboard GET does
+    # not need to load hundreds of historical check-ins. `streak_through_date`
+    # makes midnight rollover derivable without a write: a streak ending
+    # yesterday is still alive, while an older one displays as zero.
+    streak_count = models.PositiveIntegerField(default=0)
+    streak_through_date = models.DateField(null=True, blank=True)
+    streak_bar = models.PositiveSmallIntegerField(default=1)
+    streak_cache_version = models.PositiveSmallIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -254,6 +263,10 @@ class DailyCheckIn(models.Model):
     )
     comment = models.TextField(blank=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_WEB)
+    # Number of DONE answer rows for this day (core, bonus, and nested detail
+    # rows), matching the existing adaptive-streak semantics. This is derived
+    # from `answers` and maintained by daily.services.streaks.
+    done_count = models.PositiveIntegerField(default=0)
     submitted_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -584,7 +597,7 @@ class WinItem(models.Model):
 
     This is a BACKLOG, deliberately NOT a ChecklistVersion question: the pile
     can grow large and is NEVER rendered all at once (or even counted) on the
-    daily surface. Exactly one open item is "surfaced" as today's win at a time.
+    daily surface. The user may explicitly select one open item as today's win.
 
     Beta-only. The habit checklist stays in ChecklistVersion.questions.
     """
@@ -592,10 +605,12 @@ class WinItem(models.Model):
     STATUS_OPEN = "open"        # in the pile, not yet done
     STATUS_DONE = "done"        # completed as a win
     STATUS_GRADUATED = "graduated"  # promoted to a recurring habit
+    STATUS_ARCHIVED = "archived"  # removed from active North Stars, restorable
     STATUS_CHOICES = [
         (STATUS_OPEN, "Open"),
         (STATUS_DONE, "Done"),
         (STATUS_GRADUATED, "Graduated to habit"),
+        (STATUS_ARCHIVED, "Archived"),
     ]
 
     participant = models.ForeignKey(
@@ -606,7 +621,7 @@ class WinItem(models.Model):
     # only, mirroring habit sub-items:
     #   - standalone win: parent=None, is_goal=False  (surfaced directly)
     #   - north star:     parent=None, is_goal=True   (NEVER surfaced itself;
-    #                     completes when its last open stone is done)
+    #                     user completes it after checking every stone)
     #   - stepping stone: parent=<north star>         (a leaf; surfaced with the
     #                     goal shown beneath as "part of: ...")
     # is_goal (not child-count) marks the container so a north star with no
@@ -633,8 +648,9 @@ class WinItem(models.Model):
     # User ordering of the pile (lower = higher priority). Surface picks the
     # lowest-order open item not already deferred today.
     order = models.PositiveIntegerField(default=0)
-    # The date this item is currently surfaced as "today's win" (NULL = resting
-    # in the pile). At most one open item per participant is surfaced per day.
+    # The date this item was selected as "today's win" (NULL = never selected
+    # or resting in the pile). Open rows use it for the current selection; done
+    # rows retain it so the week strip can mark that day's completed win.
     surfaced_on = models.DateField(null=True, blank=True)
     # The most recent date the user tapped "Not today" on this item, so it is
     # not resurfaced the same day. Defer = send back to the pile, never delete.

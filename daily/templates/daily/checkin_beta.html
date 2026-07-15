@@ -1,4 +1,5 @@
 {% extends "daily/base.html" %}
+{% load static %}
 
 {% block title %}Daily · {{ participant.display_name }}{% endblock %}
 
@@ -35,7 +36,7 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                             stroke-linecap="round" transform="rotate(-90 16 16)"
                             stroke-dasharray="81.68" stroke-dashoffset="81.68"/>
                 </svg>
-                {% if d.north_star %}<span class="wstar" aria-label="finished a goal"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>{% endif %}
+                {% if d.todays_win_done %}<span class="wstar" aria-label="completed today's win"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>{% endif %}
                 <span class="wlabel">{{ d.label }}</span>
             </a>
         {% endfor %}
@@ -52,45 +53,48 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
 
         {% if not backfill %}
         {# ===== Today's win (crown) — squared card, elevated on top ===== #}
-        <div class="card win{% if not todays_win %} is-hidden{% endif %}" id="win-crown"
+        <div class="card win{% if not todays_win and not completed_todays_win %} is-hidden{% endif %}" id="win-crown"
              {% if todays_win %}data-win-id="{{ todays_win.id }}"{% endif %}>
             <div class="card-body">
                 <div class="eyebrow">Today's win
-                    <a class="wins-link" href="/daily/wins/">Your wins ›</a>
+                    <button class="wins-link" id="wins-dialog-open" type="button">Your wins ›</button>
                 </div>
-                <button class="row solo" id="win-row" type="button">
+                <button class="row solo{% if completed_todays_win and not todays_win %} done{% endif %}" id="win-row" type="button"{% if completed_todays_win and not todays_win %} disabled{% endif %}>
                     <span class="check"></span>
                     <span>
-                        <span class="rlabel" id="win-title">{{ todays_win.title }}</span>
-                        <span class="sub{% if not todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{{ todays_win.goal }}</span></span>
+                        <span class="rlabel" id="win-title">{% if todays_win %}{{ todays_win.title }}{% else %}{{ completed_todays_win.title }}{% endif %}</span>
+                        <span class="sub{% if todays_win %}{% if not todays_win.goal %} is-hidden{% endif %}{% elif not completed_todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{% if todays_win %}{{ todays_win.goal }}{% else %}{{ completed_todays_win.goal }}{% endif %}</span></span>
                     </span>
                 </button>
                 <div class="win-again is-hidden" id="win-again">Want another one?</div>
+                <div class="win-success{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-success">Great job!</div>
             </div>
-            <div class="card-foot" id="win-foot">
+            <div class="card-foot{% if not todays_win %} is-hidden{% endif %}" id="win-foot">
                 <button class="act" id="win-nottoday" type="button">Not today</button>
                 <button class="act gold" id="win-didit" type="button">Did it</button>
             </div>
-            {% comment %} Post-completion prompt footer: shown after "Did it"
-            instead of auto-serving another win. "Sure" surfaces the held next win. {% endcomment %}
+            {% comment %} Post-completion prompt footer: shown after "Did it".
+            Choosing another opens the explicit win picker. {% endcomment %}
             <div class="card-foot is-hidden" id="win-foot-again">
                 <button class="act" id="win-again-no" type="button">Not today</button>
-                <button class="act gold" id="win-again-yes" type="button">Sure</button>
+                <button class="act gold" id="win-again-yes" type="button">Pick one</button>
             </div>
         </div>
 
         {# Slim invitation (no surfaced win). Dismissible + remembered. #}
-        <div class="card{% if todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
+        <div class="card{% if todays_win or completed_todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
             <div class="card-body">
-                <div class="eyebrow">Today's win</div>
+                <div class="eyebrow">Today's win
+                    <button class="wins-link" id="wins-invite-link" type="button">Your wins ›</button>
+                </div>
                 <div class="invite">
-                    <span id="invite-long">Got something you keep putting off? Maybe a hobby you never find time for, or a task that keeps nagging at the back of your mind. Name it here and let's turn it into a win.</span>
-                    <span id="invite-short" class="is-hidden">Got something you keep putting off?</span>
+                    <span id="invite-long">Choose the one thing from Your wins that you want to move forward today.</span>
+                    <span id="invite-short" class="is-hidden">Choose your focus for today.</span>
                 </div>
             </div>
             <div class="card-foot">
                 <button class="act" id="win-invite-x" type="button" aria-label="Dismiss">Not now</button>
-                <button class="act gold" id="win-invite-open" type="button">Add a win</button>
+                <button class="act gold" id="win-invite-open" type="button">Pick today's win</button>
             </div>
         </div>
 
@@ -106,7 +110,7 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                         {% comment %} A habit wraps its own row plus a collapsible
                         drawer of sub-items. A habit WITH sub-items derives its check
                         from them (tap the row to expand); the "···" menu adds a
-                        sub-item or swaps the habit. {% endcomment %}
+                        sub-item, edits, swaps, or deletes the habit. {% endcomment %}
                         <div class="habit{% if q.items %} has-subs{% endif %}" data-hkey="{{ q.key }}">
                             <button class="row{% if q.state == 'done' %} done{% endif %}{% if q.state == 'skip' %} skip{% endif %}"
                                     data-check data-key="{{ q.key }}" data-core="1" data-state="{{ q.state }}" type="button">
@@ -163,7 +167,7 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
         now"). Always reachable, never a big nag. Shown by JS when collapsed. {% endcomment %}
         {% if not backfill %}
         <button type="button" class="win-slim is-hidden" id="win-slim">
-            Got something you keep putting off? <span>Add a win ›</span>
+            Ready to focus? <span>Pick today's win ›</span>
         </button>
         {% endif %}
 
@@ -220,6 +224,61 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
 </div>
 
 {% if not backfill %}
+{% comment %}
+The full-screen wins dialog stays on the Today page. Its editor is fetched just
+after the first paint so backlog queries and markup do not block the dashboard.
+{% endcomment %}
+<dialog id="wins-dialog" class="wins-dialog" aria-labelledby="wins-dialog-title">
+    <div class="wins-dialog-shell">
+        <div class="wins-editor-skeleton wedit" data-wins-loading aria-busy="true">
+            <header class="wehead">
+                <button class="weback" type="button" data-wins-loading-close aria-label="Back to today">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Today
+                </button>
+                <div class="wetitle" id="wins-dialog-title">Your wins</div>
+                <div class="wesub">Loading your North Stars and wins…</div>
+            </header>
+            <div class="card" aria-label="Loading your wins">
+                <div class="card-body">
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line medium"></div>
+                    <div class="wins-load-error" data-wins-load-error hidden>
+                        <span>Your wins could not be loaded.</span>
+                        <button type="button" data-wins-load-retry>Try again</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div data-wins-host hidden></div>
+        <div id="wins-dialog-archived" class="wins-archived-view" hidden aria-hidden="true" aria-busy="false">
+            <div class="wins-archive-skeleton wedit" data-wins-archived-loading>
+                <header class="wehead">
+                    <button class="weback" type="button" data-archived-back aria-label="Back to your wins">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                        Your wins
+                    </button>
+                    <div class="wetitle" id="wins-archived-title">Archived</div>
+                    <div class="wesub">Loading your archived North Stars…</div>
+                </header>
+                <div class="card" aria-label="Loading archived North Stars">
+                    <div class="card-body">
+                        <div class="skeleton-line short"></div>
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line medium"></div>
+                        <div class="archive-load-error" data-wins-archived-error hidden>
+                            <span>Archived North Stars could not be loaded.</span>
+                            <button type="button" data-wins-archived-retry>Try again</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div data-wins-archived-host hidden></div>
+        </div>
+    </div>
+</dialog>
+
 {# --- Welcome / how-it-works modal (auto-shows once for new users) --- #}
 <div id="intro-modal" class="intro-modal"
      data-intro-version="{{ intro_version }}"
@@ -244,15 +303,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
 <div id="coach-scrim"></div>
 <div id="coach-panel" class="coach-panel" aria-hidden="true">
     <div class="coach-head">
-        <span class="coach-title">Jamie</span>
+        <div class="coach-identity">
+            <img class="coach-avatar" src="{% static 'daily/images/jamie-avatar.jpg' %}"
+                 width="40" height="40" alt="" aria-hidden="true">
+            <span class="coach-title">Jamie</span>
+        </div>
         <button type="button" class="coach-close" id="coach-close" aria-label="Close">✕</button>
     </div>
-    <div class="coach-log" id="coach-log">
-        {% for m in chat_history %}
-            <div class="msg msg-{{ m.role }}"><div class="bubble">{{ m.text }}</div><div class="mtime">{{ m.at }}</div></div>
-        {% empty %}
-            <div class="coach-empty">Tell me anything: a note, your numbers, or ask for a hand.</div>
-        {% endfor %}
+    <div class="coach-log" id="coach-log" aria-live="polite">
+        <div class="coach-empty">Loading conversation…</div>
     </div>
     {% comment %} Coach actions live in the chat, and only for beta users with
     mutations enabled: "Plan tomorrow" (frog-first evening planning) and "Wrap
@@ -276,15 +335,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
 route options by clicking instead of typing URLs. {% endcomment %}
 {% if beta_toggle and dev_config %}
 <button type="button" id="dev-gear" class="fab dev-gear" aria-label="Dev config" title="Dev config">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.5 4.5l2.1 2.1M17.4 17.4l2.1 2.1M2.5 12h3M18.5 12h3M4.5 19.5l2.1-2.1M17.4 6.6l2.1-2.1"/></svg>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
 </button>
 <div id="dev-panel" class="dev-panel" aria-hidden="true">
     <div class="dev-panel-head"><span>DEV CONFIG</span><button type="button" id="dev-panel-close" aria-label="Close">✕</button></div>
     <div class="dev-row"><span>Beta UI</span><button type="button" class="dev-toggle{% if dev_config.beta %} on{% endif %}" data-nav-on="beta=1" data-nav-off="beta=0" aria-label="Beta UI"></button></div>
     <div class="dev-row"><span>Dev QR</span><button type="button" class="dev-toggle{% if dev_config.qr %} on{% endif %}" data-nav-on="qr=1" data-nav-off="qr=0" aria-label="Dev QR"></button></div>
-    <div class="dev-row"><span>Install gate</span><button type="button" class="dev-toggle{% if dev_config.gate %} on{% endif %}" data-nav-on="gate=1" data-nav-off="gate=0" aria-label="Install gate"></button></div>
     <div class="dev-row"><span>Streak pill</span><button type="button" class="dev-toggle{% if dev_config.streak %} on{% endif %}" data-nav-on="streak=1" data-nav-off="streak=0" aria-label="Streak pill"></button></div>
-    <div class="dev-row"><span>Welcome dialog</span><button type="button" class="dev-toggle" data-ls="daily_intro_seen_v" data-ls-val="{{ intro_version }}" aria-label="Welcome dialog"></button></div>
+    <div class="dev-row"><span>Notification preview</span><button type="button" class="dev-toggle{% if dev_config.notification_preview %} on{% endif %}" data-nav-on="notification_preview=1" data-nav-off="notification_preview=0" aria-label="Notification preview"></button></div>
+    <div class="dev-row"><span>Welcome / setup</span><button type="button" class="dev-toggle{% if first_visit %} on{% endif %}" data-nav-on="intro=1" data-nav-off="intro=0" aria-label="Welcome setup"></button></div>
     <div class="dev-row"><span>Win explainer</span><button type="button" class="dev-toggle" data-ls="daily_win_explainer_seen" data-ls-val="1" aria-label="Win explainer"></button></div>
     <div class="dev-note">Flip toggles, then Apply. On = shows, off = suppressed.</div>
     <button type="button" id="dev-apply" class="dev-apply">Apply changes</button>
@@ -305,6 +364,10 @@ route options by clicking instead of typing URLs. {% endcomment %}
 {% endif %}
 
 {% include "daily/_climb_core.html" %}
+{% if not backfill %}
+{% include "daily/_wins_chrome.html" %}
+{% include "daily/_wins_editor_styles.html" %}
+{% endif %}
 <style>
     /* Local tokens layered on base.html's palette (--accent gold, --done green).
        Defined on :root so elements OUTSIDE .climb (the FABs, chat panel, which
@@ -435,12 +498,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
 
     /* The "···" overflow menu: a divided action strip below the row. */
     .rowmenu { display: flex; border-top: 1px solid var(--line-soft); animation: subslide .16s ease; }
-    .rowmenu .act { padding: 13px 8px; font-size: .84rem; white-space: nowrap; }
+    .rowmenu .act { padding: 13px 6px; font-size: .8rem; white-space: nowrap; }
     .rowmenu .act + .act { border-left: 1px solid var(--line-soft); }
-    /* Cancel and Swap shrink to their text with matching padding; "Add sub-item"
-       flexes to fill the middle, so the strip reads evenly balanced. */
-    .rowmenu .act:first-child,
-    .rowmenu .act:last-child { flex: 0 0 auto; padding-left: 18px; padding-right: 18px; }
+    .rowmenu .act.danger { color: #e0a672; }
     /* Swap composer: a small card in the row's place (input body + divided
        footer), mirroring the Add-habit card. Footer reuses .card-foot / .act. */
     .swap-composer { border: 1px solid var(--line); margin: 10px 0; }
@@ -448,9 +508,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .swap-composer .sc-body .eyebrow { margin-bottom: 10px; }
     .swap-composer .composer-input { width: 100%; }
     .invite { font-size: 1rem; color: var(--text-dim); line-height: 1.55; }
-    /* Post-completion prompt: after "Did it", the card asks before serving
-       another win (never auto-served). */
+    /* Post-completion prompt: another win always goes through the picker. */
     .win-again { font-size: .98rem; color: var(--text-dim); margin-top: 16px; }
+    .win-success { font-size: .98rem; color: var(--done-bright); margin-top: 16px; }
     /* Collapsed win invite: a quiet one-line link below the habits. */
     .win-slim {
         display: block; width: 100%; text-align: left; cursor: pointer;
@@ -461,7 +521,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .win-slim:hover { color: var(--text-dim); }
     /* "Your wins" door: a quiet text link pinned to the right of the "Today's
        win" title (replaces the old pencil icon). */
-    .wins-link { margin-left: auto; color: var(--text-dim); text-decoration: none; font-size: .72rem; font-weight: 500; letter-spacing: 0; text-transform: none; transition: color .16s; }
+    .wins-link { margin-left: auto; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; text-decoration: none; font-size: .72rem; font-weight: 500; letter-spacing: 0; text-transform: none; transition: color .16s; }
     .wins-link:hover { color: var(--accent); }
     .metaline { font-size: .82rem; color: var(--text-dim); }
 
@@ -555,6 +615,8 @@ route options by clicking instead of typing URLs. {% endcomment %}
     }
     .coach-panel.open { transform: translateY(0); }
     .coach-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+    .coach-identity { display: flex; align-items: center; gap: 11px; }
+    .coach-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,217,122,.28); box-shadow: 0 0 0 2px rgba(255,217,122,.08); }
     .coach-title { font-weight: 500; }
     .coach-close { background: none; border: 0; color: var(--text-dim); font-size: 1rem; cursor: pointer; }
     .coach-log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 160px; }
@@ -833,7 +895,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
         inp.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); submit(); } else if (e.key === "Escape") { dismiss(); } };
     }
 
-    // ---------- row overflow menu ("···": Cancel | Add sub-item | Swap) ----------
+    // ---------- row overflow menu ("···": Add detail | Edit | Swap | Delete) ----------
     var menuOpen = null;
     function closeRowMenu() { if (menuOpen) { menuOpen.remove(); menuOpen = null; } }
     function toggleRowMenu(row) {
@@ -844,13 +906,32 @@ route options by clicking instead of typing URLs. {% endcomment %}
         closeSwap(); closeRowMenu();
         var habit = row.closest(".habit");
         var menu = document.createElement("div"); menu.className = "rowmenu"; menu.__row = row;
-        var cancel = mkAct("Cancel", false), add = mkAct("Add sub-item", false), swap = mkAct("Swap", false);
-        menu.appendChild(cancel); menu.appendChild(add); menu.appendChild(swap);
+        var add = mkAct("Add detail", false), edit = mkAct("Edit", false),
+            swap = mkAct("Swap", false), remove = mkAct("Delete", false);
+        remove.classList.add("danger");
+        menu.appendChild(add); menu.appendChild(edit); menu.appendChild(swap); menu.appendChild(remove);
         row.parentNode.insertBefore(menu, row.nextSibling);   // below the row, above the drawer
         menuOpen = menu;
-        cancel.onclick = function (e) { e.stopPropagation(); closeRowMenu(); };
         add.onclick = function (e) { e.stopPropagation(); closeRowMenu(); if (habit) openSubComposer(habit); };
+        edit.onclick = function (e) { e.stopPropagation(); closeRowMenu(); openEdit(row); };
         swap.onclick = function (e) { e.stopPropagation(); closeRowMenu(); openSwap(row); };
+        remove.onclick = function (e) {
+            e.stopPropagation();
+            var label = row.querySelector(".rlabel").textContent;
+            var hasDetails = habit && subrowsOf(habit).length;
+            if (!window.confirm('Delete "' + label + '"?' + (hasDetails ? " Its detail items will also be removed." : ""))) return;
+            Array.prototype.forEach.call(menu.querySelectorAll("button"), function (b) { b.disabled = true; });
+            remove.textContent = "Deleting…"; remove.classList.add("loading");
+            post("/daily/item/remove/", { key: row.dataset.key }, function () {
+                closeRowMenu();
+                if (habit) habit.remove();
+                refreshProgress(); syncAddCap();
+            }, function () {
+                Array.prototype.forEach.call(menu.querySelectorAll("button"), function (b) { b.disabled = false; });
+                remove.textContent = "Delete"; remove.classList.remove("loading");
+                window.alert("Couldn't delete that habit. Please try again.");
+            });
+        };
     }
 
     // Build a full core-habit element (wrapper + row + empty drawer) for the
@@ -881,7 +962,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
     document.querySelectorAll(".subrow[data-subcheck]").forEach(bindSubRow);
     document.querySelectorAll("#items .habit").forEach(updateSubtag);
 
-    // ---------- swap (card composer: Write my own / Auto) ----------
+    // ---------- edit / swap composers ----------
+    // Both use the same single-open-composer state, so opening one action
+    // always restores any other hidden row first.
     // Clicking "swap" replaces the row with a small card: an input in the body,
     // Cancel / Auto / Save in a divided footer, mirroring the Add-habit card.
     var swapOpen = null;
@@ -891,6 +974,52 @@ route options by clicking instead of typing URLs. {% endcomment %}
         swapOpen.row.style.display = "";
         swapOpen = null;
     }
+    function openEdit(row) {
+        closeSwap();
+        row.style.display = "none";
+        var wrap = document.createElement("div"); wrap.className = "swap-composer";
+        var body = document.createElement("div"); body.className = "sc-body";
+        var eb = document.createElement("div"); eb.className = "eyebrow"; eb.textContent = "Edit habit";
+        var inp = document.createElement("input");
+        inp.type = "text"; inp.maxLength = 60; inp.className = "composer-input";
+        inp.value = row.querySelector(".rlabel").textContent;
+        var msg = document.createElement("div"); msg.className = "composer-msg is-hidden";
+        body.appendChild(eb); body.appendChild(inp); body.appendChild(msg);
+        var foot = document.createElement("div"); foot.className = "card-foot";
+        var cancel = mkAct("Cancel", false), save = mkAct("Save", true);
+        foot.appendChild(cancel); foot.appendChild(save);
+        wrap.appendChild(body); wrap.appendChild(foot);
+        row.parentNode.insertBefore(wrap, row.nextSibling);
+        swapOpen = { row: row, composer: wrap };
+        inp.focus(); inp.select();
+        var pending = false;
+        function submit() {
+            if (pending) return;
+            var label = inp.value.trim();
+            if (!label) { inp.focus(); return; }
+            if (label === row.querySelector(".rlabel").textContent) { closeSwap(); return; }
+            pending = true; inp.disabled = true; cancel.disabled = true; save.disabled = true;
+            save.textContent = "Saving…"; save.classList.add("loading"); wrap.setAttribute("aria-busy", "true");
+            post("/daily/item/edit/", { key: row.dataset.key, label: label }, function (d) {
+                row.querySelector(".rlabel").textContent = d.item.label;
+                var more = row.querySelector(".more");
+                if (more) more.setAttribute("aria-label", "More actions for " + d.item.label);
+                closeSwap();
+            }, function () {
+                pending = false; inp.disabled = false; cancel.disabled = false; save.disabled = false;
+                save.textContent = "Save"; save.classList.remove("loading"); wrap.removeAttribute("aria-busy");
+                msg.textContent = "Couldn't save that change. Try again."; msg.classList.remove("is-hidden"); inp.focus();
+            });
+        }
+        cancel.onclick = function (e) { e.stopPropagation(); if (!pending) closeSwap(); };
+        save.onclick = function (e) { e.stopPropagation(); submit(); };
+        inp.onkeydown = function (e) {
+            if (e.key === "Enter") { e.preventDefault(); submit(); }
+            else if (e.key === "Escape" && !pending) closeSwap();
+        };
+    }
+
+    // Swap replaces the row with a new habit; Edit above keeps its stable key.
     function openSwap(row) {
         closeSwap();
         row.style.display = "none";
@@ -951,7 +1080,8 @@ route options by clicking instead of typing URLs. {% endcomment %}
 
     // ---------- add habit ----------
     var addBtn = $("add-item-btn"), addFoot = $("add-habit-foot"), addComposer = $("add-item-composer"),
-        addInput = $("add-item-input"), addMsg = $("add-item-msg"), MAX_CORE = {{ max_checklist_size }};
+        addInput = $("add-item-input"), addMsg = $("add-item-msg"), MAX_CORE = {{ max_checklist_size }},
+        addPending = false;
     function syncAddCap() {
         if (!addBtn) return;
         if (coreRows().length >= MAX_CORE) { if (addFoot) addFoot.classList.add("is-hidden"); if (addMsg) { addMsg.textContent = "That's the max, " + MAX_CORE + " items. Swap one to change it."; addMsg.classList.remove("is-hidden"); } }
@@ -959,18 +1089,25 @@ route options by clicking instead of typing URLs. {% endcomment %}
     }
     function openAdd() { if (!addComposer) return; addFoot.classList.add("is-hidden"); addComposer.classList.remove("is-hidden"); addInput.focus(); }
     function closeAdd() { if (!addComposer) return; addComposer.classList.add("is-hidden"); addInput.value = ""; if (addMsg) addMsg.classList.add("is-hidden"); setAddLoading(false); syncAddCap(); }
-    // While Jamie is finding an auto item, show a loading state and lock the
-    // composer's buttons so it can't be double-fired.
-    function setAddLoading(on) {
+    // Every add mode locks immediately. This guards both button double-clicks
+    // and repeated Enter presses while the request is still saving.
+    function setAddLoading(on, mode) {
         var auto = $("add-item-auto"), save = $("add-item-save"), cancel = $("add-item-cancel");
-        if (auto) { auto.disabled = on; auto.textContent = on ? "Finding…" : "Auto"; auto.classList.toggle("loading", on); }
-        if (save) save.disabled = on;
+        addPending = on;
+        if (addComposer) {
+            if (on) addComposer.setAttribute("aria-busy", "true");
+            else addComposer.removeAttribute("aria-busy");
+        }
+        if (addInput) addInput.disabled = on;
+        if (auto) { auto.disabled = on; auto.textContent = on && mode === "auto" ? "Finding…" : "Auto"; auto.classList.toggle("loading", on && mode === "auto"); }
+        if (save) { save.disabled = on; save.textContent = on && mode === "custom" ? "Adding…" : "Add"; save.classList.toggle("loading", on && mode === "custom"); }
         if (cancel) cancel.disabled = on;
     }
     function submitAdd(mode) {
+        if (addPending) return;
         var label = addInput.value.trim();
         if (mode === "custom" && !label) { addInput.focus(); return; }
-        if (mode === "auto") setAddLoading(true);
+        setAddLoading(true, mode);
         post("/daily/item/add/", mode === "custom" ? { mode: "custom", label: label } : { mode: "auto" }, function (d) {
             if (d.item) { $("items").appendChild(coreHabitEl(d.item)); closeAdd(); refreshProgress(); }
             else setAddLoading(false);
@@ -997,8 +1134,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
     //     habits. Never a dead end: the slim link reopens the composer.
     var crown = $("win-crown"), invite = $("win-invite"),
         winSlim = $("win-slim"), winTitle = $("win-title"), winGoal = $("win-goal"),
-        winGoalText = $("win-goal-text"), pendingNext = null,
+        winGoalText = $("win-goal-text"),
         WIN_COLLAPSED = "daily_win_collapsed";
+    var completedWin = {% if completed_todays_win %}{ id: {{ completed_todays_win.id }}, title: "{{ completed_todays_win.title|escapejs }}", goal: "{{ completed_todays_win.goal|escapejs }}" }{% else %}null{% endif %};
     var WIN_EXPLAINED = "daily_win_explainer_seen";
     // ?winintro=1 replays the first-time win experience: clears the "explainer
     // seen" and "collapsed" flags so the full invite + long explainer show again.
@@ -1029,11 +1167,11 @@ route options by clicking instead of typing URLs. {% endcomment %}
         if (!crown) return;
         // Always clear the "want another?" prompt state (prompt line + swapped
         // footer) so the card returns to its normal Not today | Did it footer.
-        hide($("win-again")); showEl($("win-foot")); hide($("win-foot-again"));
+        hide($("win-again")); hide($("win-success")); showEl($("win-foot")); hide($("win-foot-again"));
         if (win) {
             crown.dataset.winId = win.id;
             showEl(crown);
-            var r = $("win-row"); if (r) r.classList.remove("done", "just");
+            var r = $("win-row"); if (r) { r.disabled = false; r.classList.remove("done", "just"); }
             winTitle.textContent = win.title;
             if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
             hide(invite); hide(winSlim);
@@ -1041,62 +1179,169 @@ route options by clicking instead of typing URLs. {% endcomment %}
             paintRest();
         }
     }
-    // Drop a gold star into today's ring when a whole north star is finished
-    // (the arc keeps carrying habits; the star sits in the center).
+    function renderCompleted(win, askAnother) {
+        if (!crown || !win) return;
+        completedWin = win;
+        delete crown.dataset.winId;
+        showEl(crown); hide(invite); hide(winSlim); hide($("win-foot"));
+        var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done"); }
+        winTitle.textContent = win.title;
+        if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
+        if (askAnother) {
+            showEl($("win-again")); hide($("win-success")); showEl($("win-foot-again"));
+        } else {
+            hide($("win-again")); showEl($("win-success")); hide($("win-foot-again"));
+        }
+    }
+    function renderWinState(data) {
+        if (data.next) renderWin(data.next);
+        else if (data.completed_today) renderCompleted(data.completed_today, false);
+        else renderWin(null);
+    }
+    // Drop a gold star into today's ring only after Today's Win is checked.
     function starToday() {
         if (!todayEl || todayEl.querySelector(".wstar")) return;
         var s = document.createElement("span");
-        s.className = "wstar just"; s.setAttribute("aria-label", "finished a goal");
+        s.className = "wstar just"; s.setAttribute("aria-label", "completed today's win");
         s.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg>';
         todayEl.insertBefore(s, todayEl.querySelector(".wlabel"));
     }
-    function winToast(msg) {
-        var t = document.createElement("div"); t.className = "win-toast"; t.textContent = msg;
-        document.body.appendChild(t);
-        requestAnimationFrame(function () { t.classList.add("show"); });
-        setTimeout(function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 300); }, 2800);
+    function syncTodayStar(hasCompletedWin) {
+        if (hasCompletedWin) { starToday(); return; }
+        if (!todayEl) return;
+        var star = todayEl.querySelector(".wstar");
+        if (star) star.remove();
     }
+    // Keep the Today screen in sync while its full-screen wins editor is open,
+    // so closing the dialog never needs a page reload.
+    var winsRefreshQueued = false;
+    window.__syncWinsEditorResult = function (data) {
+        if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(data);
+        else if (winsRequestPending) winsRefreshQueued = true;
+        if (Object.prototype.hasOwnProperty.call(data, "next")) renderWinState(data);
+        if (data.item && !document.querySelector('#items [data-key="' + data.item.key + '"]')) {
+            $("items").appendChild(coreHabitEl(data.item));
+            refreshProgress(); syncAddCap();
+        }
+        if (Object.prototype.hasOwnProperty.call(data, "today_has_completed_win")) {
+            syncTodayStar(data.today_has_completed_win);
+        }
+    };
     function winAction(action) {
         var id = crown && crown.dataset.winId; if (!id) return;
         post("/daily/win/", { id: id, action: action }, function (d) {
             if (action === "did_it") {
-                var r = $("win-row"); if (r) { r.classList.add("done", "just"); }
-                // Finishing the last stone completes the whole goal: star + cheer.
-                if (d.north_star_done) { starToday(); winToast("Goal complete: " + d.north_star_done.title); }
-                // Show the done state briefly, then ask before serving another —
-                // never auto-serve. If there IS a next win queued, offer it;
-                // otherwise just rest.
-                setTimeout(function () { if (d.next) promptAnother(d.next); else renderWin(null); }, 700);
-            } else { renderWin(d.next); }
+                var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done", "just"); }
+                if (d.featured_done) starToday();
+                if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(d);
+                // Keep the crossed-off win visible. The user can stop here and
+                // land on Great job, or explicitly open the chooser for another.
+                setTimeout(function () { renderCompleted(d.completed_today, true); }, 500);
+            } else { renderWinState(d); }
         });
     }
-    // After "Did it", hold the next win and ask "Want another one?" (Not today |
-    // Sure) instead of surfacing it automatically. The completed win stays visible
-    // above the prompt.
-    function promptAnother(next) {
-        pendingNext = next;
-        showEl($("win-again")); hide($("win-foot")); showEl($("win-foot-again"));
+    // "Your wins" is a full-screen dialog on this page. Its heavier editor
+    // fragment warms just after first paint and is then cached in the DOM.
+    var winsDialog = $("wins-dialog");
+    var winsLoading = document.querySelector("[data-wins-loading]");
+    var winsHost = document.querySelector("[data-wins-host]");
+    var winsLoaded = false;
+    var winsRequestPending = false;
+    function loadWinsEditor(force) {
+        if (!winsHost || !winsLoading) return;
+        if (force) winsLoaded = false;
+        if (winsLoaded || winsRequestPending) return;
+        winsRequestPending = true;
+        winsLoading.setAttribute("aria-busy", "true");
+        var error = winsLoading.querySelector("[data-wins-load-error]");
+        winsLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = false; });
+        if (error) error.hidden = true;
+        if (!winsHost.querySelector("[data-wins-editor]")) {
+            winsLoading.hidden = false;
+            winsHost.hidden = true;
+        }
+        fetch("/daily/wins/?fragment=1", {
+            method: "GET", credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+        }).then(function (response) {
+            if (!response.ok) throw new Error("wins request failed");
+            return response.text();
+        }).then(function (html) {
+            var probe = document.createElement("template");
+            probe.innerHTML = html.trim();
+            if (!probe.content.querySelector("[data-wins-editor]")) {
+                throw new Error("wins fragment missing");
+            }
+            winsRequestPending = false;
+            if (winsRefreshQueued) {
+                winsRefreshQueued = false;
+                loadWinsEditor(true);
+                return;
+            }
+            winsHost.innerHTML = html;
+            winsHost.hidden = false;
+            winsLoading.hidden = true;
+            winsLoading.setAttribute("aria-busy", "false");
+            var loadingTitle = winsLoading.querySelector("#wins-dialog-title");
+            if (loadingTitle) loadingTitle.removeAttribute("id");
+            winsLoaded = true;
+            var editor = winsHost.querySelector("[data-wins-editor]");
+            if (window.__initWinsEditor) window.__initWinsEditor(editor);
+        }).catch(function () {
+            winsRequestPending = false;
+            winsLoading.setAttribute("aria-busy", "false");
+            winsLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = true; });
+            if (error) error.hidden = false;
+        });
     }
-    // "Add a win" now opens the full wins page with the one-off input primed
-    // (?add=1), so a north star (goal + steps) is reachable in the same place.
-    function goToWins() { location.href = "/daily/wins/?add=1"; }
+    function closeWinsDialog() {
+        if (window.__showWinsEditor) window.__showWinsEditor();
+        if (winsDialog && winsDialog.open) winsDialog.close();
+        document.body.classList.remove("wins-dialog-open");
+    }
+    function goToWins() {
+        if (!winsDialog || typeof winsDialog.showModal !== "function") {
+            location.href = "/daily/wins/";
+            return;
+        }
+        if (!winsDialog.open) winsDialog.showModal();
+        document.body.classList.add("wins-dialog-open");
+        loadWinsEditor(false);
+    }
+    window.__closeWinsDialog = closeWinsDialog;
+    if (winsDialog) {
+        winsDialog.addEventListener("close", function () {
+            if (window.__showWinsEditor) window.__showWinsEditor();
+            document.body.classList.remove("wins-dialog-open");
+        });
+        winsDialog.addEventListener("cancel", function () { document.body.classList.remove("wins-dialog-open"); });
+    }
+    if ($("wins-dialog-open")) $("wins-dialog-open").onclick = goToWins;
+    if ($("wins-invite-link")) $("wins-invite-link").onclick = goToWins;
+    if (winsLoading) {
+        winsLoading.addEventListener("click", function (event) {
+            if (event.target.closest("[data-wins-loading-close]")) closeWinsDialog();
+            if (event.target.closest("[data-wins-load-retry]")) loadWinsEditor(false);
+        });
+    }
+    if (winsHost) {
+        var warmWins = function () { loadWinsEditor(false); };
+        if ("requestIdleCallback" in window) requestIdleCallback(warmWins, { timeout: 1200 });
+        else requestAnimationFrame(function () { setTimeout(warmWins, 0); });
+    }
     if (crown) {
         $("win-row").onclick = function () { winAction("did_it"); };
         $("win-didit").onclick = function () { winAction("did_it"); };
         $("win-nottoday").onclick = function () { winAction("not_today"); };
     }
-    // "Want another one?" prompt: Sure surfaces the held win, Not today rests.
-    if ($("win-again-yes")) $("win-again-yes").onclick = function () { var n = pendingNext; pendingNext = null; renderWin(n); };
-    if ($("win-again-no")) $("win-again-no").onclick = function () {
-        // Record the decline server-side: without the defer stamp the same
-        // win is still surfaced_on=today and reappears on the next reload.
-        var declined = pendingNext; pendingNext = null; renderWin(null);
-        if (declined && declined.id) post("/daily/win/", { id: declined.id, action: "not_today" }, function () {}, function () {});
-    };
+    // After checking a win, Not today keeps the completed row and shows the
+    // lasting success state. Picking another always goes through the chooser.
+    if ($("win-again-yes")) $("win-again-yes").onclick = goToWins;
+    if ($("win-again-no")) $("win-again-no").onclick = function () { renderCompleted(completedWin, false); };
     if ($("win-invite-open")) $("win-invite-open").onclick = goToWins;
     // "Not now" collapses the card to the slim link (remembered), never removes it.
     if ($("win-invite-x")) $("win-invite-x").onclick = function () { setCollapsed(true); paintRest(); };
-    if (winSlim) winSlim.onclick = goToWins;   // slim link → wins page (one-off input primed)
+    if (winSlim) winSlim.onclick = goToWins;
     // On load: if there's no surfaced win, honor the collapsed state.
     if (crown && crown.classList.contains("is-hidden")) paintRest();
 
@@ -1113,7 +1358,17 @@ route options by clicking instead of typing URLs. {% endcomment %}
     if (!BACKFILL) {
         try {
             var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
-            if (tz) fetch("/daily/timezone/", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF }, body: JSON.stringify({ timezone: tz }) }).catch(function () {});
+            var lastTz = null;
+            try { lastTz = localStorage.getItem("daily_timezone_sent"); } catch (e) {}
+            if (tz && tz !== lastTz) {
+                fetch("/daily/timezone/", {
+                    method: "POST", credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+                    body: JSON.stringify({ timezone: tz }),
+                }).then(function (response) {
+                    if (response.ok) try { localStorage.setItem("daily_timezone_sent", tz); } catch (e) {}
+                }).catch(function () {});
+            }
         } catch (e) {}
     }
 
@@ -1144,22 +1399,34 @@ route options by clicking instead of typing URLs. {% endcomment %}
             });
         }
         window.__introGotIt = function () { modal.classList.remove("show"); try { localStorage.setItem(KEY, ver); } catch (e) {} };
-        // ?intro=1 force-shows it, ?intro=0 skips the auto-show (testing).
+        // ?intro=1 now exercises base.html's full-screen Welcome/setup flow;
+        // this compact modal remains replay-only.
         var _ip = null; try { _ip = new URLSearchParams(location.search).get("intro"); } catch (e) {}
         // Auto-show only if it hasn't been seen/dismissed (or dev-toggled off).
         // This respects the "seen" flag even on a genuine first visit, so
         // dismissing once (or turning it off in the dev panel) keeps it closed.
-        var _auto = !seen() && (modal.dataset.firstVisit === "1" || modal.dataset.replay === "1");
-        if (_ip === "1" || (_ip !== "0" && _auto)) modal.classList.add("show");
+        // First visits use base.html's full-screen Welcome/setup flow. Keep this
+        // modal for explicit replays only, so new users do not get a second dialog.
+        var _auto = !seen() && modal.dataset.replay === "1";
+        if (_ip !== "0" && _auto) modal.classList.add("show");
         var hf = $("help-fab"); if (hf) hf.onclick = function () { modal.classList.add("show"); };
         modal.addEventListener("click", function (e) { if (e.target === modal) window.__introGotIt(); });
     }
 
     // ---------- Jamie chat ----------
     var fab = $("coach-fab"), panel = $("coach-panel"), scrim = $("coach-scrim"),
-        log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false;
+        log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false,
+        chatHistoryPromise = null;
     function scrollLog() { if (log) log.scrollTop = log.scrollHeight; }
-    function openChat() { if (!panel) return; panel.classList.add("open"); if (scrim) scrim.classList.add("show"); if (fab) fab.classList.remove("has-unread"); setTimeout(function () { scrollLog(); if (tx) tx.focus(); }, 180); }
+    function openChat() {
+        if (!panel) return;
+        panel.classList.add("open");
+        if (scrim) scrim.classList.add("show");
+        if (fab) fab.classList.remove("has-unread");
+        loadChatHistory();
+        setTimeout(function () { scrollLog(); if (tx) tx.focus(); }, 180);
+    }
+    window.__openCoach = openChat;
     function closeChat() { if (!panel) return; panel.classList.remove("open"); if (scrim) scrim.classList.remove("show"); if (tx) tx.blur(); }
     if (fab) fab.onclick = openChat;
     if ($("coach-close")) $("coach-close").onclick = closeChat;
@@ -1171,9 +1438,37 @@ route options by clicking instead of typing URLs. {% endcomment %}
         var em = log.querySelector(".coach-empty"); if (em) em.remove();
         log.appendChild(w); scrollLog(); return w;
     }
+    function loadChatHistory() {
+        if (chatHistoryPromise) return chatHistoryPromise;
+        chatHistoryPromise = fetch("/daily/chat/history/" + qs, {
+            method: "GET", credentials: "same-origin",
+            headers: { "Accept": "application/json" },
+        }).then(function (r) {
+            if (!r.ok) throw new Error("chat_history_" + r.status);
+            return r.json();
+        }).then(function (d) {
+            if (!d || !d.ok) throw new Error("chat_history_invalid");
+            log.innerHTML = "";
+            (d.messages || []).forEach(function (m) { bubble(m.role, m.text, m.at); });
+            if (!d.messages || !d.messages.length) {
+                var empty = document.createElement("div"); empty.className = "coach-empty";
+                empty.textContent = "Tell me anything: a note, your numbers, or ask for a hand.";
+                log.appendChild(empty);
+            }
+            scrollLog();
+        }).catch(function () {
+            log.innerHTML = "";
+            var empty = document.createElement("div"); empty.className = "coach-empty";
+            empty.textContent = "Earlier messages couldn't be loaded. You can still message Jamie.";
+            log.appendChild(empty);
+            // Resolve after a load failure so composing a new message is never
+            // blocked by unavailable history.
+        });
+        return chatHistoryPromise;
+    }
     function nowTime() { var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + (m < 10 ? "0" : "") + m + " " + ap; }
     function setPlanning(on) { planning = on; var c = $("chip-plan"); if (c) c.classList.toggle("on", on); }
-    function sendChat(text) {
+    function sendLoadedChat(text) {
         if (!text) return;
         bubble("user", text, nowTime()); if (tx) { tx.value = ""; tx.style.height = "auto"; }
         send.disabled = true;
@@ -1184,24 +1479,36 @@ route options by clicking instead of typing URLs. {% endcomment %}
             if (d.planned) setPlanning(false);
         }, function () { send.disabled = false; if (typing) typing.remove(); bubble("coach", "Couldn't reach Jamie, your note is saved. Try again in a sec.", nowTime()); });
     }
+    function sendChat(text) {
+        if (!text || (send && send.disabled)) return;
+        if (send) send.disabled = true;
+        loadChatHistory().then(function () { sendLoadedChat(text); });
+    }
     if ($("coach-form")) $("coach-form").addEventListener("submit", function () { sendChat((tx.value || "").trim()); });
     if (send) send.onclick = function (e) { e.preventDefault(); sendChat((tx.value || "").trim()); };
     if (tx) { tx.addEventListener("input", function () { tx.style.height = "auto"; tx.style.height = Math.min(tx.scrollHeight, 120) + "px"; });
         tx.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat((tx.value || "").trim()); } }); }
-    if ($("chip-plan")) $("chip-plan").onclick = function () { setPlanning(!planning); openChat(); if (planning) bubble("coach", "What's the one thing you've been putting off that would matter most tomorrow?", nowTime()); };
+    if ($("chip-plan")) $("chip-plan").onclick = function () {
+        setPlanning(!planning); openChat();
+        if (planning) loadChatHistory().then(function () {
+            if (planning) bubble("coach", "What's the one thing you've been putting off that would matter most tomorrow?", nowTime());
+        });
+    };
     if ($("chip-wrap")) $("chip-wrap").onclick = function () {
         var chip = $("chip-wrap");
         chip.disabled = true; openChat();
-        var typing = bubble("coach", "wrapping up…", ""); typing.classList.add("typing");
-        // Synchronous coach run server-side (~3-5s); the reply lands in chat
-        // and, unless the user already planned, invites evening planning.
-        post("/daily/wrap/", {}, function (d) {
-            chip.disabled = false; if (typing) typing.remove();
-            bubble("coach", d.reply, nowTime());
-            if (d.invite_planning) setPlanning(true);
-        }, function () {
-            chip.disabled = false; if (typing) typing.remove();
-            bubble("coach", "Couldn't wrap the day just now. Try again in a bit.", nowTime());
+        loadChatHistory().then(function () {
+            var typing = bubble("coach", "wrapping up…", ""); typing.classList.add("typing");
+            // Synchronous coach run server-side (~3-5s); the reply lands in chat
+            // and, unless the user already planned, invites evening planning.
+            post("/daily/wrap/", {}, function (d) {
+                chip.disabled = false; if (typing) typing.remove();
+                bubble("coach", d.reply, nowTime());
+                if (d.invite_planning) setPlanning(true);
+            }, function () {
+                chip.disabled = false; if (typing) typing.remove();
+                bubble("coach", "Couldn't wrap the day just now. Try again in a bit.", nowTime());
+            });
         });
     };
     // ?ask=win: arriving from the wins page's "Jamie can help" link. Open Jamie
@@ -1224,7 +1531,8 @@ route options by clicking instead of typing URLs. {% endcomment %}
 
     // ===== DEV config panel (gear FAB) =====
     // Session-backed toggles (beta/qr/gate) navigate with the param; the server
-    // remembers them. localStorage toggles (welcome/win) flip a flag + reload.
+    // remembers them. The win-explainer toggle uses localStorage; Welcome/setup
+    // uses the intro route flag so it can be forced on any dev account.
     var devGear = $("dev-gear"), devPanel = $("dev-panel");
     if (devGear && devPanel) {
         devGear.onclick = function () { devPanel.classList.toggle("show"); };
@@ -1259,7 +1567,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
         var devReset = $("dev-reset");
         if (devReset) devReset.onclick = function () {
             try {
-                ["daily_intro_seen_v", "daily_win_explainer_seen", "daily_win_collapsed",
+                ["daily_intro_version_seen", "daily_win_explainer_seen", "daily_win_collapsed",
                  "daily_win_invite_dismissed", "daily_last_local_date"].forEach(function (k) { localStorage.removeItem(k); });
             } catch (e) {}
             var u = new URL(location.href);
@@ -1281,4 +1589,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     };
 })();
 </script>
+{% if not backfill %}
+{% include "daily/_wins_editor_script.html" with wins_dialog=True %}
+{% endif %}
 {% endblock %}

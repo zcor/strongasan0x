@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 MAX_CHECKLIST_SIZE = 20
 
 
+def dismiss_pending_mutations(participant: DailyParticipant) -> int:
+    """Retire queued list rewrites when a participant enters support-only mode.
+
+    This belongs to the mode transition, not the dashboard GET: executing the
+    same no-op UPDATE on every page view adds a full database round trip.
+    """
+    return CoachSuggestion.objects.filter(
+        check_in__participant=participant,
+        proposed_questions__isnull=False,
+        status=CoachSuggestion.STATUS_PENDING,
+    ).update(
+        status=CoachSuggestion.STATUS_DISMISSED,
+        responded_at=timezone.now(),
+    )
+
+
 def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> int:
     """Apply any AI mutations whose source check-in is BEFORE `as_of` and
     whose suggestion wasn't dismissed.
@@ -161,10 +177,11 @@ def _reconcile_user_edits(base, current_questions, proposed) -> list:
     `base` is the core list the model saw; anything in the current list but
     not in base is a later user addition (carry it over, appended in current
     order); anything in base but no longer current was user-removed (drop it
-    from the proposal too). The proposal's own key changes (a coach swap:
-    same slot, new key) are untouched. Non-list proposals pass through for
-    _is_valid_questions to reject. Trims coach-introduced items first if the
-    overlay would exceed MAX_CHECKLIST_SIZE — user curation outranks coaching.
+    from the proposal too); and stable keys with new labels are user renames.
+    The proposal's own key changes (a coach swap: same slot, new key) are
+    untouched. Non-list proposals pass through for _is_valid_questions to
+    reject. Trims coach-introduced items first if the overlay would exceed
+    MAX_CHECKLIST_SIZE — user curation outranks coaching.
     """
     if not isinstance(proposed, list) or not isinstance(base, list):
         return proposed
@@ -176,6 +193,29 @@ def _reconcile_user_edits(base, current_questions, proposed) -> list:
     result = [
         q for q in proposed
         if not (isinstance(q, dict) and q.get("key") in removed)
+    ]
+    # A stable key whose label changed is a user rename. Carry that wording
+    # over the queued proposal so an overnight mutation generated before the
+    # edit cannot silently restore the misspelling/old label.
+    base_by_key = {
+        q.get("key"): q for q in base
+        if isinstance(q, dict) and q.get("key")
+    }
+    current_by_key = {
+        q.get("key"): q for q in current_questions
+        if isinstance(q, dict) and q.get("key")
+    }
+    renamed = {
+        key: current_q.get("label")
+        for key, current_q in current_by_key.items()
+        if key in base_by_key
+        and current_q.get("label") != base_by_key[key].get("label")
+    }
+    result = [
+        {**q, "label": renamed[q.get("key")]}
+        if isinstance(q, dict) and q.get("key") in renamed
+        else q
+        for q in result
     ]
     result_keys = {q.get("key") for q in result if isinstance(q, dict)}
     added = [

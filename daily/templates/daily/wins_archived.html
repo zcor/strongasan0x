@@ -1,11 +1,10 @@
 {% extends "daily/base.html" %}
 
-{% block title %}Your wins · {{ participant.display_name }}{% endblock %}
+{% block title %}Archived · {{ participant.display_name }}{% endblock %}
 
 {% block content %}
 {% include "daily/_climb_core.html" %}
 {% include "daily/_wins_chrome.html" %}
 {% include "daily/_wins_editor_styles.html" %}
-{% include "daily/_wins_editor.html" %}
-{% include "daily/_wins_editor_script.html" %}
+{% include "daily/_wins_archived_panel.html" %}
 {% endblock %}

@@ -3,24 +3,28 @@ sub-item preservation through overnight mutations, evening-plan merge (reorder,
 never shrink), the beta gate on beta onboarding, and crisis-regex precision.
 
 Also covers the Climb beta-review fixes: skip-clears-subitem-done, the
-case-folded label fallback in _merge_subitems, win_remove completing a goal
-via its last open stone (with north_star_done in the response), and the
-win_action 'promote' endpoint."""
+case-folded label fallback in _merge_subitems, explicit North Star completion,
+and the win_action 'promote' endpoint."""
 import json
 from datetime import timedelta
 
-from django.test import TestCase, Client
+from django.db import connection
+from django.test import Client, RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from daily import views
 from daily.auth import SESSION_DAILY_PARTICIPANT_ID
 from daily.models import (
     ChecklistVersion,
+    CoachChatMessage,
     CoachSuggestion,
     DailyCheckIn,
+    DailyCheckInAnswer,
     DailyParticipant,
     WinItem,
 )
-from daily.services.checklist import apply_pending_mutations
+from daily.services.checklist import apply_pending_mutations, dismiss_pending_mutations
 from daily.services.wins import complete_win, create_north_star
 
 
@@ -191,7 +195,7 @@ class SupportOnlyMutationTests(TestCase):
     """A beta support-only user must never see a note claiming a list change,
     and queued mutations must not survive to fire weeks later."""
 
-    def test_pending_mutation_dismissed_on_render(self):
+    def test_pending_mutation_dismissed_when_support_mode_is_selected(self):
         p = _make_participant(beta=True, ai_mutations_enabled=False)
         p.onboarded_at = timezone.now()
         p.save(update_fields=["onboarded_at"])
@@ -212,17 +216,146 @@ class SupportOnlyMutationTests(TestCase):
             proposed_questions=[{"key": "q_x", "label": "X"}],
             status=CoachSuggestion.STATUS_PENDING,
         )
-        c = Client()
-        s = c.session
-        s[SESSION_DAILY_PARTICIPANT_ID] = p.id
-        s.save()
-        r = c.get("/daily/checkin/")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(dismiss_pending_mutations(p), 1)
         sug.refresh_from_db()
         self.assertEqual(sug.status, CoachSuggestion.STATUS_DISMISSED)
         # And the list was NOT rewritten.
         current = p.checklist_versions.get(is_current=True)
         self.assertEqual([q["key"] for q in current.questions], ["q_a"])
+
+
+class DashboardQueryTests(TestCase):
+    @override_settings(DEBUG=False)
+    def test_support_only_dashboard_stays_within_eight_queries(self):
+        participant = _make_participant(beta=True, ai_mutations_enabled=False)
+        participant.onboarded_at = timezone.now()
+        participant.save(update_fields=["onboarded_at"])
+        version = ChecklistVersion.objects.create(
+            participant=participant,
+            questions=[{"key": "q_a", "label": "A"}],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        check_in = DailyCheckIn.objects.create(
+            participant=participant,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=version,
+            done_count=1,
+        )
+        DailyCheckInAnswer.objects.create(
+            check_in=check_in,
+            question_key="q_a",
+            state=DailyCheckInAnswer.STATE_DONE,
+        )
+        CoachChatMessage.objects.create(
+            participant=participant,
+            role=CoachChatMessage.ROLE_COACH,
+            text="This must wait until chat opens.",
+            date=timezone.localdate(),
+        )
+        participant.streak_count = 1
+        participant.streak_through_date = timezone.localdate() - timedelta(days=1)
+        participant.save(update_fields=["streak_count", "streak_through_date"])
+        request = RequestFactory().get("/daily/checkin/")
+        request.session = {SESSION_DAILY_PARTICIPANT_ID: participant.id}
+
+        with CaptureQueriesContext(connection) as queries:
+            response = views.checkin(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "This must wait until chat opens.")
+        self.assertFalse(any(
+            "daily_coachchatmessage" in query["sql"].lower()
+            for query in queries.captured_queries
+        ))
+        checkin_sql = next(
+            query["sql"] for query in queries.captured_queries
+            if 'FROM "daily_dailycheckin"' in query["sql"]
+            and 'SELECT "daily_dailycheckin"."id"' in query["sql"]
+        )
+        self.assertIn(
+            (timezone.localdate() - timedelta(days=6)).isoformat(),
+            checkin_sql,
+        )
+        self.assertLessEqual(
+            len(queries),
+            8,
+            msg="\n".join(query["sql"] for query in queries.captured_queries),
+        )
+
+    @override_settings(DEBUG=False)
+    def test_lazy_wins_fragment_uses_two_queries(self):
+        participant = _make_participant(beta=True, ai_mutations_enabled=False)
+        create_north_star(participant, "Get a job", ["Update resume"])
+        request = RequestFactory().get("/daily/wins/?fragment=1")
+        request.session = {SESSION_DAILY_PARTICIPANT_ID: participant.id}
+
+        with CaptureQueriesContext(connection) as queries:
+            response = views.wins_edit(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Get a job")
+        self.assertLessEqual(
+            len(queries),
+            2,
+            msg="\n".join(query["sql"] for query in queries.captured_queries),
+        )
+
+
+class LazyChatHistoryTests(TestCase):
+    def setUp(self):
+        self.participant = _make_participant(beta=True, ai_mutations_enabled=False)
+        self.participant.onboarded_at = timezone.now()
+        self.participant.save(update_fields=["onboarded_at"])
+        self.version = ChecklistVersion.objects.create(
+            participant=self.participant,
+            questions=[{"key": "q_a", "label": "A"}],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        self.client = Client()
+        session = self.client.session
+        session[SESSION_DAILY_PARTICIPANT_ID] = self.participant.id
+        session.save()
+
+    def test_history_is_returned_only_from_lazy_endpoint(self):
+        CoachChatMessage.objects.create(
+            participant=self.participant,
+            role=CoachChatMessage.ROLE_USER,
+            text="An earlier message",
+            date=timezone.localdate(),
+        )
+
+        response = self.client.get("/daily/chat/history/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["messages"][0]["text"], "An earlier message")
+
+    def test_morning_note_is_marked_and_seeded_when_chat_opens(self):
+        check_in = DailyCheckIn.objects.create(
+            participant=self.participant,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=self.version,
+        )
+        note = CoachSuggestion.objects.create(
+            check_in=check_in,
+            suggestion_text="A deferred morning note",
+            status=CoachSuggestion.STATUS_PENDING,
+        )
+
+        dashboard = self.client.get("/daily/checkin/")
+        self.assertEqual(dashboard.status_code, 200)
+        note.refresh_from_db()
+        self.assertEqual(note.status, CoachSuggestion.STATUS_PENDING)
+        self.assertFalse(CoachChatMessage.objects.filter(suggestion=note).exists())
+
+        response = self.client.get("/daily/chat/history/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["messages"][-1]["text"], "A deferred morning note")
+        note.refresh_from_db()
+        self.assertEqual(note.status, CoachSuggestion.STATUS_SHOWN)
+        self.assertEqual(CoachChatMessage.objects.filter(suggestion=note).count(), 1)
 
 
 class ProposalReconcileTests(TestCase):
@@ -535,11 +668,8 @@ class MergeSubitemsLabelFallbackTests(TestCase):
         self.assertNotIn("items", by_key["q_new"])
 
 
-class WinRemoveCompletesGoalTests(TestCase):
-    """win_remove: deleting the last OPEN stone of a goal that already has
-    progress (a done/graduated stone) completes the goal, and the JSON
-    response carries north_star_done — mirroring win_action's summit
-    signal so the editor can celebrate instead of showing a stale card."""
+class WinRemoveKeepsGoalOpenTests(TestCase):
+    """Removing the last open step enables the explicit Complete control."""
 
     def setUp(self):
         self.p = DailyParticipant.objects.create(
@@ -553,7 +683,7 @@ class WinRemoveCompletesGoalTests(TestCase):
     def _post(self, url, body):
         return self.c.post(url, data=json.dumps(body), content_type="application/json")
 
-    def test_remove_last_open_stone_with_progress_completes_goal(self):
+    def test_remove_last_open_stone_with_progress_keeps_goal_open(self):
         goal = create_north_star(self.p, "Declutter", ["Closet", "Garage"])
         s1, s2 = list(goal.stones.order_by("order"))
         complete_win(s1)  # progress already made on this goal
@@ -562,10 +692,13 @@ class WinRemoveCompletesGoalTests(TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertTrue(body["ok"])
-        self.assertEqual(body.get("north_star_done", {}).get("title"), "Declutter")
+        self.assertNotIn("north_star_done", body)
 
         goal.refresh_from_db()
-        self.assertEqual(goal.status, WinItem.STATUS_DONE)
+        self.assertEqual(goal.status, WinItem.STATUS_OPEN)
+        completed = self._post("/daily/win/goal/complete/", {"id": goal.id})
+        self.assertEqual(completed.status_code, 200)
+        self.assertEqual(completed.json()["north_star_done"]["title"], "Declutter")
 
     def test_remove_last_stone_of_untouched_goal_leaves_it_open(self):
         goal = create_north_star(self.p, "Someday", ["Only step"])

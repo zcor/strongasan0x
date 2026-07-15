@@ -14,6 +14,7 @@ ambiguous (more than one match), so it can never silently flag the wrong user.
 from django.core.management.base import BaseCommand, CommandError
 
 from daily.models import DailyParticipant
+from daily.services.checklist import dismiss_pending_mutations
 
 
 class Command(BaseCommand):
@@ -57,4 +58,6 @@ class Command(BaseCommand):
         p.beta = want_beta
         p.ai_mutations_enabled = want_ai
         p.save(update_fields=["beta", "ai_mutations_enabled", "updated_at"])
+        if not want_ai:
+            dismiss_pending_mutations(p)
         self.stdout.write(self.style.SUCCESS("saved."))

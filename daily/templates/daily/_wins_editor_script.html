@@ -1,0 +1,536 @@
+<script>
+(function () {
+    "use strict";
+    function initWinsEditor(root) {
+    if (!root || root.dataset.winsInitialized === "1") return;
+    root.dataset.winsInitialized = "1";
+    var archivedPanel = document.getElementById("wins-dialog-archived");
+    var archivedHost = archivedPanel && archivedPanel.querySelector("[data-wins-archived-host]");
+    var archivedLoading = archivedPanel && archivedPanel.querySelector("[data-wins-archived-loading]");
+    var archivedLink = root.querySelector("[data-wins-archived]");
+    var archivedLoaded = false;
+    var archivedRequestPending = false;
+    var archivedReloadQueued = false;
+    var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    var $ = function (id) { return root.querySelector("#" + id); };
+    try { var token = "{{ self_token }}"; if (token) localStorage.setItem("daily_self_token", token); } catch (e) {}
+
+    function post(url, body, onOk, onErr) {
+        fetch(url, {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+            body: JSON.stringify(body || {}),
+        }).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+          .then(function (res) { if (res.d && res.d.ok) { onOk && onOk(res.d); } else { onErr && onErr(res); } })
+          .catch(function () { onErr && onErr({ status: 0 }); });
+    }
+
+    function syncToday(data) {
+        if (window.__syncWinsEditorResult) window.__syncWinsEditorResult(data || {});
+    }
+
+    function editToast(msg, host) {
+        var toast = document.createElement("div");
+        toast.className = "edit-toast";
+        toast.textContent = "🌟 " + msg;
+        (host || root).appendChild(toast);
+        requestAnimationFrame(function () { toast.classList.add("show"); });
+        setTimeout(function () {
+            toast.classList.remove("show");
+            setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+        }, 3200);
+    }
+
+    function goalCount(goalEl) {
+        var stones = goalEl.querySelectorAll(".stone");
+        var count = goalEl.querySelectorAll('.stone[data-status="open"]').length;
+        var label = goalEl.querySelector("[data-count]");
+        if (label) label.textContent = count + " left";
+        var complete = goalEl.querySelector("[data-complete-goal]");
+        if (complete) complete.disabled = !stones.length || count > 0;
+    }
+
+    function syncEmpty() {
+        var goalsEmpty = $("goals-empty");
+        var singlesEmpty = $("singles-empty");
+        var hasGoals = $("goals").children.length > 0;
+        $("goals").classList.toggle("has-goals", hasGoals);
+        syncGoalCollapseMode();
+        if (goalsEmpty) goalsEmpty.classList.toggle("is-hidden", hasGoals);
+        if (singlesEmpty) singlesEmpty.classList.toggle("is-hidden", $("singles").children.length > 0);
+    }
+
+    function syncGoalCollapseMode() {
+        var goals = Array.prototype.slice.call($("goals").children);
+        var many = goals.length > 2;
+        var changed = root.classList.contains("many-goals") !== many;
+        root.classList.toggle("many-goals", many);
+        goals.forEach(function (goal) {
+            var toggle = goal.querySelector("[data-toggle-goal]");
+            goal.classList.toggle("collapsible", many);
+            if (changed) goal.classList.toggle("collapsed", many);
+            if (!many) goal.classList.remove("collapsed");
+            if (toggle) {
+                toggle.disabled = !many;
+                toggle.setAttribute("aria-expanded", goal.classList.contains("collapsed") ? "false" : "true");
+            }
+        });
+    }
+
+    function stoneEl(stone) {
+        var row = document.createElement("div");
+        row.className = "stone" + (stone.done ? " done" : "");
+        row.dataset.stoneId = stone.id;
+        row.dataset.status = stone.status || "open";
+        if (stone.done) {
+            row.innerHTML = '<button class="step-check" type="button" ' + (stone.status === "done" ? 'data-uncheck-step="' + stone.id + '" aria-label="Uncheck step"' : 'disabled aria-label="Step is now a habit"') + '><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span>'
+                + (stone.status === "graduated" ? '<span class="stone-state">habit</span>' : '');
+        } else {
+            row.innerHTML = '<button class="step-check" type="button" data-complete-step="' + stone.id + '" aria-label="Check off step"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="today-pick' + (stone.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + stone.id + '" aria-pressed="' + (stone.selected_today ? 'true' : 'false') + '">' + (stone.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
+        }
+        row.querySelector(".rlabel").textContent = stone.text;
+        return row;
+    }
+
+    function singleEl(single) {
+        var row = document.createElement("div");
+        row.className = "single";
+        row.dataset.stoneId = single.id;
+        row.dataset.status = single.status || "open";
+        row.innerHTML = '<div class="single-main"><span class="dot" aria-hidden="true"></span><span class="rlabel"></span></div><div class="single-actions"><button class="today-pick' + (single.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + single.id + '" aria-pressed="' + (single.selected_today ? 'true' : 'false') + '">' + (single.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + single.id + '">Delete</button><button class="spromote" type="button" data-promote="' + single.id + '">Move to habit</button></div>';
+        row.querySelector(".rlabel").textContent = single.text;
+        return row;
+    }
+
+    function goalEl(goal) {
+        var block = document.createElement("div");
+        var collapsed = root.classList.contains("many-goals");
+        block.className = "goal" + (collapsed ? " collapsible collapsed" : "");
+        block.dataset.goalId = goal.id;
+        block.innerHTML = '<div class="goalhead"><button class="goal-toggle" type="button" data-toggle-goal aria-expanded="' + (collapsed ? 'false' : 'true') + '"' + (collapsed ? '' : ' disabled') + '><span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span><span class="gtitle"></span><span class="gcount" data-count></span><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="stones"></div><div class="goal-actions"><button class="goal-complete" type="button" data-complete-goal="' + goal.id + '" disabled>Mark complete</button><button class="goal-archive" type="button" data-archive-goal="' + goal.id + '" aria-label="Archive this North Star">✕</button><button class="addstone" type="button" data-add-stone="' + goal.id + '">Add a step</button></div></div>';
+        block.querySelector(".gtitle").textContent = goal.text;
+        (goal.stones || []).forEach(function (stone) { block.querySelector(".stones").appendChild(stoneEl(stone)); });
+        goalCount(block);
+        return block;
+    }
+
+    root.addEventListener("click", function (e) {
+        var toggle = e.target.closest("[data-toggle-goal]");
+        if (!toggle || !root.contains(toggle) || toggle.disabled) return;
+        var goal = toggle.closest(".goal");
+        var collapsed = goal.classList.toggle("collapsed");
+        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    });
+
+    function setTodaySelection(id) {
+        root.querySelectorAll("[data-pick-today]").forEach(function (button) {
+            var selected = String(button.getAttribute("data-pick-today")) === String(id || "");
+            button.classList.toggle("selected", selected);
+            button.setAttribute("aria-pressed", selected ? "true" : "false");
+            button.textContent = selected ? "Today ✓" : "Pick today";
+        });
+    }
+
+    function markStoneDone(row, status) {
+        if (!row) return;
+        row.dataset.status = status || "done";
+        row.classList.add("done");
+        var check = row.querySelector(".step-check");
+        if (check) {
+            check.removeAttribute("data-complete-step");
+            if (status === "done") {
+                check.disabled = false;
+                check.setAttribute("data-uncheck-step", row.dataset.stoneId);
+                check.setAttribute("aria-label", "Uncheck step");
+            } else {
+                check.disabled = true;
+                check.removeAttribute("data-uncheck-step");
+            }
+        }
+        var pick = row.querySelector("[data-pick-today]"); if (pick) pick.remove();
+        var remove = row.querySelector(".sremove"); if (remove) remove.remove();
+        if (status === "graduated" && !row.querySelector(".stone-state")) {
+            var state = document.createElement("span"); state.className = "stone-state"; state.textContent = "habit"; row.appendChild(state);
+        }
+        var goal = row.closest(".goal"); if (goal) goalCount(goal);
+    }
+
+    function markStoneOpen(row, stone) {
+        if (!row || !stone) return;
+        var goal = row.closest(".goal");
+        row.replaceWith(stoneEl(stone));
+        if (goal) goalCount(goal);
+    }
+
+    window.__syncWinsEditorRows = function (data) {
+        data = data || {};
+        if (data.completed) {
+            var completedRow = root.querySelector('[data-stone-id="' + data.completed.id + '"]');
+            if (completedRow && completedRow.classList.contains("single")) completedRow.remove();
+            else markStoneDone(completedRow, data.completed.status);
+        }
+        if (data.reopened) {
+            var reopenedRow = root.querySelector('[data-stone-id="' + data.reopened.id + '"]');
+            markStoneOpen(reopenedRow, data.reopened);
+        }
+        setTodaySelection(data.next && data.next.id);
+        syncEmpty();
+    };
+
+    root.addEventListener("click", function (e) {
+        var pick = e.target.closest("[data-pick-today]");
+        if (!pick || !root.contains(pick)) return;
+        pick.disabled = true;
+        post("/daily/win/select/", { id: pick.getAttribute("data-pick-today") }, function (data) {
+            pick.disabled = false;
+            setTodaySelection(data.selected && data.selected.id);
+            syncToday(data);
+            if (window.__closeWinsDialog) window.__closeWinsDialog();
+        }, function () {
+            pick.disabled = false;
+            editToast("Couldn't select that win right now.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var check = e.target.closest("[data-complete-step]");
+        if (!check || !root.contains(check)) return;
+        check.disabled = true;
+        post("/daily/win/", { id: check.getAttribute("data-complete-step"), action: "check_off" }, function (data) {
+            markStoneDone(check.closest(".stone"), data.completed && data.completed.status);
+            syncToday(data);
+        }, function () {
+            check.disabled = false;
+            editToast("Couldn't check off that step right now.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var check = e.target.closest("[data-uncheck-step]");
+        if (!check || !root.contains(check)) return;
+        check.disabled = true;
+        post("/daily/win/", { id: check.getAttribute("data-uncheck-step"), action: "uncheck" }, function (data) {
+            markStoneOpen(check.closest(".stone"), data.reopened);
+            syncToday(data);
+        }, function () {
+            check.disabled = false;
+            editToast("Couldn't uncheck that step right now.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var complete = e.target.closest("[data-complete-goal]");
+        if (!complete || !root.contains(complete) || complete.disabled) return;
+        complete.disabled = true;
+        post("/daily/win/goal/complete/", { id: complete.getAttribute("data-complete-goal") }, function (data) {
+            var goal = complete.closest(".goal"); if (goal) goal.remove();
+            syncEmpty(); syncToday(data);
+            editToast("North Star complete: " + data.north_star_done.title);
+        }, function () {
+            complete.disabled = false;
+            editToast("Check off every step before completing this North Star.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var archive = e.target.closest("[data-archive-goal]");
+        if (!archive || !root.contains(archive)) return;
+        archive.disabled = true;
+        post("/daily/win/goal/archive/", { id: archive.getAttribute("data-archive-goal") }, function (data) {
+            var goal = archive.closest(".goal"); if (goal) goal.remove();
+            syncEmpty(); syncToday(data);
+            loadArchived(true);
+            editToast("Moved to Archived: " + data.archived.title);
+        }, function () {
+            archive.disabled = false;
+            editToast("Couldn't archive that North Star right now.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var remove = e.target.closest("[data-remove]");
+        if (!remove || !root.contains(remove)) return;
+        var id = remove.getAttribute("data-remove");
+        post("/daily/win/remove/", { id: id }, function (data) {
+            var goal = remove.closest(".goal");
+            var row = remove.closest(".stone, .single, .goal");
+            if (remove.classList.contains("gremove")) {
+                if (goal) goal.remove();
+            } else if (row) {
+                row.remove();
+                if (goal) goalCount(goal);
+            }
+            syncEmpty();
+            syncToday(data);
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var promote = e.target.closest("[data-promote]");
+        if (!promote || !root.contains(promote)) return;
+        var id = promote.getAttribute("data-promote");
+        promote.disabled = true;
+        post("/daily/win/", { id: id, action: "promote" }, function (data) {
+            var row = promote.closest(".single");
+            if (row) row.remove();
+            syncEmpty();
+            syncToday(data);
+            editToast("Added to your daily list: " + ((data.item && data.item.label) || "new habit"));
+        }, function (res) {
+            promote.disabled = false;
+            editToast(res && res.status === 409
+                ? "Your daily list is full. Remove a habit first."
+                : "Couldn't add that right now.");
+        });
+    });
+
+    root.addEventListener("click", function (e) {
+        var button = e.target.closest("[data-add-stone]");
+        if (!button || !root.contains(button)) return;
+        var goalId = button.getAttribute("data-add-stone");
+        var goal = button.closest(".goal");
+        var existing = goal.querySelector(".stone-composer");
+        if (existing) { existing.querySelector("input").focus(); return; }
+        var wrap = document.createElement("div"); wrap.className = "stone-composer";
+        var body = document.createElement("div"); body.className = "stone-composer-body";
+        var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
+        input.className = "composer-input"; input.placeholder = "e.g. Ask Dana for a referral"; input.autocomplete = "off";
+        var foot = document.createElement("div"); foot.className = "card-foot";
+        var cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "act"; cancel.textContent = "Cancel";
+        var add = document.createElement("button"); add.type = "button"; add.className = "act gold"; add.textContent = "Add";
+        body.appendChild(input); foot.appendChild(cancel); foot.appendChild(add);
+        wrap.appendChild(body); wrap.appendChild(foot);
+        var actions = button.closest(".goal-actions");
+        actions.parentNode.insertBefore(wrap, actions);
+        button.classList.add("is-hidden");
+        input.focus();
+        var pending = false;
+        function close() {
+            if (pending) return;
+            wrap.remove();
+            button.classList.remove("is-hidden");
+        }
+        function submit() {
+            if (pending) return;
+            var text = input.value.trim(); if (!text) { input.focus(); return; }
+            pending = true; input.disabled = true; cancel.disabled = true; add.disabled = true;
+            add.textContent = "Adding…"; add.classList.add("loading");
+            post("/daily/win/stone/add/", { goal_id: goalId, text: text }, function (data) {
+                goal.querySelector(".stones").appendChild(stoneEl(data.stone));
+                goalCount(goal); pending = false; close();
+                syncToday(data);
+            }, function () {
+                pending = false; input.disabled = false; cancel.disabled = false; add.disabled = false;
+                add.textContent = "Add"; add.classList.remove("loading");
+                editToast("Couldn't add that step right now."); input.focus();
+            });
+        }
+        cancel.onclick = close;
+        add.onclick = submit;
+        input.onkeydown = function (event) {
+            if (event.key === "Enter") { event.preventDefault(); submit(); }
+            else if (event.key === "Escape") close();
+        };
+    });
+
+    var singleButton = $("add-single-btn");
+    if (singleButton) singleButton.onclick = function () {
+        var host = $("singles");
+        var existing = $("single-inline");
+        if (existing) { existing.querySelector("input").focus(); return; }
+        var wrap = document.createElement("div"); wrap.className = "stone-inline"; wrap.id = "single-inline";
+        var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
+        input.className = "composer-input"; input.placeholder = "e.g. Book the dentist"; input.autocomplete = "off";
+        var add = document.createElement("button"); add.type = "button"; add.className = "mini"; add.textContent = "Add";
+        wrap.appendChild(input); wrap.appendChild(add);
+        host.parentNode.insertBefore(wrap, host.nextSibling);
+        input.focus();
+        function submit() {
+            var text = input.value.trim(); if (!text) { input.focus(); return; }
+            add.disabled = true;
+            post("/daily/win/add/", { text: text }, function (data) {
+                if (data.added) host.appendChild(singleEl(data.added));
+                wrap.remove(); syncEmpty(); syncToday(data);
+            }, function () { add.disabled = false; editToast("Couldn't add that right now."); });
+        }
+        add.onclick = submit;
+        input.onkeydown = function (event) {
+            if (event.key === "Enter") { event.preventDefault(); submit(); }
+            else if (event.key === "Escape") wrap.remove();
+        };
+    };
+
+    {% if not wins_dialog %}
+    try { if (singleButton && new URLSearchParams(location.search).get("add") === "1") singleButton.onclick(); } catch (e) {}
+    {% endif %}
+
+    var composer = $("ncomposer"), goalInput = $("ncomp-goal"), stepsHost = $("ncomp-steps"), message = $("ncomp-msg");
+    function openComposer() {
+        composer.classList.remove("is-hidden"); goalInput.value = "";
+        stepsHost.querySelectorAll(".nc-step").forEach(function (step, index) { if (index < 2) step.value = ""; });
+        message.classList.add("is-hidden"); goalInput.focus();
+    }
+    function closeComposer() { composer.classList.add("is-hidden"); }
+    if ($("add-goal-btn")) $("add-goal-btn").onclick = openComposer;
+    if ($("ncomp-cancel")) $("ncomp-cancel").onclick = closeComposer;
+    if (composer) composer.addEventListener("click", function (e) { if (e.target === composer) closeComposer(); });
+    if ($("ncomp-more")) $("ncomp-more").onclick = function () {
+        var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
+        input.className = "composer-input nc-step"; input.placeholder = "Next step (optional)"; input.autocomplete = "off";
+        stepsHost.appendChild(input); input.focus();
+    };
+    if ($("ncomp-save")) $("ncomp-save").onclick = function () {
+        var goal = goalInput.value.trim();
+        var stones = Array.prototype.slice.call(stepsHost.querySelectorAll(".nc-step")).map(function (step) { return step.value.trim(); }).filter(Boolean);
+        if (!goal) { message.textContent = "Give your north star a name."; message.classList.remove("is-hidden"); goalInput.focus(); return; }
+        if (!stones.length) { message.textContent = "Add at least one step."; message.classList.remove("is-hidden"); return; }
+        var save = $("ncomp-save"); save.disabled = true;
+        post("/daily/win/goal/add/", { goal: goal, stones: stones }, function (data) {
+            $("goals").appendChild(goalEl(data.goal));
+            save.disabled = false; closeComposer(); syncEmpty(); syncToday(data);
+        }, function () {
+            save.disabled = false; message.textContent = "Couldn't create that, try again."; message.classList.remove("is-hidden");
+        });
+    };
+
+    function showWinsEditor() {
+        root.hidden = false;
+        root.setAttribute("aria-hidden", "false");
+        if (archivedPanel) {
+            archivedPanel.hidden = true;
+            archivedPanel.setAttribute("aria-hidden", "true");
+        }
+        var dialog = root.closest("dialog");
+        if (dialog) {
+            dialog.setAttribute("aria-labelledby", "wins-dialog-title");
+            dialog.scrollTop = 0;
+        }
+    }
+
+    function showArchivedEditor() {
+        if (!archivedPanel) return;
+        root.hidden = true;
+        root.setAttribute("aria-hidden", "true");
+        archivedPanel.hidden = false;
+        archivedPanel.setAttribute("aria-hidden", "false");
+        var dialog = archivedPanel.closest("dialog");
+        if (dialog) {
+            dialog.setAttribute("aria-labelledby", "wins-archived-title");
+            dialog.scrollTop = 0;
+        }
+        loadArchived(false);
+    }
+
+    function loadArchived(force) {
+        if (!archivedPanel || !archivedHost || !archivedLoading || !archivedLink) return;
+        if (force) archivedLoaded = false;
+        if (archivedRequestPending) {
+            if (force) archivedReloadQueued = true;
+            return;
+        }
+        if (archivedLoaded) return;
+        archivedRequestPending = true;
+        archivedPanel.setAttribute("aria-busy", "true");
+
+        var hasContent = Boolean(archivedHost.querySelector("[data-wins-archived-content]"));
+        var error = archivedLoading.querySelector("[data-wins-archived-error]");
+        archivedLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = false; });
+        if (error) error.hidden = true;
+        if (!hasContent) {
+            archivedLoading.hidden = false;
+            archivedHost.hidden = true;
+        }
+
+        var url = new URL(archivedLink.href, window.location.href);
+        url.searchParams.set("fragment", "1");
+        fetch(url.toString(), {
+            method: "GET", credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+        }).then(function (response) {
+            if (!response.ok) throw new Error("archive request failed");
+            return response.text();
+        }).then(function (html) {
+            var probe = document.createElement("template");
+            probe.innerHTML = html.trim();
+            if (!probe.content.querySelector("[data-wins-archived-content]")) {
+                throw new Error("archive fragment missing");
+            }
+            archivedHost.innerHTML = html;
+            archivedHost.hidden = false;
+            archivedLoading.hidden = true;
+            var loadingTitle = archivedLoading.querySelector("#wins-archived-title");
+            if (loadingTitle) loadingTitle.removeAttribute("id");
+            archivedLoaded = true;
+            archivedRequestPending = false;
+            archivedPanel.setAttribute("aria-busy", "false");
+            if (archivedReloadQueued) {
+                archivedReloadQueued = false;
+                loadArchived(true);
+            }
+        }).catch(function () {
+            archivedRequestPending = false;
+            archivedReloadQueued = false;
+            archivedPanel.setAttribute("aria-busy", "false");
+            if (!hasContent) {
+                archivedLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = true; });
+                if (error) error.hidden = false;
+            }
+        });
+    }
+
+    if (archivedLink && archivedPanel) {
+        archivedLink.addEventListener("click", function (event) {
+            event.preventDefault();
+            showArchivedEditor();
+        });
+        archivedPanel.addEventListener("click", function (event) {
+            var back = event.target.closest("[data-archived-back]");
+            if (back) {
+                event.preventDefault();
+                showWinsEditor();
+                return;
+            }
+            var retry = event.target.closest("[data-wins-archived-retry]");
+            if (retry) loadArchived(false);
+        });
+        archivedPanel.addEventListener("submit", function (event) {
+            var form = event.target.closest("[data-restore-goal]");
+            if (!form || !archivedPanel.contains(form)) return;
+            event.preventDefault();
+            var button = form.querySelector('button[type="submit"]');
+            var id = form.querySelector('input[name="id"]').value;
+            var goal = form.closest("[data-archived-goal]");
+            var title = goal && goal.querySelector(".gtitle");
+            var titleText = title ? title.textContent.trim() : "North Star";
+            if (button) { button.disabled = true; button.textContent = "Restoring…"; }
+            post(form.action, { id: id }, function (data) {
+                if (goal) goal.remove();
+                if (data.goal && !root.querySelector('[data-goal-id="' + data.goal.id + '"]')) {
+                    $("goals").appendChild(goalEl(data.goal));
+                }
+                var content = archivedPanel.querySelector("[data-wins-archived-content]");
+                var empty = content && content.querySelector("[data-archived-empty]");
+                if (empty) empty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
+                syncEmpty(); syncToday(data);
+                editToast("Restored: " + titleText, archivedPanel);
+            }, function () {
+                if (button) { button.disabled = false; button.textContent = "Restore"; }
+                editToast("Couldn't restore that North Star right now.", archivedPanel);
+            });
+        });
+    }
+    window.__showWinsEditor = showWinsEditor;
+
+    var close = root.querySelector("[data-wins-close]");
+    if (close) close.onclick = function () { if (window.__closeWinsDialog) window.__closeWinsDialog(); };
+    var ask = root.querySelector("[data-wins-ask]");
+    if (ask) ask.onclick = function () {
+        if (window.__closeWinsDialog) window.__closeWinsDialog();
+        if (window.__openCoach) window.__openCoach();
+    };
+    }
+    window.__initWinsEditor = initWinsEditor;
+    var initialRoot = document.querySelector("[data-wins-editor]");
+    if (initialRoot) initWinsEditor(initialRoot);
+})();
+</script>

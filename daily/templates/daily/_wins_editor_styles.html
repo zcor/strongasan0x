@@ -1,0 +1,211 @@
+<style>
+    .wins-editor .win-ask {
+        display: block; width: max-content; max-width: 100%; background: none;
+        border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
+        font-size: .84rem; padding: 2px; cursor: pointer; text-align: left;
+    }
+    .wins-editor .win-ask span { color: var(--accent); white-space: nowrap; }
+    .wins-editor .win-ask:hover { color: var(--text); }
+    .wins-editor .eye-actions { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+    .wins-editor .eye-actions .eyelink { margin-left: 0; }
+
+    .wins-editor .card-body { padding: 18px 16px; }
+    .wins-editor .spromote:disabled { opacity: .4; cursor: default; }
+    .wins-editor .gremove, .wins-editor .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
+    .wins-editor .gremove { margin-left: 10px; }
+    .wins-editor .goalhead .gtitle { flex: 1; min-width: 0; }
+    .wins-editor .goal-toggle {
+        display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0;
+        padding: 0; border: 0; background: none; color: var(--text);
+        font: inherit; text-align: left;
+    }
+    .wins-editor .goal-toggle:disabled { opacity: 1; cursor: default; }
+    .wins-editor .collapsible .goal-toggle { cursor: pointer; }
+    .wins-editor .goal-chevron { display: none; flex: none; color: var(--text-dim); }
+    .wins-editor .goal-chevron svg { display: block; width: 16px; height: 16px; transition: transform .16s ease; }
+    .wins-editor.many-goals .goal-chevron { display: inline-flex; }
+    .wins-editor .collapsible:not(.collapsed) .goal-chevron svg { transform: rotate(90deg); }
+    .wins-editor .goal.collapsed .goal-details { display: none; }
+    .wins-editor.many-goals .goal + .goal {
+        border-top: 1px solid var(--line-soft); padding-top: 14px;
+    }
+    /* A collapsed final group needs breathing room below its header. Once it
+       is expanded, the action strip should meet “Add a north star” without
+       retaining that extra padding. */
+    .wins-editor.many-goals .goal:last-child.collapsed { padding-bottom: 14px; }
+    .wins-editor.many-goals #goals.has-goals { margin-bottom: -18px; }
+    .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
+    .wins-editor .sremove { margin-left: auto; }
+
+    .wins-editor .single { display: block; padding: 0; }
+    .wins-editor .single-main {
+        display: flex; align-items: center; gap: 11px; min-height: 64px;
+        padding: 12px 0;
+    }
+    .wins-editor .single .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); flex: none; }
+    .wins-editor .single .rlabel { flex: 1; min-width: 0; font-size: 1rem; }
+    .wins-editor .stone .rlabel { flex: 1; min-width: 0; }
+    .wins-editor .stone .sremove {
+        display: grid; place-items: center; flex: none; width: 44px; height: 44px;
+        margin-left: 0; padding: 0; border: 1px solid var(--line);
+    }
+    .wins-editor .single-actions {
+        display: flex; align-items: stretch; margin: 0 -16px;
+        border-top: 1px solid var(--line-soft);
+    }
+    .wins-editor .single:not(:last-child) .single-actions {
+        border-bottom: 1px solid var(--line-soft);
+    }
+    /* Let the last one-off action strip meet the card footer instead of
+       retaining the card body's extra bottom padding before “Add a win.” */
+    .wins-editor #singles > .single:last-child { margin-bottom: -18px; }
+    .wins-editor .single-actions .today-pick,
+    .wins-editor .single-actions .sremove,
+    .wins-editor .single-actions .spromote {
+        flex: 1; display: flex; align-items: center; justify-content: center;
+        width: auto; height: auto; min-height: 52px; margin: 0; padding: 14px 8px;
+        border: 0; background: none; color: var(--text-dim);
+        font: inherit; font-size: .8rem; line-height: 1.2; text-align: center;
+        cursor: pointer; white-space: nowrap;
+    }
+    /* Match the specificity of the per-action border reset above so these
+       vertical dividers remain visible. */
+    .wins-editor .single-actions .sremove,
+    .wins-editor .single-actions .spromote { border-left: 1px solid var(--line-soft); }
+    .wins-editor .single-actions .today-pick.selected { color: var(--done-bright); }
+    .wins-editor .single-actions .sremove { color: #e06c75; }
+    .wins-editor .single-actions .spromote { color: var(--accent); }
+    .wins-editor .single-actions button:not(:disabled):hover { background: rgba(255,255,255,.02); }
+
+    .wins-editor .step-check {
+        flex: none; display: grid; place-items: center; width: 28px; height: 28px;
+        margin: -5px 0; padding: 0; border: 0; background: none; cursor: pointer;
+    }
+    .wins-editor .step-check:disabled { cursor: default; }
+    .wins-editor .step-check .check {
+        width: 18px; height: 18px; border-radius: 50%; color: transparent;
+        border: 2px solid rgba(255,255,255,.22); display: grid; place-items: center;
+    }
+    .wins-editor .step-check .check::after {
+        content: ""; width: 10px; height: 9px; background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+    }
+    .wins-editor .stone.done .step-check .check {
+        border-color: transparent; background: var(--done); color: var(--on-done);
+    }
+    .wins-editor .today-pick {
+        flex: none; min-height: 44px; margin-left: 0; padding: 9px 11px;
+        border: 1px solid var(--line); background: none;
+        color: var(--text-dim); font: inherit; font-size: .7rem; cursor: pointer; white-space: nowrap;
+    }
+    .wins-editor .today-pick.selected { color: var(--done-bright); }
+    .wins-editor .stone-state {
+        margin-left: auto; color: var(--accent); font-size: .66rem;
+        text-transform: uppercase; letter-spacing: .1em;
+    }
+
+    .wins-editor .goal-actions {
+        display: flex; align-items: stretch; margin: 12px -16px -4px;
+        padding: 0; border-top: 1px solid var(--line-soft);
+    }
+    .wins-editor .goal:not(:last-child) .goal-actions { border-bottom: 1px solid var(--line-soft); }
+    .wins-editor .goal + .goal { margin-top: 0; border-top: 0; }
+    .wins-editor #goals.has-goals { margin-bottom: -18px; }
+    .wins-editor .addstone, .wins-editor .goal-complete, .wins-editor .goal-archive {
+        flex: 1; display: flex; align-items: center; justify-content: center;
+        min-height: 52px; padding: 14px 10px; background: none; border: 0;
+        color: var(--accent); font: inherit; font-size: .86rem; cursor: pointer;
+    }
+    .wins-editor .goal-complete { color: var(--text-dim); }
+    .wins-editor .goal-archive {
+        color: #e06c75; border-left: 1px solid var(--line-soft);
+        border-right: 1px solid var(--line-soft);
+    }
+    .wins-editor .addstone:hover, .wins-editor .goal-complete:not(:disabled):hover,
+    .wins-editor .goal-archive:hover {
+        background: rgba(255,255,255,.02);
+    }
+    .wins-editor .goal-complete:disabled { color: var(--text-dim); opacity: .45; cursor: default; }
+    .wins-editor .goal-archive:disabled { opacity: .45; cursor: default; }
+    .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
+    .wins-editor .stone-composer { margin: 8px 0 4px 26px; border: 1px solid var(--line); }
+    .wins-editor .stone-composer-body { padding: 12px; }
+    .wins-editor .stone-composer .card-foot { border-top-color: var(--line); }
+    .wins-editor .stone-inline { display: flex; gap: 8px; margin: 8px 0 4px 26px; }
+    .wins-editor #single-inline { margin-left: 0; }
+    .wins-editor .stone-inline input { flex: 1; }
+    .wins-editor .stone-inline .mini { flex: none; background: none; border: 1px solid var(--line); color: var(--accent); font: inherit; font-size: .82rem; padding: 0 12px; cursor: pointer; }
+
+    .wins-editor .ncomposer { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+    .wins-editor .ncard { width: 100%; max-width: 480px; background: var(--bg-solid); border-top: 1px solid var(--line); }
+    .wins-editor .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin: 16px 0 10px; }
+    .wins-editor .addstep-more { background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 10px 0 2px; }
+    .wins-editor .ncomposer .composer-msg {
+        width: 100%; box-sizing: border-box; margin: 16px 0 0; padding: 11px 12px;
+        border: 1px solid #c96565; background: transparent; color: var(--text);
+        line-height: 1.4;
+    }
+    @media (min-width: 520px) { .wins-editor .ncomposer { align-items: center; } .wins-editor .ncard { border: 1px solid var(--line); } }
+    .wins-editor .edit-toast, .wins-archived-view .edit-toast {
+        position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 16px);
+        max-width: 90vw; background: var(--bg-solid); color: var(--text);
+        border: 1px solid var(--accent); border-radius: 12px; padding: 12px 18px;
+        font-size: .92rem; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+        opacity: 0; pointer-events: none; z-index: 2000;
+        transition: opacity .3s ease, transform .3s ease;
+    }
+    .wins-editor .edit-toast.show, .wins-archived-view .edit-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .wins-dialog {
+        position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh;
+        max-height: none; margin: 0; padding: 0; border: 0; color: var(--text);
+        background: var(--bg-solid); overflow-y: auto; overscroll-behavior: contain;
+    }
+    .wins-dialog::backdrop { background: var(--bg-solid); }
+    .wins-dialog-shell {
+        min-height: 100%; background: var(--bg);
+        padding: calc(16px + env(safe-area-inset-top)) 16px 48px;
+    }
+    .wins-dialog .wedit { width: 100%; max-width: 480px; margin: 0 auto; }
+    /* Author-level `.wedit { display:flex }` otherwise overrides the browser's
+       built-in `[hidden]` rule, leaving both the skeleton and loaded editor on
+       screen. This also covers the Archived skeleton/host swap. */
+    .wins-dialog [hidden] { display: none; }
+    body.wins-dialog-open { overflow: hidden; }
+
+    .wins-archived .card-body { padding: 18px 16px; }
+    .wins-archived .restore-form {
+        display: flex; margin: 8px -16px -4px; border-top: 1px solid var(--line-soft);
+    }
+    .wins-archived .restore-form .act { width: 100%; }
+    .wins-archived .stag {
+        margin-left: auto; flex: none; font-size: .66rem; text-transform: uppercase;
+        letter-spacing: .12em; color: var(--accent);
+    }
+    .wins-archived-view[hidden] { display: none; }
+    .wins-editor-skeleton .card-body, .wins-archive-skeleton .card-body { padding: 24px 16px; }
+    .wins-editor-skeleton .skeleton-line, .wins-archive-skeleton .skeleton-line {
+        height: 18px; width: 100%; margin: 14px 0; border-radius: 2px;
+        background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.12), rgba(255,255,255,.05));
+        background-size: 200% 100%; animation: wins-skeleton 1.25s ease-in-out infinite;
+    }
+    .wins-editor-skeleton .skeleton-line.short, .wins-archive-skeleton .skeleton-line.short { width: 32%; }
+    .wins-editor-skeleton .skeleton-line.medium, .wins-archive-skeleton .skeleton-line.medium { width: 68%; }
+    .wins-editor-skeleton .wins-load-error, .wins-archive-skeleton .archive-load-error {
+        align-items: center; justify-content: space-between; gap: 16px;
+        color: var(--text-dim); font-size: .84rem;
+    }
+    .wins-editor-skeleton .wins-load-error:not([hidden]),
+    .wins-archive-skeleton .archive-load-error:not([hidden]) { display: flex; }
+    .wins-editor-skeleton .wins-load-error button,
+    .wins-archive-skeleton .archive-load-error button {
+        flex: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line);
+        background: none; color: var(--accent); font: inherit; cursor: pointer;
+    }
+    @keyframes wins-skeleton { to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) {
+        .wins-editor-skeleton .skeleton-line,
+        .wins-archive-skeleton .skeleton-line { animation: none; }
+    }
+</style>

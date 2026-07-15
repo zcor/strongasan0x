@@ -1,0 +1,55 @@
+{% comment %}
+Archived North Stars rendered either as a lazy dialog panel or as the direct
+page fallback. The dialog version uses buttons so switching views never leaves
+the already-rendered Today screen.
+{% endcomment %}
+<div class="wins-archived" data-wins-archived-content>
+    <div class="wedit">
+        <header class="wehead">
+            {% if wins_dialog %}
+                <button class="weback" type="button" data-archived-back aria-label="Back to your wins">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Your wins
+                </button>
+            {% else %}
+                <a class="weback" href="/daily/wins/" aria-label="Back to your wins">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Your wins
+                </a>
+            {% endif %}
+            <div class="wetitle"{% if wins_dialog %} id="wins-archived-title"{% endif %}>Archived</div>
+            <div class="wesub">North Stars removed from active work. Restore one whenever you are ready.</div>
+        </header>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="eyebrow">North Stars</div>
+                {% for g in archived %}
+                    <div class="goal" data-archived-goal="{{ g.goal.id }}">
+                        <div class="goalhead">
+                            <span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>
+                            <span class="gtitle">{{ g.goal.text }}</span>
+                        </div>
+                        {% if g.stones %}
+                            <div class="stones">
+                                {% for s in g.stones %}
+                                    <div class="stone{% if s.status != 'open' %} done{% endif %}">
+                                        <span class="dot" aria-hidden="true"></span>
+                                        <span class="rlabel">{{ s.text }}</span>
+                                        {% if s.status == 'graduated' %}<span class="stag">now a habit</span>{% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <form class="restore-form" method="post" action="/daily/win/goal/restore/" data-restore-goal>
+                            {% csrf_token %}
+                            <input type="hidden" name="id" value="{{ g.goal.id }}">
+                            <button class="act gold" type="submit">Restore</button>
+                        </form>
+                    </div>
+                {% endfor %}
+                <div class="empty{% if archived %} is-hidden{% endif %}" data-archived-empty>No archived North Stars.</div>
+            </div>
+        </div>
+    </div>
+</div>

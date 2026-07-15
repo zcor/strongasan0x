@@ -6,6 +6,7 @@ requests>=2.31.0
 pytz>=2023.3
 cryptography>=41.0.0
 pywebpush>=1.14.0  # daily/ home-screen badge push
+segno>=1.6.0       # local-dev QR code for opening Daily on a phone
 
 # Bots
 discord.py>=2.6.0
