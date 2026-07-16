@@ -611,17 +611,22 @@ def _render_checkin(request, from_token=""):
     by_date = recent_checkins
     MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
     real_today = _real_today(request)
-    # Beta: a gold star marks only the win selected for that day and checked off.
+    # Beta: a gold star marks the win selected for that day and checked off.
+    # North-star summit days also star — and they cover history: wins
+    # completed before selection dates were retained have surfaced_on=None,
+    # so goal done_at days are the only record of pre-existing stars.
     dashboard_wins = None
     if is_beta:
-        from .services.wins import get_dashboard_wins
+        from .services.wins import get_dashboard_wins, north_star_done_dates
         dashboard_wins = get_dashboard_wins(
             participant,
             today - timedelta(days=6),
             today,
             auto_select=not backfill,
         )
-        win_days = dashboard_wins["done_dates"]
+        win_days = dashboard_wins["done_dates"] | north_star_done_dates(
+            participant, today - timedelta(days=6), today,
+        )
     else:
         win_days = set()
     for i in range(6, -1, -1):
@@ -768,6 +773,8 @@ def _derive_parent(check_in, parent_question, states):
         and not existing.derived
     ):
         # Removing the final small step should not erase a direct manual mark.
+        # (While steps EXIST they are the source of truth — a direct parent
+        # tap cascades them all to done, so re-deriving is always consistent.)
         parent_state = DailyCheckInAnswer.STATE_DONE
     else:
         parent_state = DailyCheckInAnswer.STATE_PENDING
@@ -1050,6 +1057,11 @@ def _replace_item_custom(version, rejected_key, label, is_core):
     if not label:
         return None
     item = {"key": _new_user_key(), "label": label}
+    if not is_core:
+        # The beta dashboard and set_item_state only accept health-tagged
+        # bonuses (health_bonus_items); a user-authored bonus is the user's
+        # own choice, so tag it or it vanishes and its taps 400.
+        item["category"] = "health"
     if _swap_or_append(version, item, rejected_key, is_core) is None:
         return None  # collision — astronomically unlikely with a fresh key
     return {**item, "core": is_core}

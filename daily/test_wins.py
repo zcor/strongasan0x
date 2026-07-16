@@ -131,6 +131,31 @@ class WinsServiceTests(TestCase):
         days = todays_win_done_dates(self.p, self.today, self.today)
         self.assertIn(self.today, days)
 
+    def test_uncheck_defers_to_a_newer_selection(self):
+        """Reopening a completed win must not steal today's selection back
+        from a win the user explicitly picked afterwards."""
+        goal = create_north_star(self.p, "Two steps", ["A", "B"])
+        a, b = list(goal.stones.order_by("order"))
+        select_todays_win(self.p, a, self.today)
+        complete_win(a, featured_on=self.today)
+        select_todays_win(self.p, b, self.today)
+
+        reopened = uncomplete_win(a, self.today)
+        self.assertIsNone(reopened.surfaced_on)
+        self.assertEqual(get_todays_win(self.p, self.today).id, b.id)
+
+    def test_add_stone_cap_counts_only_open_steps(self):
+        """Finished steps are history; they never block adding the next one."""
+        from unittest.mock import patch
+        from daily.services.wins import add_stone
+
+        goal = create_north_star(self.p, "Long haul", ["one", "two"])
+        s1, _s2 = list(goal.stones.order_by("order"))
+        complete_win(s1)
+        with patch("daily.services.wins.MAX_STONES_PER_GOAL", 2):
+            self.assertIsNotNone(add_stone(self.p, goal, "three"))  # 1 open < 2
+            self.assertIsNone(add_stone(self.p, goal, "four"))      # 2 open = cap
+
     def test_empty_goal_rejected(self):
         self.assertIsNone(create_north_star(self.p, "", ["a"]))
         self.assertIsNone(create_north_star(self.p, "Goal", []))
@@ -529,6 +554,20 @@ class WinsEndpointTests(TestCase):
         self.assertContains(after, 'class="card-foot" id="win-goal-foot"')
         self.assertContains(after, f'data-goal-id="{goal.id}"')
         self.assertContains(after, ">Mark complete</button>")
+
+    def test_goal_summit_day_stars_week_strip(self):
+        """North-star summit days star the strip — including wins completed
+        before selection dates were retained (surfaced_on=None history)."""
+        from django.utils import timezone as djtz
+
+        self.p.onboarded_at = djtz.now()
+        self.p.save(update_fields=["onboarded_at"])
+        goal = create_north_star(self.p, "Star goal", ["only step"])
+        complete_win(goal.stones.get())  # unsurfaced completion: surfaced_on=None
+        complete_goal(goal)
+
+        r = self.c.get("/daily/checkin/")
+        self.assertContains(r, 'class="wstar"')
 
     def test_achieved_page_shows_goal_with_steps(self):
         goal = create_north_star(self.p, "Run a 5k", ["Buy shoes", "Jog twice"])

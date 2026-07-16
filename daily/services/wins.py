@@ -168,11 +168,21 @@ def complete_win(
 def uncomplete_win(win: WinItem, today: date_cls) -> WinItem:
     """Reopen a checked North Star step.
 
-    If it was the selected win completed today, restore it to today's card.
-    Older selection dates are cleared along with their completed state.
+    If it was the selected win completed today, restore it to today's card —
+    unless the user has since picked ANOTHER win for today (their explicit
+    pick keeps the single-selection invariant). Older selection dates are
+    cleared along with their completed state.
     """
     with transaction.atomic():
-        restore_today = win.surfaced_on == today
+        restore_today = win.surfaced_on == today and not (
+            WinItem.objects.filter(
+                participant=win.participant,
+                status=WinItem.STATUS_OPEN,
+                surfaced_on=today,
+            )
+            .exclude(id=win.id)
+            .exists()
+        )
         win.status = WinItem.STATUS_OPEN
         win.done_at = None
         win.surfaced_on = today if restore_today else None
@@ -267,7 +277,9 @@ def add_stone(participant: DailyParticipant, goal: WinItem, text: str) -> Option
     text = (text or "").strip()[:200]
     if not text or not goal.is_goal:
         return None
-    if goal.stones.count() >= MAX_STONES_PER_GOAL:
+    # Cap OPEN steps only: a long-lived goal keeps its finished steps as
+    # history, and those must never block adding the next one.
+    if goal.stones.filter(status=WinItem.STATUS_OPEN).count() >= MAX_STONES_PER_GOAL:
         logger.warning("daily.wins: stone cap reached on goal %s", goal.id)
         return None
     with transaction.atomic():

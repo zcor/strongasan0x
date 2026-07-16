@@ -244,3 +244,22 @@ class BonusMutationTests(TestCase):
                 "category": "health",
             }
         ])
+
+
+class CustomBonusReplacementTests(TestCase):
+    def test_custom_bonus_replacement_is_health_tagged(self):
+        """A user-authored bonus swap must carry category=health or the beta
+        filter hides it and its taps 400."""
+        from daily.views import _replace_item_custom
+
+        participant = _participant(beta=True)
+        version = _version(participant, bonus_questions=[
+            {"key": "bonus_x", "label": "X", "category": "health"},
+        ])
+        item = _replace_item_custom(version, "bonus_x", "My own bonus", is_core=False)
+        self.assertEqual(item["category"], "health")
+        version.refresh_from_db()
+        self.assertEqual(
+            [(q["label"], q.get("category")) for q in version.bonus_questions],
+            [("My own bonus", "health")],
+        )

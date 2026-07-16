@@ -319,9 +319,10 @@ class DailyCheckInAnswer(models.Model):
     question_key = models.CharField(max_length=40)
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default=STATE_PENDING)
     # True when this state was AUTO-DERIVED from sub-item toggles rather than
-    # tapped by the user. Derivation may overwrite its own writes but never a
-    # direct mark: without this bit, untapping a sub-item would erase a habit
-    # the user had marked done themselves.
+    # tapped by the user. While a habit HAS steps, they are the source of
+    # truth (a direct parent tap cascades every step to done, so re-deriving
+    # is consistent); this bit protects a direct mark in the one remaining
+    # gap — removing a habit's final step must not erase it.
     derived = models.BooleanField(default=False)
 
     class Meta:

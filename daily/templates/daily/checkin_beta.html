@@ -1331,6 +1331,12 @@ route options by clicking instead of typing URLs. {% endcomment %}
                 // land on Great job, or explicitly open the chooser for another.
                 setTimeout(function () { renderCompleted(d.completed_today, true); }, 500);
             } else { renderWinState(d); }
+        }, function (res) {
+            if (res && res.d && res.d.error === "not_selected") {
+                // Stale card: the local day rolled past midnight or the
+                // selection changed on another device. Reload to resync.
+                window.location.reload();
+            }
         });
     }
     // "Your wins" is a full-screen dialog on this page. Its heavier editor
