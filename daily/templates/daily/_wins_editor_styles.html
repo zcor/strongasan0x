@@ -13,27 +13,17 @@
     .wins-editor .spromote:disabled { opacity: .4; cursor: default; }
     .wins-editor .gremove, .wins-editor .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
     .wins-editor .gremove { margin-left: 10px; }
-    .wins-editor .goalhead .gtitle { flex: 1; min-width: 0; }
-    .wins-editor .goal-toggle {
-        display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0;
-        padding: 0; border: 0; background: none; color: var(--text);
-        font: inherit; text-align: left;
+    /* North Star rows build on the shared .elist-* components; only the
+       chrome overrides and the title <-> input swap live here. */
+    .wins-editor .goal.collapsed .goalhead { cursor: pointer; }
+    .wins-editor .goalhead .gcount { margin-left: 0; }
+    .wins-editor .goal-title-input {
+        display: none; width: 100%; min-width: 0; margin: 9px 0;
     }
-    .wins-editor .goal-toggle:disabled { opacity: 1; cursor: default; }
-    .wins-editor .collapsible .goal-toggle { cursor: pointer; }
-    .wins-editor .goal-chevron { display: none; flex: none; color: var(--text-dim); }
-    .wins-editor .goal-chevron svg { display: block; width: 16px; height: 16px; transition: transform .16s ease; }
-    .wins-editor.many-goals .goal-chevron { display: inline-flex; }
-    .wins-editor .collapsible:not(.collapsed) .goal-chevron svg { transform: rotate(90deg); }
+    .wins-editor .goal:not(.collapsed) .gtitle { display: none; }
+    .wins-editor .goal:not(.collapsed) .gcount { display: none; }
+    .wins-editor .goal:not(.collapsed) .goal-title-input { display: block; }
     .wins-editor .goal.collapsed .goal-details { display: none; }
-    .wins-editor.many-goals .goal + .goal {
-        border-top: 1px solid var(--line-soft); padding-top: 14px;
-    }
-    /* A collapsed final group needs breathing room below its header. Once it
-       is expanded, the action strip should meet “Add a north star” without
-       retaining that extra padding. */
-    .wins-editor.many-goals .goal:last-child.collapsed { padding-bottom: 14px; }
-    .wins-editor.many-goals #goals.has-goals { margin-bottom: -18px; }
     .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
     .wins-editor .sremove { margin-left: auto; }
 
@@ -44,7 +34,8 @@
     }
     .wins-editor .single .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); flex: none; }
     .wins-editor .single .rlabel { flex: 1; min-width: 0; font-size: 1rem; }
-    .wins-editor .stone .rlabel { flex: 1; min-width: 0; }
+    .wins-editor .stone { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
+    .wins-editor .stone .rlabel { flex: 1; min-width: 0; line-height: 1.35; }
     .wins-editor .stone .sremove {
         display: grid; place-items: center; flex: none; width: 44px; height: 44px;
         margin-left: 0; padding: 0; border: 1px solid var(--line);
@@ -73,7 +64,7 @@
     .wins-editor .single-actions .sremove,
     .wins-editor .single-actions .spromote { border-left: 1px solid var(--line-soft); }
     .wins-editor .single-actions .today-pick.selected { color: var(--done-bright); }
-    .wins-editor .single-actions .sremove { color: #e06c75; }
+    .wins-editor .single-actions .sremove { color: var(--danger-muted); }
     .wins-editor .single-actions .spromote { color: var(--accent); }
     .wins-editor .single-actions button:not(:disabled):hover { background: rgba(255,255,255,.02); }
 
@@ -105,31 +96,9 @@
         text-transform: uppercase; letter-spacing: .1em;
     }
 
-    .wins-editor .goal-actions {
-        display: flex; align-items: stretch; margin: 12px -16px -4px;
-        padding: 0; border-top: 1px solid var(--line-soft);
-    }
-    .wins-editor .goal:not(:last-child) .goal-actions { border-bottom: 1px solid var(--line-soft); }
-    .wins-editor .goal + .goal { margin-top: 0; border-top: 0; }
     .wins-editor #goals.has-goals { margin-bottom: -18px; }
-    .wins-editor .addstone, .wins-editor .goal-complete, .wins-editor .goal-archive {
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        min-height: 52px; padding: 14px 10px; background: none; border: 0;
-        color: var(--accent); font: inherit; font-size: .86rem; cursor: pointer;
-    }
-    .wins-editor .goal-complete { color: var(--text-dim); }
-    .wins-editor .goal-archive {
-        color: #e06c75; border-left: 1px solid var(--line-soft);
-        border-right: 1px solid var(--line-soft);
-    }
-    .wins-editor .addstone:hover, .wins-editor .goal-complete:not(:disabled):hover,
-    .wins-editor .goal-archive:hover {
-        background: rgba(255,255,255,.02);
-    }
-    .wins-editor .goal-complete:disabled { color: var(--text-dim); opacity: .45; cursor: default; }
-    .wins-editor .goal-archive:disabled { opacity: .45; cursor: default; }
     .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
-    .wins-editor .stone-composer { margin: 8px 0 4px 26px; border: 1px solid var(--line); }
+    .wins-editor .stone-composer { margin: 8px 16px 4px 42px; border: 1px solid var(--line); }
     .wins-editor .stone-composer-body { padding: 12px; }
     .wins-editor .stone-composer .card-foot { border-top-color: var(--line); }
     .wins-editor .stone-inline { display: flex; gap: 8px; margin: 8px 0 4px 26px; }
@@ -137,8 +106,6 @@
     .wins-editor .stone-inline input { flex: 1; }
     .wins-editor .stone-inline .mini { flex: none; background: none; border: 1px solid var(--line); color: var(--accent); font: inherit; font-size: .82rem; padding: 0 12px; cursor: pointer; }
 
-    .wins-editor .ncomposer { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
-    .wins-editor .ncard { width: 100%; max-width: 480px; background: var(--bg-solid); border-top: 1px solid var(--line); }
     .wins-editor .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin: 16px 0 10px; }
     .wins-editor .addstep-more { background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 10px 0 2px; }
     .wins-editor .ncomposer .composer-msg {
@@ -146,17 +113,6 @@
         border: 1px solid #c96565; background: transparent; color: var(--text);
         line-height: 1.4;
     }
-    @media (min-width: 520px) { .wins-editor .ncomposer { align-items: center; } .wins-editor .ncard { border: 1px solid var(--line); } }
-    .wins-editor .edit-toast, .wins-archived-view .edit-toast {
-        position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 16px);
-        max-width: 90vw; background: var(--bg-solid); color: var(--text);
-        border: 1px solid var(--accent); border-radius: 12px; padding: 12px 18px;
-        font-size: .92rem; box-shadow: 0 10px 30px rgba(0,0,0,.45);
-        opacity: 0; pointer-events: none; z-index: 2000;
-        transition: opacity .3s ease, transform .3s ease;
-    }
-    .wins-editor .edit-toast.show, .wins-archived-view .edit-toast.show { opacity: 1; transform: translate(-50%, 0); }
-
     .wins-dialog {
         position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh;
         max-height: none; margin: 0; padding: 0; border: 0; color: var(--text);
@@ -175,37 +131,11 @@
     body.wins-dialog-open { overflow: hidden; }
 
     .wins-archived .card-body { padding: 18px 16px; }
-    .wins-archived .restore-form {
-        display: flex; margin: 8px -16px -4px; border-top: 1px solid var(--line-soft);
-    }
+    .wins-archived .restore-form { margin: 8px -16px -4px; }
     .wins-archived .restore-form .act { width: 100%; }
     .wins-archived .stag {
         margin-left: auto; flex: none; font-size: .66rem; text-transform: uppercase;
         letter-spacing: .12em; color: var(--accent);
     }
     .wins-archived-view[hidden] { display: none; }
-    .wins-editor-skeleton .card-body, .wins-archive-skeleton .card-body { padding: 24px 16px; }
-    .wins-editor-skeleton .skeleton-line, .wins-archive-skeleton .skeleton-line {
-        height: 18px; width: 100%; margin: 14px 0; border-radius: 2px;
-        background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.12), rgba(255,255,255,.05));
-        background-size: 200% 100%; animation: wins-skeleton 1.25s ease-in-out infinite;
-    }
-    .wins-editor-skeleton .skeleton-line.short, .wins-archive-skeleton .skeleton-line.short { width: 32%; }
-    .wins-editor-skeleton .skeleton-line.medium, .wins-archive-skeleton .skeleton-line.medium { width: 68%; }
-    .wins-editor-skeleton .wins-load-error, .wins-archive-skeleton .archive-load-error {
-        align-items: center; justify-content: space-between; gap: 16px;
-        color: var(--text-dim); font-size: .84rem;
-    }
-    .wins-editor-skeleton .wins-load-error:not([hidden]),
-    .wins-archive-skeleton .archive-load-error:not([hidden]) { display: flex; }
-    .wins-editor-skeleton .wins-load-error button,
-    .wins-archive-skeleton .archive-load-error button {
-        flex: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line);
-        background: none; color: var(--accent); font: inherit; cursor: pointer;
-    }
-    @keyframes wins-skeleton { to { background-position: -200% 0; } }
-    @media (prefers-reduced-motion: reduce) {
-        .wins-editor-skeleton .skeleton-line,
-        .wins-archive-skeleton .skeleton-line { animation: none; }
-    }
 </style>

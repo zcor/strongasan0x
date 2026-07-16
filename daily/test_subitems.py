@@ -80,21 +80,131 @@ class SubItemFlowTests(TestCase):
         r = self._post("/daily/subitem/add/", {"parent_key": "nope", "label": "x"})
         self.assertEqual(r.status_code, 400)
 
-    def test_direct_done_survives_sub_untap(self):
-        # The user marks the habit done THEMSELVES, then adds a sub-item and
-        # fiddles with it. Derivation may only undo its own writes: the
-        # direct mark must survive a sub tap + untap (and sub removal).
+    def test_batch_adds_multiple_subitems_in_one_request(self):
+        response = self._post(
+            "/daily/subitem/add/",
+            {
+                "parent_key": "q_str",
+                "labels": ["Bench press", "Squat", "Deadlift", "Row", "Lunge"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["label"] for item in response.json()["items"]],
+            ["Bench press", "Squat", "Deadlift", "Row", "Lunge"],
+        )
+        parent = next(
+            question
+            for question in ChecklistVersion.objects.get(id=self.version.id).questions
+            if question["key"] == "q_str"
+        )
+        self.assertEqual(
+            [item["label"] for item in parent["items"]],
+            ["Bench press", "Squat", "Deadlift", "Row", "Lunge"],
+        )
+        self.assertEqual(
+            DailyCheckInAnswer.objects.filter(
+                question_key__in=[item["key"] for item in parent["items"]]
+            ).count(),
+            5,
+        )
+
+    def test_small_step_change_rederives_an_earlier_direct_mark(self):
+        # Once a habit gains small steps, those steps and its saved rule become
+        # the source of truth, even if the parent was checked before they were
+        # added.
         self._post("/daily/item/", {"key": "q_str", "state": "done"})
         r = self._post("/daily/subitem/add/", {"parent_key": "q_str", "label": "Bench"})
         sub = r.json()["item"]["key"]
 
         self._post("/daily/item/", {"key": sub, "state": "done"})
         r2 = self._post("/daily/item/", {"key": sub, "state": "pending"})
-        self.assertEqual(r2.json()["parent"]["state"], "done")
-        self.assertEqual(self._parent_state(), "done")
+        self.assertEqual(r2.json()["parent"]["state"], "pending")
+        self.assertEqual(self._parent_state(), "pending")
 
         r3 = self._post("/daily/subitem/remove/", {"parent_key": "q_str", "key": sub})
-        self.assertEqual(r3.json()["parent"]["state"], "done")
+        self.assertEqual(r3.json()["parent"]["state"], "pending")
+
+    def test_direct_parent_check_checks_every_small_step(self):
+        self._post("/daily/subitem/add/", {"parent_key": "q_str", "label": "Bench"})
+        self._post("/daily/subitem/add/", {"parent_key": "q_str", "label": "Squat"})
+        parent = next(
+            question
+            for question in ChecklistVersion.objects.get(id=self.version.id).questions
+            if question["key"] == "q_str"
+        )
+
+        response = self._post("/daily/item/", {"key": "q_str", "state": "done"})
+
+        self.assertEqual(response.status_code, 200)
+        check_in = DailyCheckIn.objects.get(participant=self.p)
+        self.assertEqual(
+            set(
+                check_in.answers.filter(
+                    question_key__in=[item["key"] for item in parent["items"]],
+                    state=DailyCheckInAnswer.STATE_DONE,
+                ).values_list("question_key", flat=True)
+            ),
+            {item["key"] for item in parent["items"]},
+        )
+
+    def test_all_steps_rule_waits_for_every_small_step(self):
+        first = self._post(
+            "/daily/subitem/add/",
+            {"parent_key": "q_str", "label": "Bench press"},
+        ).json()["item"]["key"]
+        second = self._post(
+            "/daily/subitem/add/",
+            {"parent_key": "q_str", "label": "Squat"},
+        ).json()["item"]["key"]
+        edit = self._post(
+            "/daily/item/edit/",
+            {
+                "key": "q_str",
+                "label": "Strength training 30 min",
+                "step_rule": "all",
+            },
+        )
+
+        self.assertEqual(edit.status_code, 200)
+        self.assertEqual(edit.json()["item"]["step_rule"], "all")
+
+        one_done = self._post("/daily/item/", {"key": first, "state": "done"})
+        self.assertEqual(one_done.json()["parent"]["state"], "pending")
+        self.assertEqual(one_done.json()["done_count"], 0)
+
+        both_done = self._post("/daily/item/", {"key": second, "state": "done"})
+        self.assertEqual(both_done.json()["parent"]["state"], "done")
+        self.assertEqual(both_done.json()["done_count"], 1)
+
+        one_unchecked = self._post("/daily/item/", {"key": first, "state": "pending"})
+        self.assertEqual(one_unchecked.json()["parent"]["state"], "pending")
+
+    def test_changing_from_any_to_all_rederives_today(self):
+        first = self._post(
+            "/daily/subitem/add/",
+            {"parent_key": "q_str", "label": "Bench press"},
+        ).json()["item"]["key"]
+        self._post(
+            "/daily/subitem/add/",
+            {"parent_key": "q_str", "label": "Squat"},
+        )
+        self._post("/daily/item/", {"key": first, "state": "done"})
+        self.assertEqual(self._parent_state(), "done")
+
+        response = self._post(
+            "/daily/item/edit/",
+            {
+                "key": "q_str",
+                "label": "Strength training 30 min",
+                "step_rule": "all",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["item"]["state"], "pending")
+        self.assertEqual(self._parent_state(), "pending")
 
     def test_direct_untap_clears_subitems(self):
         # Untapping the parent's check directly clears the whole habit for

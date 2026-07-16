@@ -13,7 +13,7 @@ from daily.models import (
     DailyCheckInAnswer,
     DailyParticipant,
 )
-from daily.services.checklist import _reconcile_user_edits
+from daily.services.checklist import _merge_subitems, _reconcile_user_edits
 
 
 class HabitManagementTests(TestCase):
@@ -137,6 +137,181 @@ class HabitManagementTests(TestCase):
         self.assertContains(response, "Adding…")
         self.assertContains(response, 'post("/daily/item/edit/"')
         self.assertContains(response, 'post("/daily/item/remove/"')
+        self.assertContains(
+            response,
+            'setExpanded(toggle.getAttribute("aria-expanded") !== "true");',
+        )
+        self.assertContains(response, "When is this habit complete?")
+        self.assertContains(response, "Any step")
+        self.assertContains(response, "All steps")
+        self.assertContains(response, "replacement.__setExpanded(true);")
+        self.assertContains(response, "if (event.target === addComposer) closeAdd();")
+        self.assertNotContains(response, "focusName")
+        self.assertNotContains(response, "name.select()")
+
+
+class HabitSchedulingTests(TestCase):
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.today_weekday = self.today.weekday()
+        self.other_weekday = (self.today_weekday + 1) % 7
+        self.p = DailyParticipant.objects.create(
+            display_name="Scheduler",
+            kind=DailyParticipant.KIND_EXTERNAL,
+            beta=True,
+            onboarded_at=timezone.now(),
+        )
+        self.version = ChecklistVersion.objects.create(
+            participant=self.p,
+            questions=[
+                {"key": "q_every", "label": "Every day"},
+                {"key": "q_today", "label": "Today only", "days": [self.today_weekday]},
+                {"key": "q_other", "label": "Another day", "days": [self.other_weekday]},
+            ],
+            source=ChecklistVersion.SOURCE_BASELINE,
+            is_current=True,
+        )
+        self.client = Client()
+        session = self.client.session
+        session[SESSION_DAILY_PARTICIPANT_ID] = self.p.id
+        session.save()
+
+    def _post(self, url, body):
+        return self.client.post(
+            url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_today_shows_only_habits_scheduled_for_today(self):
+        response = self.client.get("/daily/checkin/")
+
+        self.assertContains(response, "Every day")
+        self.assertContains(response, "Today only")
+        self.assertNotContains(response, "Another day")
+        self.assertContains(response, "Your habits ›")
+        self.assertNotContains(response, 'id="habit-count"')
+        self.assertNotContains(response, 'id="add-item-btn"')
+
+    def test_edit_updates_name_and_weekday_schedule(self):
+        response = self._post(
+            "/daily/item/edit/",
+            {"key": "q_every", "label": "Weekends", "days": [5, 6]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        edited = next(
+            question for question in self.version.__class__.objects.get(id=self.version.id).questions
+            if question["key"] == "q_every"
+        )
+        self.assertEqual(edited["label"], "Weekends")
+        self.assertEqual(edited["days"], [5, 6])
+        self.assertEqual(response.json()["item"]["days"], [5, 6])
+
+    def test_add_accepts_a_weekday_schedule(self):
+        response = self._post(
+            "/daily/item/add/",
+            {"mode": "custom", "label": "Monday planning", "days": [0]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["item"]
+        stored = next(
+            question for question in ChecklistVersion.objects.get(id=self.version.id).questions
+            if question["key"] == item["key"]
+        )
+        self.assertEqual(stored["days"], [0])
+
+    def test_add_can_create_small_steps_with_the_habit(self):
+        response = self._post(
+            "/daily/item/add/",
+            {
+                "mode": "custom",
+                "label": "Strength training",
+                "days": [0, 2, 4],
+                "steps": ["Bench press", "Squat"],
+                "step_rule": "all",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["item"]
+        self.assertEqual(
+            [step["label"] for step in item["items"]],
+            ["Bench press", "Squat"],
+        )
+        self.assertEqual(item["step_rule"], "all")
+        stored = next(
+            question for question in ChecklistVersion.objects.get(id=self.version.id).questions
+            if question["key"] == item["key"]
+        )
+        self.assertEqual(stored["items"], [
+            {"key": item["items"][0]["key"], "label": "Bench press"},
+            {"key": item["items"][1]["key"], "label": "Squat"},
+        ])
+        self.assertEqual(stored["step_rule"], "all")
+        answer_keys = set(
+            DailyCheckInAnswer.objects.filter(
+                question_key__in=[item["key"]] + [step["key"] for step in item["items"]]
+            ).values_list("question_key", flat=True)
+        )
+        self.assertEqual(
+            answer_keys,
+            {item["key"], item["items"][0]["key"], item["items"][1]["key"]},
+        )
+
+    def test_schedule_requires_at_least_one_valid_weekday(self):
+        empty = self._post(
+            "/daily/item/edit/",
+            {"key": "q_every", "label": "Every day", "days": []},
+        )
+        invalid = self._post(
+            "/daily/item/edit/",
+            {"key": "q_every", "label": "Every day", "days": [7]},
+        )
+
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(empty.json()["error"], "bad_days")
+
+    def test_rejects_an_unknown_small_step_rule(self):
+        response = self._post(
+            "/daily/item/edit/",
+            {"key": "q_every", "label": "Every day", "step_rule": "half"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "bad_step_rule")
+
+    def test_habits_editor_fragment_contains_every_habit_and_schedule(self):
+        response = self.client.get("/daily/habits/?fragment=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-habits-editor')
+        self.assertContains(response, 'class="habit-add-card esheet-card"')
+        self.assertContains(response, 'class="habit-add-fields"')
+        self.assertContains(response, "Add a habit")
+        self.assertContains(response, "Every day")
+        self.assertContains(response, "Another day")
+        self.assertContains(response, '"days": [')
+        self.assertContains(response, "When is this habit complete?")
+
+    def test_schedule_survives_a_bare_coach_proposal(self):
+        current = [
+            {
+                "key": "q_gym",
+                "label": "Gym",
+                "days": [0, 2, 4],
+                "step_rule": "all",
+                "items": [{"key": "s_press", "label": "Press"}],
+            }
+        ]
+
+        merged = _merge_subitems(current, [{"key": "q_gym", "label": "Gym"}])
+
+        self.assertEqual(merged[0]["days"], [0, 2, 4])
+        self.assertEqual(merged[0]["items"], current[0]["items"])
+        self.assertEqual(merged[0]["step_rule"], "all")
 
 
 class HabitMutationReconciliationTests(TestCase):

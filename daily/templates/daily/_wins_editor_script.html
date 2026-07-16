@@ -42,12 +42,9 @@
     }
 
     function goalCount(goalEl) {
-        var stones = goalEl.querySelectorAll(".stone");
         var count = goalEl.querySelectorAll('.stone[data-status="open"]').length;
         var label = goalEl.querySelector("[data-count]");
         if (label) label.textContent = count + " left";
-        var complete = goalEl.querySelector("[data-complete-goal]");
-        if (complete) complete.disabled = !stones.length || count > 0;
     }
 
     function syncEmpty() {
@@ -63,15 +60,12 @@
     function syncGoalCollapseMode() {
         var goals = Array.prototype.slice.call($("goals").children);
         var many = goals.length > 2;
-        var changed = root.classList.contains("many-goals") !== many;
         root.classList.toggle("many-goals", many);
         goals.forEach(function (goal) {
             var toggle = goal.querySelector("[data-toggle-goal]");
-            goal.classList.toggle("collapsible", many);
-            if (changed) goal.classList.toggle("collapsed", many);
-            if (!many) goal.classList.remove("collapsed");
+            goal.classList.add("collapsible");
             if (toggle) {
-                toggle.disabled = !many;
+                toggle.disabled = false;
                 toggle.setAttribute("aria-expanded", goal.classList.contains("collapsed") ? "false" : "true");
             }
         });
@@ -104,22 +98,100 @@
 
     function goalEl(goal) {
         var block = document.createElement("div");
-        var collapsed = root.classList.contains("many-goals");
-        block.className = "goal" + (collapsed ? " collapsible collapsed" : "");
+        var collapsed = true;
+        block.className = "elist-item goal collapsible collapsed";
         block.dataset.goalId = goal.id;
-        block.innerHTML = '<div class="goalhead"><button class="goal-toggle" type="button" data-toggle-goal aria-expanded="' + (collapsed ? 'false' : 'true') + '"' + (collapsed ? '' : ' disabled') + '><span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span><span class="gtitle"></span><span class="gcount" data-count></span><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="stones"></div><div class="goal-actions"><button class="goal-complete" type="button" data-complete-goal="' + goal.id + '" disabled>Mark complete</button><button class="goal-archive" type="button" data-archive-goal="' + goal.id + '" aria-label="Archive this North Star">✕</button><button class="addstone" type="button" data-add-stone="' + goal.id + '">Add a step</button></div></div>';
+        block.innerHTML = '<div class="goalhead elist-heading"><span class="goal-summary elist-label"><span class="gtitle elist-name"></span><input class="composer-input goal-title-input" type="text" data-goal-title-input maxlength="200" aria-label="North Star name" autocomplete="off"><span class="gcount elist-meta" data-count></span></span><button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-expanded="false"><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="stones elist-body"></div><div class="goal-actions elist-actions"><button class="goal-archive danger" type="button" data-archive-goal="' + goal.id + '" aria-label="Delete this North Star">Delete</button><button class="addstone" type="button" data-add-stone="' + goal.id + '">Add a step</button><button class="goal-save primary" type="button" data-save-goal="' + goal.id + '">Save</button></div></div>';
         block.querySelector(".gtitle").textContent = goal.text;
+        var titleInput = block.querySelector("[data-goal-title-input]");
+        titleInput.value = goal.text;
+        titleInput.dataset.savedValue = goal.text;
+        block.querySelector("[data-toggle-goal]").setAttribute("aria-label", "Toggle " + goal.text);
         (goal.stones || []).forEach(function (stone) { block.querySelector(".stones").appendChild(stoneEl(stone)); });
         goalCount(block);
         return block;
     }
 
+    function setGoalExpanded(goal, expanded) {
+        if (expanded) {
+            Array.prototype.forEach.call($("goals").querySelectorAll(".goal:not(.collapsed)"), function (other) {
+                if (other !== goal) setGoalExpanded(other, false);
+            });
+        }
+        goal.classList.toggle("collapsed", !expanded);
+        goal.classList.toggle("expanded", expanded);
+        var toggle = goal.querySelector("[data-toggle-goal]");
+        if (toggle) toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
     root.addEventListener("click", function (e) {
         var toggle = e.target.closest("[data-toggle-goal]");
-        if (!toggle || !root.contains(toggle) || toggle.disabled) return;
-        var goal = toggle.closest(".goal");
-        var collapsed = goal.classList.toggle("collapsed");
-        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        if (toggle && root.contains(toggle) && !toggle.disabled) {
+            setGoalExpanded(toggle.closest(".goal"), toggle.closest(".goal").classList.contains("collapsed"));
+            return;
+        }
+        var head = e.target.closest(".goalhead");
+        if (!head || !root.contains(head)) return;
+        var goal = head.closest(".goal");
+        if (goal && goal.classList.contains("collapsed")) setGoalExpanded(goal, true);
+    });
+
+    function saveGoalTitle(input, save) {
+        if (!input || !save || input.dataset.saving === "1") return;
+        var saved = input.dataset.savedValue || "";
+        var value = input.value.trim();
+        if (!value) {
+            editToast("A North Star needs a name.");
+            return;
+        }
+        if (value === saved) return;
+        var goal = input.closest(".goal");
+        input.dataset.saving = "1";
+        input.disabled = true;
+        save.disabled = true;
+        save.textContent = "Saving…";
+        post("/daily/win/goal/edit/", { id: goal.dataset.goalId, text: value }, function (data) {
+            var title = data.goal.text;
+            input.disabled = false;
+            save.disabled = false;
+            save.textContent = "Save";
+            delete input.dataset.saving;
+            input.value = title;
+            input.dataset.savedValue = title;
+            goal.querySelector(".gtitle").textContent = title;
+            var toggle = goal.querySelector("[data-toggle-goal]");
+            var archive = goal.querySelector("[data-archive-goal]");
+            if (toggle) toggle.setAttribute("aria-label", "Toggle " + title);
+            if (archive) archive.setAttribute("aria-label", "Delete " + title);
+            syncToday(data);
+            editToast("North Star saved.");
+        }, function () {
+            input.disabled = false;
+            save.disabled = false;
+            save.textContent = "Save";
+            delete input.dataset.saving;
+            editToast("Couldn't save that North Star right now.");
+        });
+    }
+
+    root.addEventListener("click", function (e) {
+        var save = e.target.closest("[data-save-goal]");
+        if (!save || !root.contains(save)) return;
+        saveGoalTitle(save.closest(".goal").querySelector("[data-goal-title-input]"), save);
+    });
+
+    root.addEventListener("keydown", function (e) {
+        if (!e.target.matches("[data-goal-title-input]")) return;
+        if (e.key === "Enter") {
+            e.preventDefault();
+            var save = e.target.closest(".goal").querySelector("[data-save-goal]");
+            saveGoalTitle(e.target, save);
+        }
+        else if (e.key === "Escape") {
+            e.preventDefault();
+            e.target.value = e.target.dataset.savedValue || "";
+            e.target.blur();
+        }
     });
 
     function setTodaySelection(id) {
@@ -164,6 +236,11 @@
 
     window.__syncWinsEditorRows = function (data) {
         data = data || {};
+        if (data.north_star_done) {
+            var completedGoal = root.querySelector('[data-goal-id="' + data.north_star_done.id + '"]');
+            if (completedGoal) completedGoal.remove();
+            loadArchived(true);
+        }
         if (data.completed) {
             var completedRow = root.querySelector('[data-stone-id="' + data.completed.id + '"]');
             if (completedRow && completedRow.classList.contains("single")) completedRow.remove();
@@ -215,20 +292,6 @@
         }, function () {
             check.disabled = false;
             editToast("Couldn't uncheck that step right now.");
-        });
-    });
-
-    root.addEventListener("click", function (e) {
-        var complete = e.target.closest("[data-complete-goal]");
-        if (!complete || !root.contains(complete) || complete.disabled) return;
-        complete.disabled = true;
-        post("/daily/win/goal/complete/", { id: complete.getAttribute("data-complete-goal") }, function (data) {
-            var goal = complete.closest(".goal"); if (goal) goal.remove();
-            syncEmpty(); syncToday(data);
-            editToast("North Star complete: " + data.north_star_done.title);
-        }, function () {
-            complete.disabled = false;
-            editToast("Check off every step before completing this North Star.");
         });
     });
 
@@ -498,24 +561,27 @@
             if (!form || !archivedPanel.contains(form)) return;
             event.preventDefault();
             var button = form.querySelector('button[type="submit"]');
+            var originalLabel = button ? button.textContent : "Move to Working Toward";
             var id = form.querySelector('input[name="id"]').value;
-            var goal = form.closest("[data-archived-goal]");
+            var goal = form.closest("[data-history-goal]");
             var title = goal && goal.querySelector(".gtitle");
             var titleText = title ? title.textContent.trim() : "North Star";
-            if (button) { button.disabled = true; button.textContent = "Restoring…"; }
+            if (button) { button.disabled = true; button.textContent = "Moving…"; }
             post(form.action, { id: id }, function (data) {
                 if (goal) goal.remove();
                 if (data.goal && !root.querySelector('[data-goal-id="' + data.goal.id + '"]')) {
                     $("goals").appendChild(goalEl(data.goal));
                 }
                 var content = archivedPanel.querySelector("[data-wins-archived-content]");
-                var empty = content && content.querySelector("[data-archived-empty]");
-                if (empty) empty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
+                var archivedEmpty = content && content.querySelector("[data-archived-empty]");
+                var achievedEmpty = content && content.querySelector("[data-achieved-empty]");
+                if (archivedEmpty) archivedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
+                if (achievedEmpty) achievedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-achieved-goal]")));
                 syncEmpty(); syncToday(data);
-                editToast("Restored: " + titleText, archivedPanel);
+                editToast("Moved to Working Toward: " + titleText, archivedPanel);
             }, function () {
-                if (button) { button.disabled = false; button.textContent = "Restore"; }
-                editToast("Couldn't restore that North Star right now.", archivedPanel);
+                if (button) { button.disabled = false; button.textContent = originalLabel; }
+                editToast("Couldn't move that North Star right now.", archivedPanel);
             });
         });
     }

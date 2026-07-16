@@ -1,0 +1,70 @@
+<style>
+    .habits-editor .habits-list-body { padding-bottom: 0; }
+    .habits-editor [hidden] { display: none !important; }
+    .habits-editor .empty { padding: 4px 0 20px; color: var(--text-dim); font-size: .86rem; line-height: 1.5; }
+    .habits-editor .habit-name-input { flex: 1; min-width: 0; margin: 9px 8px 9px 0; }
+    .habits-editor .habit-field-label {
+        display: block; margin: 0 0 8px; color: var(--text-dim); font-size: .7rem;
+        font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+    }
+    .habits-editor .habit-field-label:not(:first-child) { margin-top: 16px; }
+    .habits-editor .schedule-modes { display: grid; grid-template-columns: repeat(2, 1fr); border: 1px solid var(--line); }
+    .habits-editor .schedule-mode {
+        min-height: 44px; padding: 10px; border: 0; background: transparent;
+        color: var(--text-dim); font: inherit; font-size: .82rem; cursor: pointer;
+    }
+    .habits-editor .schedule-mode + .schedule-mode { border-left: 1px solid var(--line); }
+    .habits-editor .schedule-mode[aria-pressed="true"] { background: rgba(255,217,122,.1); color: var(--accent); }
+    .habits-editor .step-rule-modes { display: grid; grid-template-columns: repeat(2, 1fr); border: 1px solid var(--line); }
+    .habits-editor .step-rule-mode {
+        min-height: 44px; padding: 10px; border: 0; background: transparent;
+        color: var(--text-dim); font: inherit; font-size: .82rem; cursor: pointer;
+    }
+    .habits-editor .step-rule-mode + .step-rule-mode { border-left: 1px solid var(--line); }
+    .habits-editor .step-rule-mode[aria-pressed="true"] { background: rgba(255,217,122,.1); color: var(--accent); }
+    .habits-editor .step-rule-mode:disabled { opacity: .5; cursor: default; }
+    .habits-editor .weekday-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 8px; }
+    .habits-editor .weekday {
+        min-width: 0; min-height: 42px; padding: 0; border: 1px solid var(--line);
+        background: transparent; color: var(--text-dim); font: inherit; font-size: .78rem;
+        cursor: pointer;
+    }
+    .habits-editor .weekday[aria-pressed="true"] {
+        border-color: var(--accent); background: rgba(255,217,122,.1); color: var(--accent);
+    }
+    .habits-editor .habit-details { margin-top: 0; }
+    .habits-editor .habit-detail-row {
+        display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 0;
+        border-top: 1px solid var(--line-soft); color: var(--text);
+    }
+    .habits-editor .habit-detail-row:first-child { border-top: 0; }
+    .habits-editor .habit-detail-name { flex: 1; min-width: 0; font-size: .9rem; line-height: 1.35; }
+    .habits-editor .habit-detail-delete {
+        flex: none; min-height: 38px; padding: 8px 4px 8px 12px; border: 0;
+        background: none; color: var(--danger-muted); font: inherit; font-size: .76rem; cursor: pointer;
+    }
+    .habits-editor .habit-detail-composer { padding: 14px 16px; border-top: 1px solid var(--line-soft); }
+    .habits-editor .habit-detail-composer .card-foot { margin: 10px -16px -14px; }
+    .habits-editor .habit-editor-message {
+        width: 100%; margin-top: 12px; padding: 10px 11px; border: 1px solid #c96565;
+        background: transparent; color: var(--text); font-size: .82rem; line-height: 1.4;
+    }
+    .habits-editor .habit-add-name-row { display: flex; align-items: stretch; }
+    .habits-editor .habit-add-fields { margin-left: 26px; }
+    .habits-editor .habit-add-name-row .composer-input { flex: 1; min-width: 0; }
+    .habits-editor .habit-add-name-row [data-habit-add-auto] {
+        flex: none; min-width: 68px; padding: 0 12px; border: 1px solid var(--line);
+        border-left: 0; background: transparent; color: var(--accent);
+        font: inherit; font-size: .82rem; cursor: pointer;
+    }
+    .habits-editor .habit-add-name-row [data-habit-add-auto]:disabled { opacity: .5; cursor: default; }
+    .habits-editor .habit-add-steps { margin-top: 16px; }
+    .habits-editor .habit-new-step-row { display: flex; align-items: stretch; margin-top: 8px; }
+    .habits-editor .habit-new-step-row:first-child { margin-top: 0; }
+    .habits-editor .habit-new-step-row .composer-input { flex: 1; min-width: 0; }
+    .habits-editor .habit-new-step-remove {
+        flex: none; min-width: 44px; padding: 0 10px; border: 1px solid var(--line);
+        border-left: 0; background: transparent; color: var(--danger-muted);
+        font: inherit; font-size: .8rem; cursor: pointer;
+    }
+</style>

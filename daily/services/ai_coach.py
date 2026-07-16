@@ -171,7 +171,8 @@ CHECKLIST_SIZE = 3  # DEFAULT core size for onboarding/seeding only. NOT a cap:
 
 class CheckInSummary(TypedDict):
     date: str
-    answers: dict  # {question_label: bool}
+    answers: dict  # {question_label: "done"|"skip"|"untouched"}, including Bonus
+    core_answers: dict  # same states, scheduled recurring habits only
     comment: str
 
 
@@ -373,6 +374,27 @@ Rules:
 ```
 
 Never invent facts not in the data."""
+
+
+CHEERLEADER_REPORT_PROMPT = """You are Jamie writing a short next-day report
+inside a personal habits and wins tracker. The user chose the LIFE / non-health
+experience, so you are their cheerleader, not a coach and not an expert on the
+substance of their work or personal decisions.
+
+Write 2-4 short sentences they will read the next day:
+- Start with a clear, factual recap of yesterday, including the exact number of
+  habits completed out of the habits shown.
+- Celebrate one or two SPECIFIC completed items by name. If a selected Today's
+  Win was completed, celebrate that too.
+- Untouched or skipped items are context, never a reason to shame, diagnose, or
+  prescribe. If little or nothing was checked, be warm and matter-of-fact.
+- Do not suggest new habits, edit the list, promise an overnight change, or give
+  advice about how to do their job, project, relationship, finances, or other
+  life decisions. Their list remains entirely theirs.
+- Do not invent progress. Do not mention JSON, system rules, or being an AI.
+- Use no time-of-day greeting because you do not know when they will read it.
+
+Output only the report text."""
 
 
 STRETCH_PROMPT = """You are Coach Jamie. You're choosing ONE personalized
@@ -600,6 +622,34 @@ Rules:
 - Output ONLY the JSON object. No prose, no fence."""
 
 
+HEALTH_ONLY_BONUS_RULES = """
+
+HEALTH-ONLY OVERRIDE:
+- The bonus must directly support health or wellbeing: movement, recovery,
+  mobility, sleep, nutrition, hydration, stress regulation, sunlight, or a
+  health measurement.
+- Never suggest work, productivity, chores, errands, money, relationships,
+  study, or general life administration.
+- Include the explicit category in the object:
+  {"key": "bonus_...", "label": "...", "category": "health"}
+- Output no other category. This overrides the earlier two-field example."""
+
+
+HEALTH_ONLY_OVERNIGHT_RULES = """
+
+# Health-only Bonus override (beta experience)
+
+Every bonus item must directly support health or wellbeing: movement,
+recovery, mobility, sleep, nutrition, hydration, stress regulation, sunlight,
+or a health measurement. Never use Bonus for work, productivity, chores,
+errands, money, relationships, study, or general life administration.
+
+Every bonus object MUST include the explicit metadata
+{"key": "bonus_...", "label": "...", "category": "health"}.
+If there is no grounded health bonus to offer, emit an empty bonus array.
+This health-only rule overrides the earlier Bonus output example."""
+
+
 CORE_SWAP_PROMPT = """You are Coach Jamie. The user just tapped "swap" on
 one of their core daily habits — they're NOT INTERESTED in that item.
 Generate ONE replacement core habit for today.
@@ -639,6 +689,7 @@ def generate_one_bonus(
     today_comment: str = "",
     rejected_labels: Optional[List[str]] = None,
     core: bool = False,
+    health_only: bool = False,
 ) -> Optional[dict]:
     """Generate ONE fresh item ({"key","label"}), live, grounded in the
     user's data + today's momentum, distinct from everything already on
@@ -672,12 +723,16 @@ def generate_one_bonus(
         f"Their recent training logs:\n{attestation_text[:3000]}"
         f"{existing_block}{done_block}{comment_block}{rejected_block}"
     )
+    item_prompt = CORE_SWAP_PROMPT if core else ONE_BONUS_PROMPT
+    if health_only and not core:
+        item_prompt += HEALTH_ONLY_BONUS_RULES
+
     try:
         resp = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
                 {"role": "system", "content": SAFETY_PREAMBLE},
-                {"role": "system", "content": CORE_SWAP_PROMPT if core else ONE_BONUS_PROMPT},
+                {"role": "system", "content": item_prompt},
                 {"role": "user", "content": user_msg},
             ],
             max_tokens=100,
@@ -699,6 +754,10 @@ def generate_one_bonus(
     label = str(obj.get("label", "")).strip()
     if not key or not label or len(label) > 60 or len(key) > 40:
         return None
+    category = str(obj.get("category", "")).strip().lower()
+    if health_only and category != "health":
+        logger.info("daily.ai_coach: rejected non-health live bonus")
+        return None
     prefix = "q_" if core else "bonus_"
     if not key.startswith(prefix):
         key = prefix + key.removeprefix("bonus_").removeprefix("q_")
@@ -707,18 +766,31 @@ def generate_one_bonus(
     if key in existing_keys:
         import hashlib
         key = key[:34] + "_" + hashlib.md5(label.encode()).hexdigest()[:5]
-    return {"key": key, "label": label}
+    item = {"key": key, "label": label}
+    if health_only:
+        item["category"] = "health"
+    return item
 
 
-def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
-    def _label_map(version):
-        labels = {q["key"]: q["label"] for q in version.questions}
-        for q in (version.bonus_questions or []):
+def build_coach_context(
+    participant, check_in, recent_checkins, include_coaching_context=True,
+) -> CoachContext:
+    def _label_maps(ci):
+        from .checklist import scheduled_questions
+
+        questions = (
+            scheduled_questions(ci.checklist_version.questions, ci.date)
+            if participant.beta
+            else ci.checklist_version.questions
+        )
+        core_labels = {q["key"]: q["label"] for q in questions}
+        labels = dict(core_labels)
+        for q in (ci.checklist_version.bonus_questions or []):
             labels[q["key"]] = q["label"] + " (bonus)"
-        return labels
+        return labels, core_labels
 
     def _summarize(ci) -> CheckInSummary:
-        labels = _label_map(ci.checklist_version)
+        labels, core_labels = _label_maps(ci)
         states = {a.question_key: a.state for a in ci.answers.all()}
         return {
             "date": ci.date.isoformat() if isinstance(ci.date, date_cls) else str(ci.date),
@@ -730,6 +802,14 @@ def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
                 )
                 for key in labels
             },
+            # Life-mode morning reports recap only the recurring habits that
+            # actually appeared that day, never Bonus or off-schedule habits.
+            "core_answers": {
+                label: (
+                    states[key] if states.get(key) in ("done", "skip") else "untouched"
+                )
+                for key, label in core_labels.items()
+            },
             "comment": ci.comment or "",
         }
 
@@ -738,27 +818,29 @@ def build_coach_context(participant, check_in, recent_checkins) -> CoachContext:
     # overnight coach actually acts on them — otherwise the chat coach's
     # "your list updates overnight" promise would be a lie.
     chat_requests = []
-    try:
-        from daily.models import CoachChatMessage
-        since = check_in.date - __import__("datetime").timedelta(days=2)
-        msgs = CoachChatMessage.objects.filter(
-            participant=participant, role=CoachChatMessage.ROLE_USER,
-            date__gte=since, date__lte=check_in.date,
-        ).order_by("created_at")
-        chat_requests = [m.text for m in msgs if m.text.strip()]
-    except Exception:
-        chat_requests = []
+    if include_coaching_context:
+        try:
+            from daily.models import CoachChatMessage
+            since = check_in.date - __import__("datetime").timedelta(days=2)
+            msgs = CoachChatMessage.objects.filter(
+                participant=participant, role=CoachChatMessage.ROLE_USER,
+                date__gte=since, date__lte=check_in.date,
+            ).order_by("created_at")
+            chat_requests = [m.text for m in msgs if m.text.strip()]
+        except Exception:
+            chat_requests = []
 
     # The distilled attestation-history profile — the coach's long-term memory
     # of who this warrior is (kept fresh by services.coach_runner). "" when the
     # participant has no attestations (external users) or no profile yet.
     profile_text = ""
-    try:
-        prof = getattr(participant, "coach_profile", None)
-        if prof is not None:
-            profile_text = (prof.profile_text or "").strip()
-    except Exception:
-        profile_text = ""
+    if include_coaching_context:
+        try:
+            prof = getattr(participant, "coach_profile", None)
+            if prof is not None:
+                profile_text = (prof.profile_text or "").strip()
+        except Exception:
+            profile_text = ""
 
     return {
         "participant_name": participant.display_name,
@@ -846,11 +928,84 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _format_cheerleader_report_prompt(
+    context: CoachContext, completed_win_label: str = "",
+) -> str:
+    """Ground a life-mode morning report in the prior day's actual states."""
+    day = context["today"]
+    habit_answers = day.get("core_answers", day["answers"])
+    lines = [
+        f"Participant: {context['participant_name']}",
+        f"Day being reported: {day['date']}",
+        "",
+        "Habit results:",
+    ]
+    for label, state in habit_answers.items():
+        lines.append(f"- {state}: {label}")
+    if not habit_answers:
+        lines.append("- No habits were shown.")
+    if completed_win_label:
+        lines.extend(["", f"Completed Today's Win: {completed_win_label}"])
+    if day["comment"]:
+        lines.extend(["", f"User's own note: {day['comment']}"])
+    return "\n".join(lines)
+
+
+def generate_cheerleader_report(
+    context: CoachContext, completed_win_label: str = "",
+) -> Optional[Tuple[str, str, Decimal]]:
+    """Generate a life-mode morning recap with no checklist mutation payload."""
+    client = _get_llm_client()
+    if client is None:
+        logger.warning("daily.ai_coach: no LLM backend available; skipping report")
+        return None
+
+    user_prompt = _format_cheerleader_report_prompt(context, completed_win_label)
+    model = "deepseek-chat"
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SAFETY_PREAMBLE},
+                {"role": "system", "content": CHEERLEADER_REPORT_PROMPT},
+                {"role": "system", "content": FOCUS_GUIDANCE["life"]},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=180,
+            temperature=0.6,
+        )
+    except Exception as exc:
+        logger.exception("daily.ai_coach.generate_cheerleader_report failed: %s", exc)
+        return None
+
+    text = (response.choices[0].message.content or "").strip()
+    if not text:
+        return None
+    usage = getattr(response, "usage", None)
+    input_tokens = (
+        getattr(usage, "prompt_tokens", None)
+        if usage else _estimate_tokens(
+            SAFETY_PREAMBLE + CHEERLEADER_REPORT_PROMPT + FOCUS_GUIDANCE["life"] + user_prompt
+        )
+    )
+    output_tokens = (
+        getattr(usage, "completion_tokens", None)
+        if usage else _estimate_tokens(text)
+    )
+    cost = Decimal(str(
+        (input_tokens / 1_000_000) * DEEPSEEK_INPUT_USD_PER_1M
+        + (output_tokens / 1_000_000) * DEEPSEEK_OUTPUT_USD_PER_1M
+    )).quantize(Decimal("0.000001"))
+    return text, model, cost
+
+
 _FENCED_JSON_RE = re.compile(r"```json\s*(\[[\s\S]*?\])\s*```", re.MULTILINE)
 _BARE_JSON_RE = re.compile(r"(\[\s*\{[\s\S]*?\}\s*\])")
 
 
-def _clean_items(parsed, max_items, seen_keys=None) -> Optional[List[dict]]:
+def _clean_items(
+    parsed, max_items, seen_keys=None, require_health_category=False,
+) -> Optional[List[dict]]:
     """Validate a parsed JSON list of {key,label} items. Returns None on
     any structural problem."""
     if not isinstance(parsed, list) or len(parsed) > max_items:
@@ -866,13 +1021,21 @@ def _clean_items(parsed, max_items, seen_keys=None) -> Optional[List[dict]]:
             return None
         if len(label) > 60 or len(key) > 40:
             return None
+        cleaned_item = {"key": key, "label": label}
+        if require_health_category:
+            category = str(item.get("category", "")).strip().lower()
+            if category != "health":
+                return None
+            cleaned_item["category"] = "health"
         seen.add(key)
-        cleaned.append({"key": key, "label": label})
+        cleaned.append(cleaned_item)
     return cleaned
 
 
 def _parse_response(
-    raw: str, expected_core_count: Optional[int] = None
+    raw: str,
+    expected_core_count: Optional[int] = None,
+    health_only_bonus: bool = False,
 ) -> Tuple[str, Optional[List[dict]], Optional[List[dict]]]:
     """Split raw response into (prose, core_questions|None, bonus|None).
 
@@ -915,7 +1078,12 @@ def _parse_response(
     if len(matches) > 1:
         try:
             bonus_parsed = json.loads(matches[1].group(1))
-            bonus = _clean_items(bonus_parsed, 3, seen_keys=[q["key"] for q in core])
+            bonus = _clean_items(
+                bonus_parsed,
+                3,
+                seen_keys=[q["key"] for q in core],
+                require_health_category=health_only_bonus,
+            )
             if bonus == []:
                 bonus = None  # empty array → no bonus
         except json.JSONDecodeError:
@@ -928,6 +1096,7 @@ def generate_suggestion(
     context: CoachContext,
     refinement: Optional[str] = None,
     evening_plan: Optional[List[dict]] = None,
+    health_only_bonus: bool = False,
 ) -> Optional[Tuple[str, Optional[List[dict]], Optional[List[dict]], str, Decimal]]:
     """Returns (suggestion_text, proposed_questions|None, proposed_bonus|None,
     model_name, cost_usd) or None on failure.
@@ -949,12 +1118,16 @@ def generate_suggestion(
     user_prompt = _format_user_prompt(context, refinement=refinement, evening_plan=evening_plan)
     model = "deepseek-chat"
 
+    coach_prompt = SYSTEM_PROMPT
+    if health_only_bonus:
+        coach_prompt += HEALTH_ONLY_OVERNIGHT_RULES
+
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": SAFETY_PREAMBLE},
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": coach_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             max_tokens=700,
@@ -969,13 +1142,15 @@ def generate_suggestion(
         return None
 
     suggestion_text, proposed_questions, proposed_bonus = _parse_response(
-        raw, expected_core_count=len(context["current_questions"]) or None
+        raw,
+        expected_core_count=len(context["current_questions"]) or None,
+        health_only_bonus=health_only_bonus,
     )
     if not suggestion_text:
         suggestion_text = "Great work yesterday. Keep going."
 
     usage = getattr(response, "usage", None)
-    input_tokens = getattr(usage, "prompt_tokens", None) if usage else _estimate_tokens(SYSTEM_PROMPT + user_prompt)
+    input_tokens = getattr(usage, "prompt_tokens", None) if usage else _estimate_tokens(coach_prompt + user_prompt)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else _estimate_tokens(raw)
     cost = Decimal(str(
         (input_tokens / 1_000_000) * DEEPSEEK_INPUT_USD_PER_1M

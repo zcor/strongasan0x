@@ -1,0 +1,99 @@
+{% comment %}
+Shared editor components used by the habits and wins editors. Include AFTER
+_wins_chrome.html so these rules win specificity ties against the chrome
+defaults (.goalhead, .gtitle, .stones, ...).
+
+- .elist-item / -heading / -label / -name / -meta / -toggle / -body / -actions:
+  a full-bleed expandable list row inside a .card (64px two-line summary,
+  hairline separators, inset panel while expanded). Expanded state is the
+  .expanded class on the item.
+- .elist-actions buttons: full-width strip; add .danger / .primary for the
+  destructive / confirming action.
+- .esheet / .esheet-card: bottom-sheet composer overlay (centered card ≥520px).
+- .edit-toast: fixed confirmation toast, shown via .show.
+- .eskeleton: loading skeleton (.skeleton-line[.short|.medium], .eskeleton-error).
+{% endcomment %}
+<style>
+    .elist-item {
+        margin: 0 -16px; padding: 0; border-top: 1px solid var(--line-soft);
+        transition: background-color .16s ease;
+    }
+    .elist-item:first-child { border-top: 0; }
+    .elist-item + .elist-item { margin-top: 0; padding-top: 0; }
+    .elist-item.expanded {
+        background: rgba(0,0,0,.18);
+        box-shadow: inset 0 1px 0 var(--line-soft), inset 0 -1px 0 var(--line-soft);
+    }
+    .elist-heading { display: flex; align-items: center; gap: 0; min-height: 64px; padding: 0 10px 0 16px; }
+    .elist-label {
+        display: flex; flex: 1; align-self: stretch; min-width: 0; flex-direction: column;
+        justify-content: center; align-items: flex-start; gap: 4px; padding: 0; border: 0;
+        background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+    }
+    .elist-name { width: 100%; min-width: 0; font-size: 1rem; font-weight: 400; line-height: 1.25; }
+    .elist-meta { color: var(--text-dim); font-size: .72rem; line-height: 1.2; }
+    .elist-toggle {
+        display: grid; place-items: center; flex: none; width: 44px; height: 44px;
+        padding: 0; border: 0; background: none; color: var(--text-dim); cursor: pointer;
+    }
+    .elist-toggle svg { display: block; width: 18px; height: 18px; transition: transform .16s ease; }
+    .elist-item.expanded .elist-toggle svg { transform: rotate(90deg); }
+    /* Expanded settings sit one level in from the heading; the action strip
+       below stays full-width. */
+    .elist-body { padding: 4px 16px 16px 42px; }
+    .elist-actions { display: flex; align-items: stretch; border-top: 1px solid var(--line-soft); }
+    .elist-actions button {
+        flex: 1; display: flex; align-items: center; justify-content: center;
+        min-height: 52px; padding: 12px 6px; border: 0; background: none;
+        color: var(--text-dim); font: inherit; font-size: .8rem; cursor: pointer;
+    }
+    .elist-actions button + button { border-left: 1px solid var(--line-soft); }
+    .elist-actions .danger { color: var(--danger-muted); }
+    .elist-actions .primary { color: var(--accent); }
+    .elist-actions button:disabled { opacity: .48; cursor: default; }
+    .elist-actions button:not(:disabled):hover { background: rgba(255,255,255,.02); }
+
+    .esheet {
+        position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end;
+        justify-content: center; padding: 0; background: rgba(6,8,15,.72);
+        backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+    }
+    .esheet-card {
+        width: 100%; max-width: 480px; background: var(--bg-solid);
+        border-top: 1px solid var(--line);
+    }
+    @media (min-width: 520px) {
+        .esheet { align-items: center; }
+        .esheet-card { border: 1px solid var(--line); }
+    }
+
+    .edit-toast {
+        position: fixed; left: 50%; bottom: 28px; z-index: 2000;
+        max-width: 90vw; padding: 12px 18px; border: 1px solid var(--accent);
+        border-radius: 12px; background: var(--bg-solid); color: var(--text);
+        font-size: .92rem; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+        opacity: 0; pointer-events: none; transform: translate(-50%, 16px);
+        transition: opacity .3s ease, transform .3s ease;
+    }
+    .edit-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .eskeleton .card-body { padding: 24px 16px; }
+    .eskeleton .skeleton-line {
+        height: 18px; width: 100%; margin: 14px 0; border-radius: 2px;
+        background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.12), rgba(255,255,255,.05));
+        background-size: 200% 100%; animation: eskeleton 1.25s ease-in-out infinite;
+    }
+    .eskeleton .skeleton-line.short { width: 32%; }
+    .eskeleton .skeleton-line.medium { width: 68%; }
+    .eskeleton .eskeleton-error {
+        align-items: center; justify-content: space-between; gap: 16px;
+        color: var(--text-dim); font-size: .84rem;
+    }
+    .eskeleton .eskeleton-error:not([hidden]) { display: flex; }
+    .eskeleton .eskeleton-error button {
+        flex: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line);
+        background: none; color: var(--accent); font: inherit; cursor: pointer;
+    }
+    @keyframes eskeleton { to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .eskeleton .skeleton-line { animation: none; } }
+</style>

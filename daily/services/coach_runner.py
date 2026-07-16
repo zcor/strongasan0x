@@ -19,7 +19,12 @@ import hashlib
 import logging
 from datetime import date, timedelta
 
-from .ai_coach import build_coach_context, distill_profile, generate_suggestion
+from .ai_coach import (
+    build_coach_context,
+    distill_profile,
+    generate_cheerleader_report,
+    generate_suggestion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +113,7 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
     # Imported here (not at module load) to avoid a circular import: models →
     # nothing here, but keeping the ORM import local mirrors the rest of the
     # service layer and keeps this module import-light for the command.
-    from ..models import CoachSuggestion, DailyCheckIn
+    from ..models import CoachSuggestion, DailyCheckIn, WinItem
 
     try:
         check_in = DailyCheckIn.objects.select_related(
@@ -119,18 +124,13 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
         return False
 
     participant = check_in.participant
-    # Beta support-only Jamie (mutations off) never runs the overnight
-    # list-rewriting engine. Gating here covers every caller at once:
-    # wrap_day, the nightly cron, and the lazy morning catch-up.
-    if participant.beta and not participant.ai_mutations_enabled:
-        logger.info(
-            "daily.coach_runner: %s is beta support-only; skipping coach run",
-            participant.display_name,
-        )
-        return False
+    support_only = participant.beta and not participant.ai_mutations_enabled
     # Refresh the warrior's distilled attestation profile before building
     # context (hash-guarded — a real LLM call only when attestations changed).
-    refresh_coach_profile(participant)
+    # Life-mode Jamie deliberately stays out of health/training expertise and
+    # only needs yesterday's in-app results for her cheerleader report.
+    if not support_only:
+        refresh_coach_profile(participant)
     since = check_in.date - timedelta(days=RECENT_DAYS)
     recent = list(
         DailyCheckIn.objects
@@ -143,12 +143,52 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
     # A USER-AUTHORED evening plan ("Plan tomorrow" chat flow) on this check-in
     # takes precedence over anything the coach would invent: the coach writes
     # its morning note AROUND the plan and must not propose a competing list.
-    plan = _pending_evening_plan(check_in)
+    plan = None if support_only else _pending_evening_plan(check_in)
     plan_items = list(plan.proposed_questions) if plan else None
 
-    context = build_coach_context(participant, check_in, recent)
+    context = build_coach_context(
+        participant,
+        check_in,
+        recent,
+        include_coaching_context=not support_only,
+    )
+
+    if support_only:
+        completed_win = (
+            participant.wins
+            .filter(
+                status=WinItem.STATUS_DONE,
+                is_goal=False,
+                surfaced_on=check_in.date,
+            )
+            .order_by("-done_at", "-created_at")
+            .first()
+        )
+        result = generate_cheerleader_report(
+            context,
+            completed_win_label=completed_win.text if completed_win else "",
+        )
+        if result is None:
+            return False
+        report_text, model_name, cost_usd = result
+        CoachSuggestion.objects.create(
+            check_in=check_in,
+            suggestion_text=report_text,
+            proposed_questions=None,
+            proposed_bonus=None,
+            base_questions=None,
+            rationale=CoachSuggestion.RATIONALE_DAILY_REPORT,
+            status=CoachSuggestion.STATUS_PENDING,
+            model_name=model_name,
+            cost_usd=cost_usd,
+        )
+        return True
+
     result = generate_suggestion(
-        context, refinement=refinement or None, evening_plan=plan_items,
+        context,
+        refinement=refinement or None,
+        evening_plan=plan_items,
+        health_only_bonus=participant.beta,
     )
     if result is None:
         return False

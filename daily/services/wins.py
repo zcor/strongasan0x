@@ -3,8 +3,9 @@ Wins backlog: the positive face of a put-off thing (see
 daily/CLIMB_REFRAME_PLAN.md sections 2b / 2c). Beta-only.
 
 The backlog is a pile of WinItem rows that is NEVER rendered all at once, or
-even counted, on the daily surface. The user explicitly selects at most one
-open leaf as Today's Win. "Not today" returns it to the pile, never deletes it.
+even counted, on the daily surface. The user may explicitly choose any open
+leaf; otherwise the first available leaf fills Today's Win automatically.
+"Not today" returns it to the pile and advances to another leaf, never deletes it.
 A win that starts sticking can graduate into a recurring habit.
 
 Every function here scopes strictly to the passed participant — the single-user
@@ -18,7 +19,7 @@ from datetime import date as date_cls, timedelta
 from typing import List, Optional, Tuple
 
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Case, IntegerField, Max, Q, Subquery, Value, When
 from django.utils import timezone
 
 from ..models import DailyParticipant, WinItem
@@ -35,10 +36,10 @@ MAX_WINS_BACKLOG = 200
 
 
 def get_todays_win(participant: DailyParticipant, today: date_cls) -> Optional[WinItem]:
-    """Return the leaf the user explicitly selected as today's win.
+    """Return the leaf currently selected as today's win.
 
-    Nothing is auto-selected from the backlog. A standalone win or north-star
-    step only reaches the daily card through ``select_todays_win``.
+    This getter does not mutate. The dashboard or a wins mutation fills an
+    empty selection through ``select_next_todays_win``.
     """
     return participant.wins.filter(
         status=WinItem.STATUS_OPEN, is_goal=False, surfaced_on=today
@@ -67,6 +68,50 @@ def select_todays_win(
         else:
             selected.save(update_fields=["surfaced_on"])
     return selected
+
+
+def _selectable_wins(participant: DailyParticipant):
+    """Open leaves that still belong to the active Your Wins view."""
+    return participant.wins.filter(
+        status=WinItem.STATUS_OPEN,
+        is_goal=False,
+    ).filter(
+        Q(parent__isnull=True)
+        | Q(parent__is_goal=True, parent__status=WinItem.STATUS_OPEN)
+    )
+
+
+def _ordered_selectable_wins(participant: DailyParticipant, today: date_cls):
+    """Prefer a win not yet deferred today, then preserve the user's order."""
+    return _selectable_wins(participant).annotate(
+        deferred_today=Case(
+            When(deferred_on=today, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by("deferred_today", "order", "created_at")
+
+
+def select_next_todays_win(
+    participant: DailyParticipant, today: date_cls,
+) -> Optional[WinItem]:
+    """Fill an empty Today's Win from the participant's own open list.
+
+    Wins deferred today move behind the others. If every remaining win was
+    deferred, the first one is selected again so a non-empty Your Wins list
+    never leaves an empty daily card.
+    """
+    candidate = (
+        _ordered_selectable_wins(participant, today)
+        .select_related("parent")
+        .first()
+    )
+    if candidate is None:
+        return None
+    select_todays_win(participant, candidate, today)
+    # Keep the already-loaded parent cache used by the dashboard serializer.
+    candidate.surfaced_on = today
+    return candidate
 
 
 def get_completed_todays_win(
@@ -168,10 +213,16 @@ def archive_goal(goal: WinItem) -> WinItem:
 
 
 def restore_goal(goal: WinItem) -> WinItem:
-    """Return an archived North Star to Working toward with steps intact."""
+    """Return an achieved or archived North Star to Working toward.
+
+    Completed and graduated steps stay intact so reopening a North Star never
+    erases the work that got it into history.
+    """
     with transaction.atomic():
         locked = WinItem.objects.select_for_update().get(
-            id=goal.id, is_goal=True, status=WinItem.STATUS_ARCHIVED
+            id=goal.id,
+            is_goal=True,
+            status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
         )
         locked.status = WinItem.STATUS_OPEN
         locked.done_at = None
@@ -309,19 +360,29 @@ def get_dashboard_wins(
     participant: DailyParticipant,
     start: date_cls,
     today: date_cls,
+    auto_select: bool = True,
 ):
     """Load the week-strip win markers and today's card state in one query.
 
     The full backlog belongs to the lazy wins dialog and is intentionally not
     pulled into the dashboard's critical render path.
     """
+    card_rows = Q(
+        status=WinItem.STATUS_OPEN,
+        is_goal=False,
+        surfaced_on=today,
+    )
+    if auto_select:
+        # Include only the first possible fallback in the same dashboard query.
+        # This avoids loading the full Wins backlog or adding a query on empty
+        # accounts, while still letting us persist a selection when one exists.
+        candidate_id = Subquery(
+            _ordered_selectable_wins(participant, today).values("id")[:1]
+        )
+        card_rows |= Q(id=candidate_id)
     rows = list(
         participant.wins.filter(
-            Q(
-                status=WinItem.STATUS_OPEN,
-                is_goal=False,
-                surfaced_on=today,
-            )
+            card_rows
             | Q(
                 status=WinItem.STATUS_DONE,
                 is_goal=False,
@@ -333,7 +394,10 @@ def get_dashboard_wins(
         .order_by("order", "created_at")
     )
     selected = next(
-        (row for row in rows if row.status == WinItem.STATUS_OPEN),
+        (
+            row for row in rows
+            if row.status == WinItem.STATUS_OPEN and row.surfaced_on == today
+        ),
         None,
     )
     completed_rows = [
@@ -346,6 +410,15 @@ def get_dashboard_wins(
         key=lambda row: (row.done_at is not None, row.done_at, row.created_at),
         default=None,
     )
+    if auto_select and selected is None and completed is None:
+        candidate = next(
+            (row for row in rows if row.status == WinItem.STATUS_OPEN),
+            None,
+        )
+        if candidate is not None:
+            select_todays_win(participant, candidate, today)
+            candidate.surfaced_on = today
+            selected = candidate
     return {
         "selected": selected,
         "completed": completed,
@@ -392,7 +465,7 @@ def north_star_done_dates(participant: DailyParticipant, start: date_cls, end: d
 
 
 def defer_win(win: WinItem, today: date_cls) -> WinItem:
-    """"Not today": return the selected item to the pile without replacing it."""
+    """"Not today": return the selected item to the pile for reselection."""
     win.surfaced_on = None
     win.deferred_on = today
     win.defer_count = (win.defer_count or 0) + 1

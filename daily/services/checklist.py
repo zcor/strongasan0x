@@ -24,6 +24,68 @@ logger = logging.getLogger(__name__)
 # plus extras) but bounded so a runaway add-loop can't create an unusable page.
 MAX_CHECKLIST_SIZE = 20
 
+# Python's weekday convention: Monday=0 through Sunday=6. A missing `days`
+# value on an older checklist item means every day, preserving the behavior
+# every existing participant had before per-habit schedules were introduced.
+ALL_HABIT_DAYS = tuple(range(7))
+HABIT_STEP_RULE_ANY = "any"
+HABIT_STEP_RULE_ALL = "all"
+HABIT_STEP_RULES = {HABIT_STEP_RULE_ANY, HABIT_STEP_RULE_ALL}
+HEALTH_BONUS_CATEGORY = "health"
+
+
+def habit_days(question: dict) -> tuple[int, ...]:
+    """Return a safe, normalized weekday tuple for a checklist question."""
+    raw = question.get("days")
+    if not isinstance(raw, list) or not raw:
+        return ALL_HABIT_DAYS
+    if any(type(day) is not int or day not in ALL_HABIT_DAYS for day in raw):
+        return ALL_HABIT_DAYS
+    return tuple(sorted(set(raw)))
+
+
+def valid_habit_days(raw) -> bool:
+    """Whether an API-supplied weekday list is non-empty and well formed."""
+    return (
+        isinstance(raw, list)
+        and bool(raw)
+        and all(type(day) is int and day in ALL_HABIT_DAYS for day in raw)
+        and len(raw) == len(set(raw))
+    )
+
+
+def habit_step_rule(question: dict) -> str:
+    """How nested steps complete their parent; older habits keep 'any'."""
+    raw = question.get("step_rule")
+    return raw if raw in HABIT_STEP_RULES else HABIT_STEP_RULE_ANY
+
+
+def valid_habit_step_rule(raw) -> bool:
+    return isinstance(raw, str) and raw in HABIT_STEP_RULES
+
+
+def habit_steps_complete(question: dict, states: dict) -> bool:
+    """Whether this habit's non-empty small-step list satisfies its rule."""
+    keys = [item.get("key") for item in (question.get("items") or [])]
+    if not keys:
+        return False
+    done = [states.get(key) == "done" for key in keys]
+    return all(done) if habit_step_rule(question) == HABIT_STEP_RULE_ALL else any(done)
+
+
+def scheduled_questions(questions, for_date: date_cls) -> list[dict]:
+    """Questions configured to appear on ``for_date``."""
+    weekday = for_date.weekday()
+    return [q for q in questions if weekday in habit_days(q)]
+
+
+def health_bonus_items(items) -> list[dict]:
+    """Only explicitly health-tagged bonus items; no wording heuristics."""
+    return [
+        item for item in (items or [])
+        if isinstance(item, dict) and item.get("category") == HEALTH_BONUS_CATEGORY
+    ]
+
 
 def dismiss_pending_mutations(participant: DailyParticipant) -> int:
     """Retire queued list rewrites when a participant enters support-only mode.
@@ -88,6 +150,8 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
             continue
 
         proposed_bonus = suggestion.proposed_bonus or None
+        if participant.beta:
+            proposed_bonus = health_bonus_items(proposed_bonus) or None
 
         if (
             current
@@ -162,6 +226,10 @@ def _is_valid_questions(questions) -> bool:
             return False
         if not _add_kv(q.get("key"), q.get("label")):
             return False
+        if "days" in q and not valid_habit_days(q["days"]):
+            return False
+        if "step_rule" in q and not valid_habit_step_rule(q["step_rule"]):
+            return False
         items = q.get("items")
         if items is not None:
             if not isinstance(items, list):
@@ -219,7 +287,7 @@ def _reconcile_user_edits(base, current_questions, proposed) -> list:
     ]
     result_keys = {q.get("key") for q in result if isinstance(q, dict)}
     added = [
-        {"key": q["key"], "label": q["label"]}
+        dict(q)
         for q in current_questions
         if isinstance(q, dict)
         and q.get("key") not in base_keys
@@ -255,10 +323,11 @@ def all_version_keys(version) -> set:
 
 
 def _merge_subitems(current_questions: List[dict], proposed) -> list:
-    """Carry each current question's `items` sub-list onto the proposed
-    question. A proposal that explicitly ships its own `items` for a key wins;
-    one that omits them (the common engine output) inherits the existing
-    drawer instead of erasing it.
+    """Carry user-managed metadata onto proposed checklist questions.
+
+    The overnight engine emits only ``key`` and ``label``. Preserve the nested
+    ``items`` drawer, weekday ``days`` schedule, and small-step completion rule
+    unless a proposal explicitly supplies its own value.
 
     Match by KEY first, then fall back to (case-folded) LABEL: the overnight
     engine is allowed to mint a fresh key while keeping a habit's wording, and
@@ -269,19 +338,22 @@ def _merge_subitems(current_questions: List[dict], proposed) -> list:
         return proposed
     by_key, by_label = {}, {}
     for q in current_questions:
-        if isinstance(q, dict) and q.get("items"):
+        if isinstance(q, dict):
             if q.get("key"):
-                by_key[q["key"]] = q["items"]
+                by_key[q["key"]] = q
             if isinstance(q.get("label"), str):
-                by_label[q["label"].strip().casefold()] = q["items"]
+                by_label[q["label"].strip().casefold()] = q
     merged = []
     for q in proposed:
-        if isinstance(q, dict) and "items" not in q:
-            items = by_key.get(q.get("key"))
-            if items is None and isinstance(q.get("label"), str):
-                items = by_label.get(q["label"].strip().casefold())
-            if items is not None:
-                q = dict(q, items=items)
+        if isinstance(q, dict):
+            current = by_key.get(q.get("key"))
+            if current is None and isinstance(q.get("label"), str):
+                current = by_label.get(q["label"].strip().casefold())
+            if current is not None:
+                q = dict(q)
+                for field in ("items", "days", "step_rule"):
+                    if field not in q and current.get(field) is not None:
+                        q[field] = current[field]
         merged.append(q)
     return merged
 
@@ -297,5 +369,7 @@ def _questions_equal(a: List[dict], b: List[dict]) -> bool:
         x.get("key") == y.get("key")
         and x.get("label") == y.get("label")
         and _sub_pairs(x) == _sub_pairs(y)
+        and habit_days(x) == habit_days(y)
+        and habit_step_rule(x) == habit_step_rule(y)
         for x, y in zip(a, b)
     )

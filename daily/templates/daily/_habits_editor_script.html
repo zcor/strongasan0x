@@ -1,0 +1,652 @@
+<script>
+(function () {
+    "use strict";
+
+    var DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+    var DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    var ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+    function normalizedStepRule(rule) {
+        return rule === "all" ? "all" : "any";
+    }
+
+    function stepRuleControl(rule) {
+        var wrap = document.createElement("div");
+        wrap.className = "step-rule-modes";
+        wrap.setAttribute("aria-label", "Small steps required to complete this habit");
+        var any = document.createElement("button");
+        any.type = "button";
+        any.className = "step-rule-mode";
+        any.textContent = "Any step";
+        var all = document.createElement("button");
+        all.type = "button";
+        all.className = "step-rule-mode";
+        all.textContent = "All steps";
+        wrap.appendChild(any);
+        wrap.appendChild(all);
+
+        function setRule(value) {
+            wrap.dataset.rule = normalizedStepRule(value);
+            any.setAttribute("aria-pressed", wrap.dataset.rule === "any" ? "true" : "false");
+            all.setAttribute("aria-pressed", wrap.dataset.rule === "all" ? "true" : "false");
+        }
+        any.addEventListener("click", function () { setRule("any"); });
+        all.addEventListener("click", function () { setRule("all"); });
+        setRule(rule);
+
+        return {
+            element: wrap,
+            value: function () { return wrap.dataset.rule; },
+            setDisabled: function (disabled) {
+                any.disabled = disabled;
+                all.disabled = disabled;
+            },
+            resetAny: function () { setRule("any"); },
+        };
+    }
+
+    function csrfToken() {
+        var match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : "";
+    }
+
+    function post(url, body, onOk, onError) {
+        fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken()},
+            body: JSON.stringify(body || {}),
+        }).then(function (response) {
+            return response.json().then(function (data) {
+                return {status: response.status, data: data};
+            });
+        }).then(function (result) {
+            if (result.data && result.data.ok) onOk(result.data);
+            else onError(result);
+        }).catch(function () { onError({status: 0, data: {}}); });
+    }
+
+    function normalizedDays(days) {
+        if (!Array.isArray(days) || !days.length) return ALL_DAYS.slice();
+        return days.filter(function (day, index, list) {
+            return Number.isInteger(day) && day >= 0 && day <= 6 && list.indexOf(day) === index;
+        }).sort();
+    }
+
+    function weekdayPicker(days) {
+        var selected = normalizedDays(days);
+        var picker = document.createElement("div");
+        picker.className = "weekday-picker";
+        picker.setAttribute("aria-label", "Days this habit appears");
+        ALL_DAYS.forEach(function (day) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "weekday";
+            button.textContent = DAY_LABELS[day];
+            button.setAttribute("aria-label", DAY_NAMES[day]);
+            button.setAttribute("aria-pressed", selected.indexOf(day) !== -1 ? "true" : "false");
+            button.dataset.day = String(day);
+            button.addEventListener("click", function () {
+                button.setAttribute(
+                    "aria-pressed",
+                    button.getAttribute("aria-pressed") === "true" ? "false" : "true"
+                );
+            });
+            picker.appendChild(button);
+        });
+        return picker;
+    }
+
+    function selectedDays(picker) {
+        return Array.prototype.slice.call(picker.querySelectorAll('.weekday[aria-pressed="true"]'))
+            .map(function (button) { return parseInt(button.dataset.day, 10); });
+    }
+
+    function scheduleControl(days) {
+        var initialDays = normalizedDays(days);
+        if (!initialDays.length) initialDays = ALL_DAYS.slice();
+        var customInitialized = initialDays.length !== ALL_DAYS.length;
+        var wrap = document.createElement("div");
+        wrap.className = "schedule-control";
+        var modes = document.createElement("div");
+        modes.className = "schedule-modes";
+        modes.setAttribute("aria-label", "Habit schedule");
+        var all = document.createElement("button");
+        all.type = "button";
+        all.className = "schedule-mode";
+        all.textContent = "All";
+        var custom = document.createElement("button");
+        custom.type = "button";
+        custom.className = "schedule-mode";
+        custom.textContent = "Custom";
+        modes.appendChild(all);
+        modes.appendChild(custom);
+        var picker = weekdayPicker(initialDays);
+        wrap.appendChild(modes);
+        wrap.appendChild(picker);
+
+        function setMode(mode) {
+            wrap.dataset.mode = mode;
+            all.setAttribute("aria-pressed", mode === "all" ? "true" : "false");
+            custom.setAttribute("aria-pressed", mode === "custom" ? "true" : "false");
+            picker.hidden = mode !== "custom";
+        }
+        all.addEventListener("click", function () { setMode("all"); });
+        custom.addEventListener("click", function () {
+            if (!customInitialized) {
+                Array.prototype.forEach.call(picker.querySelectorAll(".weekday"), function (button) {
+                    button.setAttribute("aria-pressed", "false");
+                });
+                customInitialized = true;
+            }
+            setMode("custom");
+        });
+        setMode(initialDays.length === ALL_DAYS.length ? "all" : "custom");
+
+        return {
+            element: wrap,
+            days: function () {
+                return wrap.dataset.mode === "all" ? ALL_DAYS.slice() : selectedDays(picker);
+            },
+            setDisabled: function (disabled) {
+                Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (button) {
+                    button.disabled = disabled;
+                });
+            },
+            resetAll: function () {
+                Array.prototype.forEach.call(picker.querySelectorAll(".weekday"), function (button) {
+                    button.setAttribute("aria-pressed", "true");
+                });
+                customInitialized = false;
+                setMode("all");
+            },
+        };
+    }
+
+    function fieldLabel(text) {
+        var label = document.createElement("div");
+        label.className = "habit-field-label";
+        label.textContent = text;
+        return label;
+    }
+
+    function scheduleSummary(days) {
+        var selected = normalizedDays(days);
+        if (selected.length === ALL_DAYS.length) return "All";
+        return selected.map(function (day) { return DAY_LABELS[day]; }).join(" · ");
+    }
+
+    function initEditor(root) {
+        if (!root || root.dataset.initialized === "1") return;
+        root.dataset.initialized = "1";
+
+        var list = root.querySelector("[data-habit-list]");
+        var empty = root.querySelector("[data-habits-empty]");
+        var dataNode = root.querySelector("#habits-editor-data");
+        var habits = [];
+        try { habits = JSON.parse(dataNode ? dataNode.textContent : "[]"); } catch (error) { habits = []; }
+        var maxHabits = parseInt(root.dataset.maxHabits || "20", 10);
+        var toastTimer = null;
+
+        function toast(message) {
+            var node = root.querySelector("[data-habit-toast]");
+            if (!node) return;
+            node.textContent = message;
+            node.classList.add("show");
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { node.classList.remove("show"); }, 2400);
+        }
+
+        function notifyDashboard(action, item, key) {
+            if (window.__syncHabitEditorResult) {
+                window.__syncHabitEditorResult({action: action, item: item || null, key: key || ""});
+            }
+        }
+
+        function syncEmpty() {
+            var count = list.querySelectorAll(".habit-editor-item").length;
+            empty.hidden = count !== 0;
+            var addFoot = root.querySelector("[data-habit-add-foot]");
+            if (addFoot) addFoot.hidden = count >= maxHabits;
+        }
+
+        function messageNode() {
+            var message = document.createElement("div");
+            message.className = "habit-editor-message";
+            message.hidden = true;
+            return message;
+        }
+
+        function collapseHabitCards(except) {
+            Array.prototype.forEach.call(list.querySelectorAll(".habit-editor-item.expanded"), function (habit) {
+                if (habit !== except && habit.__setExpanded) habit.__setExpanded(false);
+            });
+        }
+
+        function habitElement(item) {
+            item.days = normalizedDays(item.days);
+            item.items = Array.isArray(item.items) ? item.items : [];
+
+            var wrap = document.createElement("section");
+            wrap.className = "elist-item habit-editor-item";
+            wrap.dataset.habitKey = item.key;
+
+            var heading = document.createElement("div");
+            heading.className = "elist-heading";
+            var collapsedLabel = document.createElement("button");
+            collapsedLabel.type = "button";
+            collapsedLabel.className = "elist-label";
+            var collapsedName = document.createElement("span");
+            collapsedName.className = "elist-name";
+            collapsedName.textContent = item.label;
+            var collapsedMeta = document.createElement("span");
+            collapsedMeta.className = "elist-meta";
+            collapsedMeta.textContent = item.items.length + (item.items.length === 1 ? " step" : " steps")
+                + " · " + scheduleSummary(item.days);
+            collapsedLabel.appendChild(collapsedName);
+            collapsedLabel.appendChild(collapsedMeta);
+            var name = document.createElement("input");
+            name.type = "text";
+            name.maxLength = 60;
+            name.className = "composer-input habit-name-input";
+            name.value = item.label;
+            name.setAttribute("aria-label", "Habit name");
+            name.hidden = true;
+            var toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "elist-toggle";
+            toggle.setAttribute("aria-expanded", "false");
+            toggle.setAttribute("aria-label", "Edit " + item.label);
+            toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+            heading.appendChild(collapsedLabel);
+            heading.appendChild(name);
+            heading.appendChild(toggle);
+            wrap.appendChild(heading);
+
+            var body = document.createElement("div");
+            body.className = "elist-body";
+            body.hidden = true;
+            var schedule = scheduleControl(item.days);
+
+            var stepRule = null;
+            if (item.items.length) {
+                var details = document.createElement("div");
+                details.className = "habit-details";
+                var detailList = document.createElement("div");
+                item.items.forEach(function (detail) {
+                    var row = document.createElement("div");
+                    row.className = "habit-detail-row";
+                    var text = document.createElement("span");
+                    text.className = "habit-detail-name";
+                    text.textContent = detail.label;
+                    var remove = document.createElement("button");
+                    remove.type = "button";
+                    remove.className = "habit-detail-delete";
+                    remove.textContent = "Delete";
+                    remove.setAttribute("aria-label", "Delete " + detail.label);
+                    remove.addEventListener("click", function () {
+                        remove.disabled = true;
+                        post("/daily/subitem/remove/", {parent_key: item.key, key: detail.key}, function (data) {
+                            var replacement = habitElement(data.habit);
+                            wrap.replaceWith(replacement);
+                            notifyDashboard("upsert", data.habit);
+                            toast("Small step deleted.");
+                        }, function () {
+                            remove.disabled = false;
+                            toast("Couldn't delete that small step.");
+                        });
+                    });
+                    row.appendChild(text);
+                    row.appendChild(remove);
+                    detailList.appendChild(row);
+                });
+                details.appendChild(detailList);
+                details.appendChild(fieldLabel("When is this habit complete?"));
+                stepRule = stepRuleControl(item.step_rule);
+                details.appendChild(stepRule.element);
+                body.appendChild(details);
+            }
+            body.appendChild(fieldLabel("Show this habit on"));
+            body.appendChild(schedule.element);
+            var message = messageNode();
+            body.appendChild(message);
+            wrap.appendChild(body);
+
+            var actions = document.createElement("div");
+            actions.className = "elist-actions";
+            var removeHabit = document.createElement("button");
+            removeHabit.type = "button";
+            removeHabit.className = "danger";
+            removeHabit.textContent = "Delete";
+            var addDetail = document.createElement("button");
+            addDetail.type = "button";
+            addDetail.textContent = "Add a step";
+            var save = document.createElement("button");
+            save.type = "button";
+            save.className = "primary";
+            save.textContent = "Save";
+            actions.appendChild(removeHabit);
+            actions.appendChild(addDetail);
+            actions.appendChild(save);
+            actions.hidden = true;
+            wrap.appendChild(actions);
+
+            function setExpanded(expanded) {
+                if (expanded) collapseHabitCards(wrap);
+                wrap.classList.toggle("expanded", expanded);
+                collapsedLabel.hidden = expanded;
+                name.hidden = !expanded;
+                body.hidden = !expanded;
+                actions.hidden = !expanded;
+                toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+                toggle.setAttribute("aria-label", (expanded ? "Close " : "Edit ") + item.label);
+            }
+            wrap.__setExpanded = setExpanded;
+            collapsedLabel.addEventListener("click", function () { setExpanded(true); });
+            toggle.addEventListener("click", function () {
+                setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+            });
+
+            function setBusy(busy, activeLabel) {
+                name.disabled = busy;
+                schedule.setDisabled(busy);
+                if (stepRule) stepRule.setDisabled(busy);
+                removeHabit.disabled = busy;
+                addDetail.disabled = busy;
+                save.disabled = busy;
+                save.textContent = busy && activeLabel === "save" ? "Saving…" : "Save";
+                removeHabit.textContent = busy && activeLabel === "delete" ? "Deleting…" : "Delete";
+            }
+
+            save.addEventListener("click", function () {
+                var label = name.value.trim();
+                var days = schedule.days();
+                message.hidden = true;
+                if (!label) {
+                    message.textContent = "Name this habit before saving.";
+                    message.hidden = false;
+                    name.focus();
+                    return;
+                }
+                if (!days.length) {
+                    message.textContent = "Choose at least one day.";
+                    message.hidden = false;
+                    return;
+                }
+                setBusy(true, "save");
+                var editBody = {key: item.key, label: label, days: days};
+                if (stepRule) editBody.step_rule = stepRule.value();
+                post("/daily/item/edit/", editBody, function (data) {
+                    var replacement = habitElement(data.item);
+                    wrap.replaceWith(replacement);
+                    replacement.__setExpanded(true);
+                    notifyDashboard("upsert", data.item);
+                    toast("Habit saved.");
+                }, function () {
+                    setBusy(false);
+                    message.textContent = "Couldn't save that habit. Try again.";
+                    message.hidden = false;
+                });
+            });
+
+            removeHabit.addEventListener("click", function () {
+                if (!window.confirm('Delete "' + item.label + '"? Its small steps will also be deleted.')) return;
+                setBusy(true, "delete");
+                post("/daily/item/remove/", {key: item.key}, function () {
+                    wrap.remove();
+                    syncEmpty();
+                    notifyDashboard("remove", null, item.key);
+                    toast("Habit deleted.");
+                }, function () {
+                    setBusy(false);
+                    toast("Couldn't delete that habit.");
+                });
+            });
+
+            addDetail.addEventListener("click", function () {
+                var existing = wrap.querySelector(".habit-detail-composer");
+                if (existing) {
+                    var lastInput = existing.querySelector(".habit-new-step-row:last-child input");
+                    if (lastInput) lastInput.focus();
+                    return;
+                }
+                var composer = document.createElement("div");
+                composer.className = "habit-detail-composer";
+                var fields = document.createElement("div");
+                fields.className = "habit-detail-fields";
+                var foot = document.createElement("div");
+                foot.className = "card-foot";
+                var cancel = document.createElement("button");
+                cancel.type = "button";
+                cancel.className = "act";
+                cancel.textContent = "Cancel";
+                var another = document.createElement("button");
+                another.type = "button";
+                another.className = "act";
+                another.textContent = "Another step";
+                var add = document.createElement("button");
+                add.type = "button";
+                add.className = "act gold";
+                add.textContent = "Add all";
+                foot.appendChild(cancel);
+                foot.appendChild(another);
+                foot.appendChild(add);
+                composer.appendChild(fields);
+                composer.appendChild(foot);
+                wrap.insertBefore(composer, actions);
+
+                function addField() {
+                    var row = document.createElement("div");
+                    row.className = "habit-new-step-row";
+                    var input = document.createElement("input");
+                    input.type = "text";
+                    input.maxLength = 60;
+                    input.className = "composer-input";
+                    input.placeholder = "e.g. Bench press";
+                    input.setAttribute("aria-label", "Small step");
+                    var remove = document.createElement("button");
+                    remove.type = "button";
+                    remove.className = "habit-new-step-remove";
+                    remove.textContent = "Delete";
+                    remove.addEventListener("click", function () {
+                        row.remove();
+                        if (!fields.children.length) composer.remove();
+                    });
+                    input.addEventListener("keydown", function (event) {
+                        if (event.key === "Enter") {
+                            event.preventDefault();
+                            if (input.value.trim()) addField();
+                        } else if (event.key === "Escape") {
+                            composer.remove();
+                        }
+                    });
+                    row.appendChild(input);
+                    row.appendChild(remove);
+                    fields.appendChild(row);
+                    input.focus();
+                }
+
+                function setDetailBusy(busy) {
+                    Array.prototype.forEach.call(composer.querySelectorAll("input, button"), function (control) {
+                        control.disabled = busy;
+                    });
+                    add.textContent = busy ? "Adding…" : "Add all";
+                }
+
+                function submitDetail() {
+                    var labels = Array.prototype.slice.call(fields.querySelectorAll("input"))
+                        .map(function (input) { return input.value.trim(); })
+                        .filter(Boolean);
+                    if (!labels.length) {
+                        var first = fields.querySelector("input");
+                        if (first) first.focus();
+                        return;
+                    }
+                    setDetailBusy(true);
+                    post("/daily/subitem/add/", {parent_key: item.key, labels: labels}, function (data) {
+                        var replacement = habitElement(data.habit);
+                        wrap.replaceWith(replacement);
+                        notifyDashboard("upsert", data.habit);
+                        toast(labels.length + (labels.length === 1 ? " small step added." : " small steps added."));
+                    }, function () {
+                        setDetailBusy(false);
+                        toast("Couldn't add those small steps.");
+                    });
+                }
+                cancel.addEventListener("click", function () { composer.remove(); });
+                another.addEventListener("click", addField);
+                add.addEventListener("click", submitDetail);
+                addField();
+            });
+
+            return wrap;
+        }
+
+        habits.forEach(function (habit) { list.appendChild(habitElement(habit)); });
+        syncEmpty();
+
+        var addFoot = root.querySelector("[data-habit-add-foot]");
+        var addComposer = root.querySelector("[data-habit-add-composer]");
+        var addName = root.querySelector("[data-habit-add-name]");
+        var addDaysHost = root.querySelector("[data-habit-add-days]");
+        var addStepSection = root.querySelector("[data-habit-add-step-section]");
+        var addStepList = root.querySelector("[data-habit-add-step-list]");
+        var addStepRuleHost = root.querySelector("[data-habit-add-step-rule]");
+        var addMessage = root.querySelector("[data-habit-add-message]");
+        var addSchedule = scheduleControl(ALL_DAYS);
+        addDaysHost.replaceWith(addSchedule.element);
+        addSchedule.element.dataset.habitAddDays = "";
+        var addStepRule = stepRuleControl("any");
+        addStepRuleHost.replaceWith(addStepRule.element);
+        addStepRule.element.dataset.habitAddStepRule = "";
+
+        function addNewHabitStep() {
+            addStepSection.hidden = false;
+            var row = document.createElement("div");
+            row.className = "habit-new-step-row";
+            var input = document.createElement("input");
+            input.type = "text";
+            input.maxLength = 60;
+            input.className = "composer-input";
+            input.placeholder = "e.g. Bench press";
+            input.setAttribute("aria-label", "Small step");
+            var remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "habit-new-step-remove";
+            remove.textContent = "Delete";
+            remove.setAttribute("aria-label", "Delete small step");
+            remove.addEventListener("click", function () {
+                row.remove();
+                if (!addStepList.children.length) addStepSection.hidden = true;
+            });
+            input.addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (input.value.trim()) addNewHabitStep();
+                } else if (event.key === "Escape") {
+                    row.remove();
+                    if (!addStepList.children.length) addStepSection.hidden = true;
+                }
+            });
+            row.appendChild(input);
+            row.appendChild(remove);
+            addStepList.appendChild(row);
+            input.focus();
+        }
+
+        function resetAdd() {
+            addName.value = "";
+            addMessage.hidden = true;
+            addSchedule.resetAll();
+            addStepRule.resetAny();
+            addStepList.innerHTML = "";
+            addStepSection.hidden = true;
+        }
+        function closeAdd() {
+            addComposer.hidden = true;
+            addFoot.hidden = list.querySelectorAll(".habit-editor-item").length >= maxHabits;
+            resetAdd();
+        }
+        function setAddBusy(busy, mode) {
+            addName.disabled = busy;
+            addSchedule.setDisabled(busy);
+            addStepRule.setDisabled(busy);
+            var cancel = root.querySelector("[data-habit-add-cancel]");
+            var auto = root.querySelector("[data-habit-add-auto]");
+            var addStep = root.querySelector("[data-habit-add-step]");
+            var save = root.querySelector("[data-habit-add-save]");
+            cancel.disabled = busy;
+            auto.disabled = busy;
+            addStep.disabled = busy;
+            save.disabled = busy;
+            Array.prototype.forEach.call(addStepList.querySelectorAll("input, button"), function (control) {
+                control.disabled = busy;
+            });
+            auto.textContent = busy && mode === "auto" ? "Finding…" : "Auto";
+            save.textContent = busy && mode === "custom" ? "Adding…" : "Add";
+        }
+        function submitAdd(mode) {
+            var label = addName.value.trim();
+            var days = addSchedule.days();
+            var steps = Array.prototype.slice.call(addStepList.querySelectorAll("input"))
+                .map(function (input) { return input.value.trim(); })
+                .filter(Boolean);
+            addMessage.hidden = true;
+            if (mode === "custom" && !label) { addName.focus(); return; }
+            if (!days.length) {
+                addMessage.textContent = "Choose at least one day.";
+                addMessage.hidden = false;
+                return;
+            }
+            setAddBusy(true, mode);
+            var body = {mode: mode, days: days, steps: steps};
+            if (steps.length) body.step_rule = addStepRule.value();
+            if (mode === "custom") body.label = label;
+            post("/daily/item/add/", body, function (data) {
+                var newHabit = habitElement(data.item);
+                list.appendChild(newHabit);
+                newHabit.__setExpanded(false);
+                collapseHabitCards(null);
+                closeAdd();
+                setAddBusy(false);
+                syncEmpty();
+                notifyDashboard("upsert", data.item);
+                toast("Habit added.");
+            }, function (result) {
+                setAddBusy(false);
+                addMessage.textContent = result.status === 503
+                    ? "Jamie is offline. Type your own habit and tap Add."
+                    : "Couldn't add that habit. Try again.";
+                addMessage.hidden = false;
+            });
+        }
+
+        root.querySelector("[data-habit-add-open]").addEventListener("click", function () {
+            collapseHabitCards(null);
+            addFoot.hidden = true;
+            addComposer.hidden = false;
+            addName.focus();
+        });
+        root.querySelector("[data-habit-add-cancel]").addEventListener("click", closeAdd);
+        addComposer.addEventListener("click", function (event) {
+            if (event.target === addComposer) closeAdd();
+        });
+        root.querySelector("[data-habit-add-auto]").addEventListener("click", function () { submitAdd("auto"); });
+        root.querySelector("[data-habit-add-step]").addEventListener("click", addNewHabitStep);
+        root.querySelector("[data-habit-add-save]").addEventListener("click", function () { submitAdd("custom"); });
+        addName.addEventListener("keydown", function (event) {
+            if (event.key === "Enter") { event.preventDefault(); submitAdd("custom"); }
+            if (event.key === "Escape") closeAdd();
+        });
+
+        root.addEventListener("click", function (event) {
+            if (event.target.closest("[data-habits-close]") && window.__closeHabitsDialog) {
+                window.__closeHabitsDialog();
+            }
+        });
+    }
+
+    window.__initHabitsEditor = initEditor;
+    document.querySelectorAll("[data-habits-editor]").forEach(initEditor);
+}());
+</script>

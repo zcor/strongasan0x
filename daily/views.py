@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, F, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -52,7 +52,14 @@ from .services.checklist import (
     all_version_keys,
     apply_pending_mutations,
     dismiss_pending_mutations,
+    habit_days,
+    habit_step_rule,
+    habit_steps_complete,
+    health_bonus_items,
     revert_to_baseline,
+    scheduled_questions,
+    valid_habit_days,
+    valid_habit_step_rule,
 )
 from .services.coach_runner import coach_prior_day, run_coach
 from .services.streaks import current_streak, refresh_streak_cache
@@ -280,7 +287,7 @@ def _morning_note(participant: DailyParticipant, today: date):
             check_in__date__lt=today,
         )
         .exclude(status=CoachSuggestion.STATUS_DISMISSED)
-        .select_related("applied_version__derived_from")
+        .select_related("check_in", "applied_version__derived_from")
         .order_by("-created_at")
     )
     note = qs.first()
@@ -320,6 +327,41 @@ def _get_or_create_today(participant: DailyParticipant, today: date, version: Ch
         defaults={"checklist_version": version, "source": DailyCheckIn.SOURCE_WEB},
     )
     return check_in
+
+
+def _habit_json(question, for_date, states=None):
+    """Client/render payload for one habit, including its weekly schedule."""
+    states = states or {}
+    sub_items = [
+        {
+            "key": item["key"],
+            "label": item["label"],
+            "state": states.get(item["key"], "pending"),
+        }
+        for item in (question.get("items") or [])
+    ]
+    if sub_items:
+        state = (
+            "done"
+            if (
+                habit_steps_complete(question, states)
+                or states.get(question["key"]) == "done"
+            )
+            else "pending"
+        )
+    else:
+        state = states.get(question["key"], "pending")
+    days = list(habit_days(question))
+    return {
+        "key": question["key"],
+        "label": question["label"],
+        "state": state,
+        "items": sub_items,
+        "days": days,
+        "step_rule": habit_step_rule(question),
+        "scheduled_today": for_date.weekday() in days,
+        "core": True,
+    }
 
 
 def _needs_onboarding(participant) -> bool:
@@ -462,76 +504,70 @@ def _render_checkin(request, from_token=""):
 
     note = None
     note_core_changed = False
+    note_should_present = False
     # The beta UI only shows coach notes inside its chat sheet, so resolving
     # and marking a note here would put chat work back on the dashboard's
     # critical path. The lazy chat_history endpoint does it on first open.
     # Legacy still needs the note immediately for its load modal.
     if not backfill and not is_beta:
         note = _morning_note(participant, today)
-        if note and note.status == CoachSuggestion.STATUS_PENDING:
-            note.status = CoachSuggestion.STATUS_SHOWN
-            note.save(update_fields=["status"])
+        if note:
+            from .models import CoachChatMessage
+            note_should_present = not CoachChatMessage.objects.filter(
+                participant=participant,
+                suggestion=note,
+            ).exists()
+        if note_should_present:
+            if note.status == CoachSuggestion.STATUS_PENDING:
+                note.status = CoachSuggestion.STATUS_SHOWN
+                note.save(update_fields=["status"])
+            # A report-linked row is the durable one-time delivery marker. It
+            # is filtered out of conversation queries below, so it never
+            # appears as a chat bubble.
+            CoachChatMessage.objects.create(
+                participant=participant,
+                role=CoachChatMessage.ROLE_COACH,
+                text=note.suggestion_text,
+                date=today,
+                suggestion=note,
+            )
         # "checklist updated" + Undo only when the CORE items actually changed
         # (bonus-only version churn reads as a plain note).
         if note and note.status == CoachSuggestion.STATUS_APPLIED and note.applied_version_id:
             parent = note.applied_version.derived_from
             note_core_changed = parent is None or parent.questions != note.applied_version.questions
 
-    # The morning note becomes the first coach CHAT message of the day, so it
-    # lives in the conversation thread (not a separate card). Seed it once.
+    # A morning report is a one-time dialog, not a chat message. Conversation
+    # history contains only messages the user and Jamie actually exchanged.
     chat_history = []
     chat_unread = False
     if not backfill and not is_beta:
-        from .models import CoachChatMessage
         chat_messages = _chat_history(participant)
-        if note and not any(message.suggestion_id == note.id for message in chat_messages):
-            seeded_message = CoachChatMessage.objects.create(
-                participant=participant, role=CoachChatMessage.ROLE_COACH,
-                text=note.suggestion_text, date=today, suggestion=note,
-            )
-            chat_messages.append(seeded_message)
         chat_history = [
             {"role": m.role, "text": m.text, "at": m.created_at.strftime("%-I:%M %p")}
             for m in chat_messages
         ]
-        # "Unread" = the most recent message is from the coach (a fresh note or
-        # a reply the user hasn't opened the chat to see). Drives the FAB dot
-        # and the load modal.
-        chat_unread = bool(chat_history) and chat_history[-1]["role"] == "coach"
-        latest_coach_text = chat_history[-1]["text"] if chat_unread else ""
+        chat_unread = note_should_present
+        latest_coach_text = note.suggestion_text if note_should_present else ""
 
     # Core habits, each optionally carrying a nested detail checklist
-    # (`items`). A habit WITH sub-items derives its own done state from them:
-    # done iff any sub is done (see set_item_state, which persists that so the
+    # (`items`). A habit WITH sub-items derives its own done state using its
+    # saved any/all step rule (see set_item_state, which persists that so the
     # ring/score math counts the parent, never the sub-items). Habits without
     # sub-items are unchanged.
-    core_items = []
-    for q in render_version.questions:
-        sub_items = [
-            {"key": s["key"], "label": s["label"], "state": states.get(s["key"], "pending")}
-            for s in (q.get("items") or [])
-        ]
-        if sub_items:
-            # A stored parent answer must count alongside sub-item derivation:
-            # set_item_state records the parent's own answer (and its
-            # done_count/bonus math reads it), so ignoring it here would show
-            # an unchecked parent that the counts say is done (e.g. mark a
-            # habit done, then a sub-item is added later).
-            pstate = (
-                "done"
-                if (
-                    any(si["state"] == "done" for si in sub_items)
-                    or states.get(q["key"]) == "done"
-                )
-                else "pending"
-            )
-        else:
-            pstate = states.get(q["key"], "pending")
-        core_items.append(
-            {"key": q["key"], "label": q["label"], "state": pstate, "items": sub_items}
-        )
+    visible_questions = (
+        scheduled_questions(render_version.questions, today)
+        if is_beta
+        else render_version.questions
+    )
+    core_items = [_habit_json(q, today, states) for q in visible_questions]
     done_count = sum(1 for i in core_items if i["state"] == "done")
 
+    visible_bonus_questions = (
+        health_bonus_items(render_version.bonus_questions)
+        if is_beta
+        else (render_version.bonus_questions or [])
+    )
     bonus_items = [
         {
             "key": q["key"], "label": q["label"],
@@ -541,7 +577,7 @@ def _render_checkin(request, from_token=""):
             "unlock_after": q.get("unlock_after"),
             "unlocked": (not q.get("unlock_after")) or states.get(q["unlock_after"]) == "done",
         }
-        for q in (render_version.bonus_questions or [])
+        for q in visible_bonus_questions
     ]
     bonus_done = any(i["state"] != "pending" for i in bonus_items)
 
@@ -575,12 +611,15 @@ def _render_checkin(request, from_token=""):
     by_date = recent_checkins
     MINI_C = 62.8  # 2πr for the strip's r=10 mini-rings
     real_today = _real_today(request)
-    # Beta: a gold star marks only a checked-off, explicitly selected daily win.
+    # Beta: a gold star marks only the win selected for that day and checked off.
     dashboard_wins = None
     if is_beta:
         from .services.wins import get_dashboard_wins
         dashboard_wins = get_dashboard_wins(
-            participant, today - timedelta(days=6), today
+            participant,
+            today - timedelta(days=6),
+            today,
+            auto_select=not backfill,
         )
         win_days = dashboard_wins["done_dates"]
     else:
@@ -588,8 +627,25 @@ def _render_checkin(request, from_token=""):
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         ci = by_date.get(d)
-        total = len(ci.checklist_version.questions) if ci else CHECKLIST_SIZE
-        done = ci.score if ci else 0
+        if ci:
+            day_questions = (
+                scheduled_questions(ci.checklist_version.questions, d)
+                if is_beta
+                else ci.checklist_version.questions
+            )
+            day_states = ci.answers_by_key()
+            total = len(day_questions)
+            done = sum(
+                1 for question in day_questions
+                if day_states.get(question["key"]) == DailyCheckInAnswer.STATE_DONE
+            )
+        else:
+            total = (
+                len(scheduled_questions(current_version.questions, d))
+                if is_beta
+                else CHECKLIST_SIZE
+            )
+            done = 0
         week.append({
             "label": d.strftime("%a")[0],
             "done": done,
@@ -687,30 +743,32 @@ def _render_checkin(request, from_token=""):
     return render(request, "daily/checkin.html", context)
 
 
-def _derive_parent(check_in, parent_key, sub_keys, states):
-    """Re-derive a habit's own answer after a sub-item change: any done sub
-    fills the parent. Derivation only overwrites its OWN writes (derived=True);
-    a DIRECT user mark survives sub untaps and is cleared only by tapping the
-    parent's check (which cascades, see set_item_state). Updates `states` in
-    place and returns {key,state} for the client."""
+def _derive_parent(check_in, parent_question, states):
+    """Re-derive a habit after a small-step change using its saved rule.
+
+    ``any`` fills the parent after one step; ``all`` waits for every step.
+    A parent checked directly first checks all of its steps, so later step
+    changes can always apply this rule consistently. Updates `states` in place
+    and returns {key,state} for the client."""
+    parent_key = parent_question["key"]
     existing = DailyCheckInAnswer.objects.filter(
         check_in=check_in, question_key=parent_key
     ).first()
-    if any(states.get(sk) == "done" for sk in sub_keys):
+    if habit_steps_complete(parent_question, states):
         parent_state = DailyCheckInAnswer.STATE_DONE
         if existing is None or existing.state != parent_state:
             DailyCheckInAnswer.objects.update_or_create(
                 check_in=check_in, question_key=parent_key,
                 defaults={"state": parent_state, "derived": True},
             )
-        # else: already done (their own mark or an earlier derivation) — leave
-        # the row untouched so a direct mark keeps derived=False.
     elif (
-        existing is not None
+        not parent_question.get("items")
+        and existing is not None
         and existing.state == DailyCheckInAnswer.STATE_DONE
         and not existing.derived
     ):
-        parent_state = DailyCheckInAnswer.STATE_DONE  # the user's own mark
+        # Removing the final small step should not erase a direct manual mark.
+        parent_state = DailyCheckInAnswer.STATE_DONE
     else:
         parent_state = DailyCheckInAnswer.STATE_PENDING
         DailyCheckInAnswer.objects.update_or_create(
@@ -736,6 +794,7 @@ def set_item_state(request):
     """Tap/skip an item. Body (form or JSON): key, state."""
     participant = request.daily_participant
     today = _resolve_today(request)
+    beta_mode = _is_beta(request, participant)
 
     body, err = _json_body(request)
     if err:
@@ -762,13 +821,18 @@ def set_item_state(request):
         for s in (q.get("items") or []):
             subkey_to_parent[s["key"]] = q["key"]
 
+    active_bonus_questions = (
+        health_bonus_items(version.bonus_questions)
+        if beta_mode
+        else (version.bonus_questions or [])
+    )
     valid_keys = set(version.question_keys()) | {
-        q["key"] for q in (version.bonus_questions or [])
+        q["key"] for q in active_bonus_questions
     } | set(subkey_to_parent)
     if key not in valid_keys:
         return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
 
-    bonus_keys = {q["key"] for q in (version.bonus_questions or [])}
+    bonus_keys = {q["key"] for q in active_bonus_questions}
     is_bonus = key in bonus_keys
     is_sub = key in subkey_to_parent
 
@@ -783,36 +847,45 @@ def set_item_state(request):
     check_in.refresh_from_db()
     states = check_in.answers_by_key()
 
-    # A sub-item toggle re-derives its parent habit: any sub done fills the
-    # parent. Persist that so the ring/score (which count the PARENT key,
-    # never the sub-items) stay accurate, and echo it back so the client can
-    # fill/empty the parent's indicator.
+    # A small-step toggle re-derives its parent using that habit's saved
+    # any/all rule. Persist it so the ring counts the parent, never the steps.
     parent_update = None
     if is_sub:
         parent_key = subkey_to_parent[key]
         parent_q = next(q for q in version.questions if q["key"] == parent_key)
-        sub_keys = [s["key"] for s in (parent_q.get("items") or [])]
-        parent_update = _derive_parent(check_in, parent_key, sub_keys, states)
-    elif not is_bonus and state in (
-        DailyCheckInAnswer.STATE_PENDING,
-        DailyCheckInAnswer.STATE_SKIP,
-    ):
-        # Directly untapping OR skipping a habit clears the whole habit for
-        # today, sub-items included. Otherwise a still-done sub would just
-        # re-derive the parent back to done on the next render, silently
-        # overriding the user's explicit un-tap or skip.
+        parent_update = _derive_parent(check_in, parent_q, states)
+    elif not is_bonus:
         parent_q = next((q for q in version.questions if q["key"] == key), None)
         sub_keys = [s["key"] for s in ((parent_q or {}).get("items") or [])]
-        if any(states.get(sk) == "done" for sk in sub_keys):
+        if sub_keys and state in (
+            DailyCheckInAnswer.STATE_DONE,
+            DailyCheckInAnswer.STATE_PENDING,
+            DailyCheckInAnswer.STATE_SKIP,
+        ):
+            # The parent checkbox is a check-all/clear-all shortcut. That keeps
+            # an "All steps" habit honest while preserving a convenient way to
+            # finish or reset the full group in one tap.
+            sub_state = (
+                DailyCheckInAnswer.STATE_DONE
+                if state == DailyCheckInAnswer.STATE_DONE
+                else DailyCheckInAnswer.STATE_PENDING
+            )
             with transaction.atomic():
-                DailyCheckInAnswer.objects.filter(
-                    check_in=check_in, question_key__in=sub_keys,
-                ).update(state=DailyCheckInAnswer.STATE_PENDING)
+                for sub_key in sub_keys:
+                    DailyCheckInAnswer.objects.update_or_create(
+                        check_in=check_in,
+                        question_key=sub_key,
+                        defaults={"state": sub_state, "derived": True},
+                    )
             for sk in sub_keys:
-                if sk in states:
-                    states[sk] = "pending"
+                states[sk] = sub_state
 
-    core_keys = version.question_keys()
+    core_questions = (
+        scheduled_questions(version.questions, today)
+        if beta_mode
+        else version.questions
+    )
+    core_keys = [question["key"] for question in core_questions]
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
     # Persist the daily rollup and participant streak after every check,
     # uncheck, skip, or backfill. This keeps dashboard GETs history-free.
@@ -839,24 +912,45 @@ def set_item_state(request):
                 # User chose "Write my own" on swap → use their text, no AI.
                 replacement = _replace_item_custom(version, rejected_key=key, label=custom_label, is_core=not is_bonus)
             else:
-                replacement = _replace_item(participant, version, check_in, states, rejected_key=key, is_core=not is_bonus)
+                replacement = _replace_item(
+                    participant, version, check_in, states,
+                    rejected_key=key, is_core=not is_bonus,
+                    health_only=beta_mode and is_bonus,
+                )
         elif is_bonus and state == DailyCheckInAnswer.STATE_DONE:
-            new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
+            new_bonus = _generate_and_append_bonus(
+                participant, version, check_in, states, health_only=beta_mode,
+            )
         elif (
             not is_bonus
             and state == DailyCheckInAnswer.STATE_DONE
             and done_count >= BONUS_REVEAL_AT
-            and not version.bonus_questions
+            and not (
+                health_bonus_items(version.bonus_questions)
+                if beta_mode
+                else version.bonus_questions
+            )
         ):
-            new_bonus = _generate_and_append_bonus(participant, version, check_in, states)
+            new_bonus = _generate_and_append_bonus(
+                participant, version, check_in, states, health_only=beta_mode,
+            )
 
     version.refresh_from_db()
-    core_keys = version.question_keys()
+    core_questions = (
+        scheduled_questions(version.questions, today)
+        if beta_mode
+        else version.questions
+    )
+    core_keys = [question["key"] for question in core_questions]
     done_count = sum(1 for k in core_keys if states.get(k) == "done")
     return JsonResponse({
         "ok": True,
         "done_count": done_count,
-        "bonus_revealed": bool(version.bonus_questions) and done_count >= BONUS_REVEAL_AT,
+        "bonus_revealed": bool(
+            health_bonus_items(version.bonus_questions)
+            if beta_mode
+            else version.bonus_questions
+        ) and done_count >= BONUS_REVEAL_AT,
         "new_bonus": new_bonus,            # {key,label} to append, or null
         "replacement": replacement,        # {key,label,core} swapped in place, or null
         "replaced_key": key if replacement else None,
@@ -896,7 +990,13 @@ def _swap_or_append(version, item, rejected_key=None, is_core=True):
     sub-items included)."""
     with transaction.atomic():
         v = ChecklistVersion.objects.select_for_update().get(id=version.id)
-        if item["key"] in all_version_keys(v):
+        incoming_keys = {item["key"]} | {
+            subitem["key"] for subitem in (item.get("items") or [])
+        }
+        if (
+            len(incoming_keys) != 1 + len(item.get("items") or [])
+            or incoming_keys & all_version_keys(v)
+        ):
             return None  # collision guard
         if is_core:
             if rejected_key is None:
@@ -912,7 +1012,10 @@ def _swap_or_append(version, item, rejected_key=None, is_core=True):
     return item
 
 
-def _replace_item(participant, version, check_in, states, rejected_key, is_core):
+def _replace_item(
+    participant, version, check_in, states, rejected_key, is_core,
+    health_only=False,
+):
     """User tapped "swap" — generate a grounded replacement and substitute
     it in the current version (core slot or bonus pile). Returns
     {key,label,core} or None (row stays struck-through as a fallback)."""
@@ -927,6 +1030,7 @@ def _replace_item(participant, version, check_in, states, rejected_key, is_core)
         today_comment=check_in.comment or "",
         rejected_labels=g["skipped"],
         core=is_core,
+        health_only=health_only,
     )
     if item is None or _swap_or_append(version, item, rejected_key, is_core) is None:
         return None
@@ -972,7 +1076,8 @@ def _generate_core_item(participant, version, check_in):
 @require_http_methods(["POST"])
 def add_item(request):
     """Add a NEW core item to the current checklist, instantly. Body (JSON or
-    form): mode = "custom" (use `label`) | "auto" (AI-suggested)."""
+    form): mode = "custom" (use `label`) | "auto" (AI-suggested), plus an
+    optional non-empty ``days`` list using Monday=0 through Sunday=6."""
     participant = request.daily_participant
     today = _resolve_today(request)
     if _is_backfill(request):
@@ -983,6 +1088,22 @@ def add_item(request):
         return err
     mode = str(body.get("mode", "")).strip()
     label = str(body.get("label", "")).strip()
+    raw_days = body.get("days") if "days" in body else None
+    if raw_days is not None and not valid_habit_days(raw_days):
+        return JsonResponse({"ok": False, "error": "bad_days"}, status=400)
+    raw_step_rule = body.get("step_rule") if "step_rule" in body else None
+    if raw_step_rule is not None and not valid_habit_step_rule(raw_step_rule):
+        return JsonResponse({"ok": False, "error": "bad_step_rule"}, status=400)
+    raw_steps = body.get("steps", [])
+    if not isinstance(raw_steps, list) or len(raw_steps) > MAX_CHECKLIST_SIZE:
+        return JsonResponse({"ok": False, "error": "bad_steps"}, status=400)
+    step_labels = []
+    for step in raw_steps:
+        if not isinstance(step, str):
+            return JsonResponse({"ok": False, "error": "bad_steps"}, status=400)
+        step = step.strip()[:60]
+        if step:
+            step_labels.append(step)
 
     version = participant.get_or_create_current_checklist()
     if len(version.questions) >= MAX_CHECKLIST_SIZE:
@@ -1001,21 +1122,43 @@ def add_item(request):
         if item is None:
             return JsonResponse({"ok": False, "error": "coach_offline"}, status=503)
 
+    if raw_days is not None:
+        item = {**item, "days": sorted(raw_days)}
+    if raw_step_rule is not None:
+        item = {**item, "step_rule": raw_step_rule}
+    if step_labels:
+        item = {
+            **item,
+            "items": [
+                {"key": _new_user_key(), "label": step_label}
+                for step_label in step_labels
+            ],
+        }
+
     if _swap_or_append(version, item) is None:
         return JsonResponse({"ok": False, "error": "collision"}, status=409)
     # Seed a pending answer so the item is part of today's check-in right away.
-    DailyCheckInAnswer.objects.get_or_create(
-        check_in=check_in, question_key=item["key"],
-        defaults={"state": DailyCheckInAnswer.STATE_PENDING},
+    DailyCheckInAnswer.objects.bulk_create(
+        [
+            DailyCheckInAnswer(
+                check_in=check_in,
+                question_key=question_key,
+                state=DailyCheckInAnswer.STATE_PENDING,
+            )
+            for question_key in [item["key"]] + [
+                subitem["key"] for subitem in (item.get("items") or [])
+            ]
+        ],
+        ignore_conflicts=True,
     )
-    return JsonResponse({"ok": True, "item": {**item, "core": True}})
+    return JsonResponse({"ok": True, "item": _habit_json(item, today)})
 
 
 @require_daily_actor
 @require_http_methods(["POST"])
 def edit_item(request):
-    """Rename a core habit without changing its stable key, answer state, or
-    nested detail items. Body (JSON or form): key, label."""
+    """Edit a core habit without changing its stable key, answer state, or
+    nested detail items. Body: key, label, and optional weekday ``days``."""
     participant = request.daily_participant
     if _is_backfill(request):
         return JsonResponse({"ok": False, "error": "no_edit_in_backfill"}, status=400)
@@ -1027,19 +1170,51 @@ def edit_item(request):
     label = str(body.get("label", "")).strip()[:60]
     if not label:
         return JsonResponse({"ok": False, "error": "empty_label"}, status=400)
+    raw_days = body.get("days") if "days" in body else None
+    if raw_days is not None and not valid_habit_days(raw_days):
+        return JsonResponse({"ok": False, "error": "bad_days"}, status=400)
+    raw_step_rule = body.get("step_rule") if "step_rule" in body else None
+    if raw_step_rule is not None and not valid_habit_step_rule(raw_step_rule):
+        return JsonResponse({"ok": False, "error": "bad_step_rule"}, status=400)
 
     version = participant.get_or_create_current_checklist()
     with transaction.atomic():
         current = ChecklistVersion.objects.select_for_update().get(id=version.id)
         if not any(q["key"] == key for q in current.questions):
             return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
-        current.questions = [
-            {**q, "label": label} if q["key"] == key else q
-            for q in current.questions
-        ]
+        questions = []
+        updated = None
+        for question in current.questions:
+            if question["key"] == key:
+                updated = {**question, "label": label}
+                if raw_days is not None:
+                    updated["days"] = sorted(raw_days)
+                if raw_step_rule is not None:
+                    updated["step_rule"] = raw_step_rule
+                question = updated
+            questions.append(question)
+        current.questions = questions
         current.save(update_fields=["questions"])
 
-    return JsonResponse({"ok": True, "item": {"key": key, "label": label, "core": True}})
+    check_in = DailyCheckIn.objects.filter(
+        participant=participant, date=_resolve_today(request)
+    ).first()
+    states = check_in.answers_by_key() if check_in else {}
+    if check_in and raw_step_rule is not None and updated.get("items"):
+        _derive_parent(check_in, updated, states)
+        refresh_streak_cache(
+            participant,
+            today=_real_today(request),
+            changed_check_in=check_in,
+            done_count=sum(
+                1 for answer_state in states.values()
+                if answer_state == DailyCheckInAnswer.STATE_DONE
+            ),
+        )
+    return JsonResponse({
+        "ok": True,
+        "item": _habit_json(updated, _resolve_today(request), states),
+    })
 
 
 @require_daily_actor
@@ -1087,10 +1262,11 @@ def remove_item(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def add_subitem(request):
-    """Add a detail sub-item under a core habit (e.g. one exercise under
-    "Strength training"). Body (JSON or form): parent_key, label. The sub-item
-    lives in the habit's `items` list on the current checklist version; a
-    per-day pending answer is seeded so it shows immediately."""
+    """Add one or more detail steps under a core habit.
+
+    Body: ``parent_key`` plus legacy ``label`` or a batch ``labels`` list. All
+    steps are appended in one locked checklist update and returned together.
+    """
     participant = request.daily_participant
     today = _resolve_today(request)
     if _is_backfill(request):
@@ -1100,9 +1276,17 @@ def add_subitem(request):
     if err:
         return err
     parent_key = str(body.get("parent_key", "")).strip()
-    label = str(body.get("label", "")).strip()[:60]
-
-    if not label:
+    raw_labels = body.get("labels") if "labels" in body else [body.get("label", "")]
+    if not isinstance(raw_labels, list) or len(raw_labels) > MAX_CHECKLIST_SIZE:
+        return JsonResponse({"ok": False, "error": "bad_labels"}, status=400)
+    labels = []
+    for label in raw_labels:
+        if not isinstance(label, str):
+            return JsonResponse({"ok": False, "error": "bad_labels"}, status=400)
+        label = label.strip()[:60]
+        if label:
+            labels.append(label)
+    if not labels:
         return JsonResponse({"ok": False, "error": "empty_label"}, status=400)
 
     version = participant.get_or_create_current_checklist()
@@ -1110,23 +1294,39 @@ def add_subitem(request):
         return JsonResponse({"ok": False, "error": "bad_parent"}, status=400)
     check_in = _get_or_create_today(participant, today, version)
 
-    item = {"key": _new_user_key(), "label": label}
+    items = [{"key": _new_user_key(), "label": label} for label in labels]
     with transaction.atomic():
         v = ChecklistVersion.objects.select_for_update().get(id=version.id)
-        if item["key"] in all_version_keys(v):
+        item_keys = {item["key"] for item in items}
+        if len(item_keys) != len(items) or item_keys & all_version_keys(v):
             return JsonResponse({"ok": False, "error": "collision"}, status=409)
         questions = []
         for q in v.questions:
             if q["key"] == parent_key:
-                q = {**q, "items": list(q.get("items") or []) + [item]}
+                q = {**q, "items": list(q.get("items") or []) + items}
             questions.append(q)
         v.questions = questions
         v.save(update_fields=["questions"])
-        DailyCheckInAnswer.objects.get_or_create(
-            check_in=check_in, question_key=item["key"],
-            defaults={"state": DailyCheckInAnswer.STATE_PENDING},
+        DailyCheckInAnswer.objects.bulk_create(
+            [
+                DailyCheckInAnswer(
+                    check_in=check_in,
+                    question_key=item["key"],
+                    state=DailyCheckInAnswer.STATE_PENDING,
+                )
+                for item in items
+            ],
+            ignore_conflicts=True,
         )
-    return JsonResponse({"ok": True, "parent_key": parent_key, "item": item})
+    states = check_in.answers_by_key()
+    parent = next(q for q in questions if q["key"] == parent_key)
+    return JsonResponse({
+        "ok": True,
+        "parent_key": parent_key,
+        "item": items[0],
+        "items": items,
+        "habit": _habit_json(parent, today, states),
+    })
 
 
 @require_daily_actor
@@ -1165,9 +1365,8 @@ def remove_subitem(request):
         v.save(update_fields=["questions"])
         DailyCheckInAnswer.objects.filter(check_in=check_in, question_key=key).delete()
         states = check_in.answers_by_key()
-        parent_update = _derive_parent(
-            check_in, parent_key, [s["key"] for s in remaining_subs], states,
-        )
+        parent = next(q for q in questions if q["key"] == parent_key)
+        parent_update = _derive_parent(check_in, parent, states)
     refresh_streak_cache(
         participant,
         today=_real_today(request),
@@ -1177,7 +1376,12 @@ def remove_subitem(request):
             if answer_state == DailyCheckInAnswer.STATE_DONE
         ),
     )
-    return JsonResponse({"ok": True, "parent": parent_update})
+    parent = next(q for q in questions if q["key"] == parent_key)
+    return JsonResponse({
+        "ok": True,
+        "parent": parent_update,
+        "habit": _habit_json(parent, today, states),
+    })
 
 
 # ===== Wins backlog (beta) ================================================
@@ -1193,20 +1397,36 @@ def _win_json(win):
     the north star's text when the win is a stepping stone."""
     if win is None:
         return None
+    goal = win.parent if win.parent_id else None
+    goal_can_complete = bool(
+        goal
+        and goal.status == WinItem.STATUS_OPEN
+        and win.status != WinItem.STATUS_OPEN
+        and not goal.stones.filter(status=WinItem.STATUS_OPEN).exists()
+    )
     return {
         "id": win.id,
         "title": win.text,
-        "goal": win.parent.text if win.parent_id else "",
+        "goal": goal.text if goal else "",
+        "goal_id": goal.id if goal else None,
+        "goal_can_complete": goal_can_complete,
     }
 
 
 def _wins_state_json(participant, today):
     """The complete daily-card state returned by every wins mutation."""
-    from .services.wins import get_completed_todays_win, get_todays_win
+    from .services.wins import (
+        get_completed_todays_win,
+        get_todays_win,
+        select_next_todays_win,
+    )
 
     completed_today = get_completed_todays_win(participant, today)
+    next_win = get_todays_win(participant, today)
+    if next_win is None and completed_today is None:
+        next_win = select_next_todays_win(participant, today)
     return {
-        "next": _win_json(get_todays_win(participant, today)),
+        "next": _win_json(next_win),
         "completed_today": _win_json(completed_today),
         "today_has_completed_win": completed_today is not None,
     }
@@ -1215,7 +1435,7 @@ def _wins_state_json(participant, today):
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_add(request):
-    """Add a win to the backlog without auto-selecting it. Beta-only."""
+    """Add a win to the backlog, filling an empty daily card. Beta-only."""
     from .services.wins import add_win
 
     participant = request.daily_participant
@@ -1304,14 +1524,15 @@ def win_action(request):
 
     graduated_item = None
     if action == "did_it":
-        # The daily-card action is valid only for the leaf explicitly selected
-        # today. This is the sole path that earns the week-strip star.
+        # The daily-card action is valid only for the leaf selected today
+        # (automatically or by the user). This is the sole path that earns the
+        # week-strip star.
         if win.surfaced_on != today:
             return JsonResponse({"ok": False, "error": "not_selected"}, status=409)
         completed, _ = complete_win(win, featured_on=today)
     elif action == "check_off":
         # The editor may check any north-star step. If it is also today's
-        # explicit selection, preserve the same daily-win semantics.
+        # daily selection, preserve the same daily-win semantics.
         featured_on = today if win.surfaced_on == today else None
         completed, _ = complete_win(win, featured_on=featured_on)
     elif action == "uncheck":
@@ -1356,6 +1577,31 @@ def _stone_json(win, today=None):
 
 @require_daily_actor
 @require_http_methods(["GET"])
+def habits_edit(request):
+    """Manage the beta participant's full recurring habit list and schedule."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return redirect("daily:checkin")
+
+    today = _resolve_today(request)
+    version = participant.get_or_create_current_checklist()
+    habits_dialog = request.GET.get("fragment") == "1"
+    context = {
+        "participant": participant,
+        "habits": [_habit_json(question, today) for question in version.questions],
+        "max_checklist_size": MAX_CHECKLIST_SIZE,
+        "habits_dialog": habits_dialog,
+        "self_token": "" if habits_dialog else str(_active_token(participant) or ""),
+        "theme": _resolve_theme(request),
+        "beta_toggle": settings.DEBUG,
+        "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
+    }
+    template = "daily/_habits_editor.html" if habits_dialog else "daily/habits_edit.html"
+    return render(request, template, context)
+
+
+@require_daily_actor
+@require_http_methods(["GET"])
 def wins_edit(request):
     """The 'your list' editor page: manage north stars, their stepping stones,
     and one-off wins. Beta-only."""
@@ -1392,8 +1638,8 @@ def wins_edit(request):
 @require_http_methods(["GET"])
 def wins_achieved(request):
     """Finished north stars with the full ladder of steps that got each one
-    done (done stones plus any that graduated into habits). Read-only,
-    beta-only; reached from the 'Achieved ›' link on the wins editor."""
+    done (done stones plus any that graduated into habits). Read-only legacy
+    route; the combined Archived view is the primary history entry point."""
     participant = request.daily_participant
     if not _is_beta(request, participant):
         return redirect("daily:checkin")
@@ -1421,23 +1667,38 @@ def wins_achieved(request):
 @require_daily_actor
 @require_http_methods(["GET"])
 def wins_archived(request):
-    """Restorable North Stars removed from active work."""
+    """North Star history: achieved work plus restorable archived work."""
     participant = request.daily_participant
     if not _is_beta(request, participant):
         return redirect("daily:checkin")
 
-    goals = list(participant.wins.filter(
-        is_goal=True, status=WinItem.STATUS_ARCHIVED
-    ).order_by("-created_at")[:50])
+    goals = list(
+        participant.wins.filter(
+            is_goal=True,
+            status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
+        ).order_by("-created_at")[:100]
+    )
+    achieved_goals = sorted(
+        (goal for goal in goals if goal.status == WinItem.STATUS_DONE),
+        key=lambda goal: goal.done_at or goal.created_at,
+        reverse=True,
+    )[:50]
+    archived_goals = [
+        goal for goal in goals if goal.status == WinItem.STATUS_ARCHIVED
+    ][:50]
     stones_by_goal = {}
     for stone in participant.wins.filter(parent__in=goals).order_by("order", "created_at"):
         stones_by_goal.setdefault(stone.parent_id, []).append(stone)
     wins_dialog = request.GET.get("fragment") == "1"
     context = {
         "participant": participant,
+        "achieved": [
+            {"goal": goal, "stones": stones_by_goal.get(goal.id, [])}
+            for goal in achieved_goals
+        ],
         "archived": [
             {"goal": goal, "stones": stones_by_goal.get(goal.id, [])}
-            for goal in goals
+            for goal in archived_goals
         ],
         "wins_dialog": wins_dialog,
         "theme": _resolve_theme(request),
@@ -1493,6 +1754,36 @@ def win_goal_add(request):
                 for s in goal.stones.order_by("order", "created_at")
             ],
         },
+    })
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_goal_edit(request):
+    """Rename an active, participant-owned North Star. Beta-only.
+    Body: {id: int, text: str}."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    text = str(body.get("text", "")).strip()
+    if not text or len(text) > WinItem._meta.get_field("text").max_length:
+        return JsonResponse({"ok": False, "error": "bad_text"}, status=400)
+    try:
+        goal = participant.wins.get(
+            id=body.get("id"), is_goal=True, status=WinItem.STATUS_OPEN
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    goal.text = text
+    goal.save(update_fields=["text"])
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "goal": {"id": goal.id, "text": goal.text},
+        **_wins_state_json(participant, today),
     })
 
 
@@ -1583,7 +1874,7 @@ def win_goal_archive(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_goal_restore(request):
-    """Restore a participant-owned North Star from Archived."""
+    """Move a participant-owned history item back to Working toward."""
     from .services.wins import restore_goal
 
     participant = request.daily_participant
@@ -1594,7 +1885,9 @@ def win_goal_restore(request):
         return err
     try:
         goal = participant.wins.get(
-            id=body.get("id"), is_goal=True, status=WinItem.STATUS_ARCHIVED
+            id=body.get("id"),
+            is_goal=True,
+            status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
         )
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
@@ -1638,7 +1931,9 @@ def win_remove(request):
     return JsonResponse({"ok": True, **_wins_state_json(participant, today)})
 
 
-def _generate_and_append_bonus(participant, version, check_in, states):
+def _generate_and_append_bonus(
+    participant, version, check_in, states, health_only=False,
+):
     """Generate one fresh bonus item (live AI), append to the current
     version's bonus_questions, return {key,label} or None."""
     from .services.ai_coach import generate_one_bonus
@@ -1651,6 +1946,7 @@ def _generate_and_append_bonus(participant, version, check_in, states):
         today_done_labels=g["done"],
         today_comment=check_in.comment or "",
         rejected_labels=g["skipped_bonus"],
+        health_only=health_only,
     )
     if item is None:
         return None
@@ -1734,6 +2030,7 @@ def next_bonus(request):
     a safety net if a refill call was lost."""
     participant = request.daily_participant
     today = _resolve_today(request)
+    beta_mode = _is_beta(request, participant)
     if _is_backfill(request):
         return JsonResponse({"ok": True, "new_bonus": None})
     version = participant.get_or_create_current_checklist()
@@ -1742,21 +2039,36 @@ def next_bonus(request):
         return JsonResponse({"ok": True, "new_bonus": None})
 
     states = check_in.answers_by_key()
-    core_done = sum(1 for k in version.question_keys() if states.get(k) == "done")
+    core_questions = (
+        scheduled_questions(version.questions, today)
+        if beta_mode
+        else version.questions
+    )
+    core_done = sum(
+        1 for question in core_questions
+        if states.get(question["key"]) == "done"
+    )
     if core_done < BONUS_REVEAL_AT:
         return JsonResponse({"ok": True, "new_bonus": None})
 
     # Only top up if every existing bonus is resolved (done/skip) — keep
     # exactly one open bonus at a time so the pile grows by completion,
     # not by polling.
+    visible_bonus_questions = (
+        health_bonus_items(version.bonus_questions)
+        if beta_mode
+        else (version.bonus_questions or [])
+    )
     open_bonus = [
-        q for q in (version.bonus_questions or [])
+        q for q in visible_bonus_questions
         if states.get(q["key"], "pending") == "pending"
     ]
     if open_bonus:
         return JsonResponse({"ok": True, "new_bonus": None})
 
-    item = _generate_and_append_bonus(participant, version, check_in, states)
+    item = _generate_and_append_bonus(
+        participant, version, check_in, states, health_only=beta_mode,
+    )
     return JsonResponse({"ok": True, "new_bonus": item})
 
 
@@ -1869,39 +2181,57 @@ def _metrics_summary(participant):
 def _chat_history(participant, limit=40):
     from .models import CoachChatMessage
     msgs = list(
-        CoachChatMessage.objects.filter(participant=participant).order_by("-created_at")[:limit]
+        CoachChatMessage.objects.filter(participant=participant)
+        # Older builds copied next-day reports into chat. Keep those rows for
+        # audit/history, but do not render them as part of the conversation.
+        .exclude(suggestion__check_in__date__lt=F("date"))
+        .order_by("-created_at")[:limit]
     )
     msgs.reverse()
     return msgs
 
 
+CHAT_HISTORY_PAGE_SIZE = 20
+
+
+def _chat_history_page(participant, before_id=None):
+    """Newest-first cursor query, returned chronologically for rendering."""
+    from .models import CoachChatMessage
+
+    query = (
+        CoachChatMessage.objects.filter(participant=participant)
+        .exclude(suggestion__check_in__date__lt=F("date"))
+    )
+    if before_id is not None:
+        query = query.filter(id__lt=before_id)
+    newest_first = list(query.order_by("-id")[:CHAT_HISTORY_PAGE_SIZE + 1])
+    has_more = len(newest_first) > CHAT_HISTORY_PAGE_SIZE
+    page = newest_first[:CHAT_HISTORY_PAGE_SIZE]
+    page.reverse()
+    return page, has_more, page[0].id if has_more and page else None
+
+
 @require_daily_actor
 @require_http_methods(["GET"])
 def chat_history(request):
-    """Return the beta coach conversation when the chat sheet first opens.
+    """Return one 20-message page of the beta coach conversation.
 
-    Keeping this separate from the dashboard render avoids loading up to 40
-    messages (and resolving the morning note) for visits where chat is never
-    opened. Legacy still renders its conversation server-side.
+    The newest page is prefetched only after the dashboard becomes idle. Older
+    pages use ``?before=<oldest message id>`` as a participant-scoped cursor.
+    Legacy still renders its conversation server-side.
     """
-    from .models import CoachChatMessage
-
     participant = request.daily_participant
-    today = _resolve_today(request)
-    note = _morning_note(participant, today)
-    if note and note.status == CoachSuggestion.STATUS_PENDING:
-        note.status = CoachSuggestion.STATUS_SHOWN
-        note.save(update_fields=["status"])
+    before_id = request.GET.get("before")
+    try:
+        before_id = int(before_id) if before_id else None
+        if before_id is not None and before_id < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "bad_cursor"}, status=400)
 
-    messages = _chat_history(participant)
-    if note and not any(message.suggestion_id == note.id for message in messages):
-        messages.append(CoachChatMessage.objects.create(
-            participant=participant,
-            role=CoachChatMessage.ROLE_COACH,
-            text=note.suggestion_text,
-            date=today,
-            suggestion=note,
-        ))
+    messages, has_more, next_before = _chat_history_page(
+        participant, before_id=before_id,
+    )
 
     response = JsonResponse({
         "ok": True,
@@ -1913,7 +2243,55 @@ def chat_history(request):
             }
             for message in messages
         ],
+        "has_more": has_more,
+        "next_before": next_before,
     })
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@require_daily_actor
+@require_http_methods(["GET"])
+def morning_report(request):
+    """Deliver the newest prior-day Jamie report once, outside chat."""
+    from .models import CoachChatMessage
+
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    if _is_backfill(request) or not _is_beta(request, participant):
+        response = JsonResponse({"ok": True, "report": None})
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    # Life-mode reports are deliberately generated off the dashboard's
+    # critical path. If the hourly job missed, this separate request prepares
+    # the report while Today remains fully usable.
+    if not participant.ai_mutations_enabled:
+        ensure_prior_day_coached(participant, today)
+
+    note = _morning_note(participant, today)
+    report = None
+    if note and not CoachChatMessage.objects.filter(
+        participant=participant,
+        suggestion=note,
+    ).exists():
+        if note.status == CoachSuggestion.STATUS_PENDING:
+            note.status = CoachSuggestion.STATUS_SHOWN
+            note.save(update_fields=["status"])
+        CoachChatMessage.objects.create(
+            participant=participant,
+            role=CoachChatMessage.ROLE_COACH,
+            text=note.suggestion_text,
+            date=today,
+            suggestion=note,
+        )
+        report = {
+            "id": note.id,
+            "text": note.suggestion_text,
+            "date": note.check_in.date.isoformat(),
+        }
+
+    response = JsonResponse({"ok": True, "report": report})
     response["Cache-Control"] = "private, no-store"
     return response
 
@@ -2325,11 +2703,20 @@ def remaining_core_today(participant: DailyParticipant, today: date) -> int:
     size). This is the number the home-screen badge shows. A day with no
     check-in yet = the full core count of their current checklist."""
     version = participant.get_or_create_current_checklist()
-    total = len(version.questions)
+    questions = (
+        scheduled_questions(version.questions, today)
+        if participant.beta
+        else version.questions
+    )
+    total = len(questions)
     ci = DailyCheckIn.objects.filter(participant=participant, date=today).first()
     if ci is None:
         return total
-    done = ci.score  # done among CORE
+    states = ci.answers_by_key()
+    done = sum(
+        1 for question in questions
+        if states.get(question["key"]) == DailyCheckInAnswer.STATE_DONE
+    )
     return max(0, total - done)
 
 
@@ -2517,8 +2904,8 @@ def submit_onboarding_beta(request):
     legacy baseline-3 or the survey-seeded set. Beta-only.
 
     The focus answer ("What's this mostly for?") also picks their Jamie:
-    health = the full coach (ai_mutations_enabled, morning notes, overnight
-    tune-ups; the onboarding copy says so), life = support-only cheerleader.
+    health = the full coach (morning reports plus overnight tune-ups), while
+    life = a cheerleader report with no automatic list changes.
     The overnight prompt's health/fitness scope gate stays as the runtime
     backstop either way."""
     participant = request.daily_participant

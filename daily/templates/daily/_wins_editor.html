@@ -24,23 +24,26 @@ the daily page and inside wins_edit.html as a direct-link fallback.
             <div class="card-body">
                 <div class="eyebrow">Working toward
                     <span class="eye-actions">
-                        {% if has_achieved %}<a class="eyelink" href="/daily/wins/achieved/">Achieved ›</a>{% endif %}
                         <a class="eyelink" href="/daily/wins/archived/"{% if wins_dialog %} data-wins-archived{% endif %}>Archived ›</a>
                     </span>
                 </div>
                 <div id="goals"{% if goals %} class="has-goals"{% endif %}>
                     {% for g in goals %}
-                        <div class="goal{% if goals|length > 2 %} collapsible collapsed{% endif %}" data-goal-id="{{ g.goal.id }}">
-                            <div class="goalhead">
-                                <button class="goal-toggle" type="button" data-toggle-goal aria-expanded="{% if goals|length > 2 %}false{% else %}true{% endif %}"{% if goals|length <= 2 %} disabled{% endif %}>
-                                    <span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>
-                                    <span class="gtitle">{{ g.goal.text }}</span>
-                                    <span class="gcount" data-count>{{ g.open_count }} left</span>
+                        <div class="elist-item goal collapsible collapsed" data-goal-id="{{ g.goal.id }}">
+                            <div class="goalhead elist-heading">
+                                <span class="goal-summary elist-label">
+                                    <span class="gtitle elist-name">{{ g.goal.text }}</span>
+                                    <input class="composer-input goal-title-input" type="text" value="{{ g.goal.text }}"
+                                           data-goal-title-input data-saved-value="{{ g.goal.text }}"
+                                           maxlength="200" aria-label="North Star name" autocomplete="off">
+                                    <span class="gcount elist-meta" data-count>{{ g.open_count }} left</span>
+                                </span>
+                                <button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-label="Toggle {{ g.goal.text }}" aria-expanded="false">
                                     <span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
                                 </button>
                             </div>
                             <div class="goal-details">
-                                <div class="stones">
+                                <div class="stones elist-body">
                                     {% for s in g.stones %}
                                         <div class="stone{% if s.status != 'open' %} done{% endif %}" data-stone-id="{{ s.id }}" data-status="{{ s.status }}">
                                             <button class="step-check" type="button"{% if s.status == 'open' %} data-complete-step="{{ s.id }}" aria-label="Check off {{ s.text }}"{% elif s.status == 'done' %} data-uncheck-step="{{ s.id }}" aria-label="Uncheck {{ s.text }}"{% else %} disabled aria-label="{{ s.text }} is now a habit"{% endif %}><span class="check sm" aria-hidden="true"></span></button>
@@ -54,10 +57,10 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                                         </div>
                                     {% endfor %}
                                 </div>
-                                <div class="goal-actions">
-                                    <button class="goal-complete" type="button" data-complete-goal="{{ g.goal.id }}"{% if not g.can_complete %} disabled{% endif %}>Mark complete</button>
-                                    <button class="goal-archive" type="button" data-archive-goal="{{ g.goal.id }}" aria-label="Archive {{ g.goal.text }}">✕</button>
+                                <div class="goal-actions elist-actions">
+                                    <button class="goal-archive danger" type="button" data-archive-goal="{{ g.goal.id }}" aria-label="Delete {{ g.goal.text }}">Delete</button>
                                     <button class="addstone" type="button" data-add-stone="{{ g.goal.id }}">Add a step</button>
+                                    <button class="goal-save primary" type="button" data-save-goal="{{ g.goal.id }}">Save</button>
                                 </div>
                             </div>
                         </div>
@@ -102,8 +105,8 @@ the daily page and inside wins_edit.html as a direct-link fallback.
         {% endif %}
     </div>
 
-    <div class="ncomposer is-hidden" id="ncomposer">
-        <div class="ncard">
+    <div class="ncomposer esheet is-hidden" id="ncomposer">
+        <div class="ncard esheet-card">
             <div class="card-body">
                 <div class="eyebrow gold">New north star</div>
                 <input type="text" id="ncomp-goal" class="composer-input" maxlength="200"

@@ -1,0 +1,12 @@
+{% extends "daily/base.html" %}
+
+{% block title %}Your habits · {{ participant.display_name }}{% endblock %}
+
+{% block content %}
+{% include "daily/_climb_core.html" %}
+{% include "daily/_wins_chrome.html" %}
+{% include "daily/_editor_list_styles.html" %}
+{% include "daily/_habits_editor_styles.html" %}
+{% include "daily/_habits_editor.html" %}
+{% include "daily/_habits_editor_script.html" %}
+{% endblock %}

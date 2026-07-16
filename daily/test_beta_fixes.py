@@ -331,7 +331,54 @@ class LazyChatHistoryTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["messages"][0]["text"], "An earlier message")
 
-    def test_morning_note_is_marked_and_seeded_when_chat_opens(self):
+    def test_history_pages_twenty_messages_at_a_time(self):
+        for number in range(45):
+            CoachChatMessage.objects.create(
+                participant=self.participant,
+                role=CoachChatMessage.ROLE_USER,
+                text=f"Message {number:02d}",
+                date=timezone.localdate(),
+            )
+
+        newest = self.client.get("/daily/chat/history/").json()
+        self.assertEqual(len(newest["messages"]), 20)
+        self.assertEqual(newest["messages"][0]["text"], "Message 25")
+        self.assertEqual(newest["messages"][-1]["text"], "Message 44")
+        self.assertTrue(newest["has_more"])
+
+        middle = self.client.get(
+            f'/daily/chat/history/?before={newest["next_before"]}'
+        ).json()
+        self.assertEqual(len(middle["messages"]), 20)
+        self.assertEqual(middle["messages"][0]["text"], "Message 05")
+        self.assertEqual(middle["messages"][-1]["text"], "Message 24")
+        self.assertTrue(middle["has_more"])
+
+        oldest = self.client.get(
+            f'/daily/chat/history/?before={middle["next_before"]}'
+        ).json()
+        self.assertEqual(len(oldest["messages"]), 5)
+        self.assertEqual(oldest["messages"][0]["text"], "Message 00")
+        self.assertFalse(oldest["has_more"])
+        self.assertIsNone(oldest["next_before"])
+
+    def test_bad_history_cursor_is_rejected(self):
+        response = self.client.get("/daily/chat/history/?before=not-a-number")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "bad_cursor")
+
+    def test_dashboard_schedules_idle_chat_prefetch_and_infinite_scroll(self):
+        response = self.client.get("/daily/checkin/")
+
+        self.assertContains(response, "scheduleChatWarmup")
+        self.assertContains(response, "requestIdleCallback")
+        self.assertContains(response, "Loading earlier messages…")
+        self.assertContains(response, "before=")
+        self.assertContains(response, "/daily/morning-report/")
+        self.assertContains(response, 'id="morning-report-modal"')
+
+    def test_morning_note_is_presented_once_outside_chat(self):
         check_in = DailyCheckIn.objects.create(
             participant=self.participant,
             date=timezone.localdate() - timedelta(days=1),
@@ -349,13 +396,44 @@ class LazyChatHistoryTests(TestCase):
         self.assertEqual(note.status, CoachSuggestion.STATUS_PENDING)
         self.assertFalse(CoachChatMessage.objects.filter(suggestion=note).exists())
 
-        response = self.client.get("/daily/chat/history/")
+        chat = self.client.get("/daily/chat/history/")
+        self.assertEqual(chat.status_code, 200)
+        self.assertEqual(chat.json()["messages"], [])
+
+        response = self.client.get("/daily/morning-report/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["messages"][-1]["text"], "A deferred morning note")
+        self.assertEqual(response.json()["report"]["text"], "A deferred morning note")
         note.refresh_from_db()
         self.assertEqual(note.status, CoachSuggestion.STATUS_SHOWN)
         self.assertEqual(CoachChatMessage.objects.filter(suggestion=note).count(), 1)
+
+        second = self.client.get("/daily/morning-report/")
+        self.assertIsNone(second.json()["report"])
+
+    def test_old_seeded_morning_note_is_hidden_from_chat(self):
+        check_in = DailyCheckIn.objects.create(
+            participant=self.participant,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=self.version,
+        )
+        note = CoachSuggestion.objects.create(
+            check_in=check_in,
+            suggestion_text="An old seeded report",
+            status=CoachSuggestion.STATUS_SHOWN,
+        )
+        CoachChatMessage.objects.create(
+            participant=self.participant,
+            role=CoachChatMessage.ROLE_COACH,
+            text=note.suggestion_text,
+            date=timezone.localdate(),
+            suggestion=note,
+        )
+
+        response = self.client.get("/daily/chat/history/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["messages"], [])
 
 
 class ProposalReconcileTests(TestCase):

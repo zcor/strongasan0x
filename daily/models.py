@@ -357,6 +357,7 @@ class CoachSuggestion(models.Model):
     #     note written AROUND a user-authored plan (list forced to the user's).
     RATIONALE_EVENING_PLAN = "evening_plan"
     RATIONALE_EVENING_PLAN_NOTE = "evening_plan_note"
+    RATIONALE_DAILY_REPORT = "daily_report"
 
     check_in = models.ForeignKey(
         DailyCheckIn,
@@ -560,8 +561,9 @@ class CoachProfile(models.Model):
 class CoachChatMessage(models.Model):
     """One message in the live coach chat — the bidirectional successor to the
     old comment box (the #1 feedback channel). User messages are now THE way
-    people talk to the coach; coach messages are its replies (including the
-    migrated morning note). Full history is just an ordered query of these.
+    people talk to the coach; coach messages are its replies. Older next-day
+    report rows remain as delivery markers but are excluded from conversation
+    queries. Full visible history is otherwise an ordered query of these.
     """
 
     ROLE_USER = "user"

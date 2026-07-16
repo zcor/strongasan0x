@@ -18,16 +18,46 @@ the already-rendered Today screen.
                 </a>
             {% endif %}
             <div class="wetitle"{% if wins_dialog %} id="wins-archived-title"{% endif %}>Archived</div>
-            <div class="wesub">North Stars removed from active work. Restore one whenever you are ready.</div>
+            <div class="wesub">Your completed North Stars and the ones you removed from active work.</div>
         </header>
 
         <div class="card">
             <div class="card-body">
-                <div class="eyebrow">North Stars</div>
-                {% for g in archived %}
-                    <div class="goal" data-archived-goal="{{ g.goal.id }}">
+                <div class="eyebrow">Achieved</div>
+                {% for g in achieved %}
+                    <div class="goal" data-history-goal data-achieved-goal="{{ g.goal.id }}">
                         <div class="goalhead">
-                            <span class="star" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg></span>
+                            <span class="gtitle">{{ g.goal.text }}</span>
+                            {% if g.goal.done_at %}<span class="gcount">{{ g.goal.done_at|date:"M j" }}</span>{% endif %}
+                        </div>
+                        {% if g.stones %}
+                            <div class="stones">
+                                {% for s in g.stones %}
+                                    <div class="stone done">
+                                        <span class="dot" aria-hidden="true"></span>
+                                        <span class="rlabel">{{ s.text }}</span>
+                                        {% if s.status == 'graduated' %}<span class="stag">now a habit</span>{% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <form class="restore-form card-foot" method="post" action="/daily/win/goal/restore/" data-restore-goal>
+                            {% csrf_token %}
+                            <input type="hidden" name="id" value="{{ g.goal.id }}">
+                            <button class="act gold" type="submit">Move to Working Toward</button>
+                        </form>
+                    </div>
+                {% endfor %}
+                <div class="empty{% if achieved %} is-hidden{% endif %}" data-achieved-empty>No achieved North Stars yet.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="eyebrow">Archived</div>
+                {% for g in archived %}
+                    <div class="goal" data-history-goal data-archived-goal="{{ g.goal.id }}">
+                        <div class="goalhead">
                             <span class="gtitle">{{ g.goal.text }}</span>
                         </div>
                         {% if g.stones %}
@@ -41,10 +71,10 @@ the already-rendered Today screen.
                                 {% endfor %}
                             </div>
                         {% endif %}
-                        <form class="restore-form" method="post" action="/daily/win/goal/restore/" data-restore-goal>
+                        <form class="restore-form card-foot" method="post" action="/daily/win/goal/restore/" data-restore-goal>
                             {% csrf_token %}
                             <input type="hidden" name="id" value="{{ g.goal.id }}">
-                            <button class="act gold" type="submit">Restore</button>
+                            <button class="act gold" type="submit">Move to Working Toward</button>
                         </form>
                     </div>
                 {% endfor %}

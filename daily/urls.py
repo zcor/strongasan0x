@@ -11,6 +11,7 @@ urlpatterns = [
     path("item/add/", views.add_item, name="add_item"),
     path("item/edit/", views.edit_item, name="edit_item"),
     path("item/remove/", views.remove_item, name="remove_item"),
+    path("habits/", views.habits_edit, name="habits_edit"),
     # Nested detail checklists: add/remove a sub-item under a core habit.
     path("subitem/add/", views.add_subitem, name="add_subitem"),
     path("subitem/remove/", views.remove_subitem, name="remove_subitem"),
@@ -24,6 +25,7 @@ urlpatterns = [
     path("wins/achieved/", views.wins_achieved, name="wins_achieved"),
     path("wins/archived/", views.wins_archived, name="wins_archived"),
     path("win/goal/add/", views.win_goal_add, name="win_goal_add"),
+    path("win/goal/edit/", views.win_goal_edit, name="win_goal_edit"),
     path("win/goal/complete/", views.win_goal_complete, name="win_goal_complete"),
     path("win/goal/archive/", views.win_goal_archive, name="win_goal_archive"),
     path("win/goal/restore/", views.win_goal_restore, name="win_goal_restore"),
@@ -49,6 +51,7 @@ urlpatterns = [
     path("metric/", views.save_metric, name="save_metric"),
     # Coach chat: history is lazy-loaded when the beta sheet first opens;
     # messages remain the live two-way successor to the comment box.
+    path("morning-report/", views.morning_report, name="morning_report"),
     path("chat/history/", views.chat_history, name="chat_history"),
     path("chat/", views.chat_send, name="chat_send"),
 ]

@@ -79,9 +79,12 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                 <button class="act" id="win-again-no" type="button">Not today</button>
                 <button class="act gold" id="win-again-yes" type="button">Pick one</button>
             </div>
+            <div class="card-foot{% if todays_win or not completed_todays_win.goal_can_complete %} is-hidden{% endif %}" id="win-goal-foot">
+                <button class="act" id="win-goal-complete" type="button"{% if completed_todays_win.goal_id %} data-goal-id="{{ completed_todays_win.goal_id }}"{% endif %}>Mark complete</button>
+            </div>
         </div>
 
-        {# Slim invitation (no surfaced win). Dismissible + remembered. #}
+        {# Slim invitation (the Wins list has no open leaf yet). #}
         <div class="card{% if todays_win or completed_todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
             <div class="card-body">
                 <div class="eyebrow">Today's win
@@ -104,13 +107,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
         {% if core_items or not backfill %}
         <div class="card" id="habits-card">
             <div class="card-body">
-                <div class="eyebrow">Habits <span class="cnt" id="habit-count"></span></div>
+                <div class="eyebrow">Habits
+                    {% if not backfill %}<button class="wins-link" id="habits-dialog-open" type="button">Your habits ›</button>{% endif %}
+                </div>
                 <div class="rows" id="items">
                     {% for q in core_items %}
                         {% comment %} A habit wraps its own row plus a collapsible
                         drawer of sub-items. A habit WITH sub-items derives its check
-                        from them (tap the row to expand); the "···" menu adds a
-                        sub-item, edits, swaps, or deletes the habit. {% endcomment %}
+                        from them (tap the row to expand). Habit names, schedules,
+                        detail steps, and deletion live in Your habits. {% endcomment %}
                         <div class="habit{% if q.items %} has-subs{% endif %}" data-hkey="{{ q.key }}">
                             <button class="row{% if q.state == 'done' %} done{% endif %}{% if q.state == 'skip' %} skip{% endif %}"
                                     data-check data-key="{{ q.key }}" data-core="1" data-state="{{ q.state }}" type="button">
@@ -120,9 +125,6 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                                 <span class="chev" aria-hidden="true">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
                                 </span>
-                                <span class="more" role="button" aria-haspopup="true" aria-label="More actions for {{ q.label }}">
-                                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
-                                </span>
                             </button>
                             <div class="subwrap">
                                 <div class="subrows">
@@ -131,35 +133,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                                                 data-subcheck data-key="{{ s.key }}" data-parent="{{ q.key }}" data-state="{{ s.state }}" type="button">
                                             <span class="check sm"></span>
                                             <span class="rlabel">{{ s.label }}</span>
-                                            <span class="subx" role="button" aria-label="Remove {{ s.label }}">✕</span>
                                         </button>
                                     {% endfor %}
                                 </div>
                             </div>
                         </div>
                     {% endfor %}
+                    <div class="habits-today-empty{% if core_items %} is-hidden{% endif %}">No habits scheduled today.</div>
                 </div>
             </div>
-            {% if not backfill %}
-            <div class="card-foot" id="add-habit-foot">
-                <button class="act gold" id="add-item-btn" type="button">Add habit</button>
-            </div>
-            {% comment %} Add-habit composer (revealed by "Add habit"): input in
-            the body, actions in the footer, mirroring the win composer. {% endcomment %}
-            <div class="is-hidden" id="add-item-composer">
-                <div class="card-body">
-                    <div class="eyebrow">Name your habit</div>
-                    <input type="text" id="add-item-input" class="composer-input" maxlength="60"
-                           placeholder="e.g. Walk 20 min, or Drink water" autocomplete="off">
-                </div>
-                <div class="card-foot">
-                    <button class="act" id="add-item-cancel" type="button">Cancel</button>
-                    <button class="act" id="add-item-auto" type="button" title="Let Jamie suggest one">Auto</button>
-                    <button class="act gold" id="add-item-save" type="button">Add</button>
-                </div>
-            </div>
-            <div class="add-msg is-hidden" id="add-item-msg"></div>
-            {% endif %}
         </div>
         {% endif %}
 
@@ -230,7 +212,7 @@ after the first paint so backlog queries and markup do not block the dashboard.
 {% endcomment %}
 <dialog id="wins-dialog" class="wins-dialog" aria-labelledby="wins-dialog-title">
     <div class="wins-dialog-shell">
-        <div class="wins-editor-skeleton wedit" data-wins-loading aria-busy="true">
+        <div class="eskeleton wedit" data-wins-loading aria-busy="true">
             <header class="wehead">
                 <button class="weback" type="button" data-wins-loading-close aria-label="Back to today">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
@@ -244,7 +226,7 @@ after the first paint so backlog queries and markup do not block the dashboard.
                     <div class="skeleton-line short"></div>
                     <div class="skeleton-line"></div>
                     <div class="skeleton-line medium"></div>
-                    <div class="wins-load-error" data-wins-load-error hidden>
+                    <div class="eskeleton-error" data-wins-load-error hidden>
                         <span>Your wins could not be loaded.</span>
                         <button type="button" data-wins-load-retry>Try again</button>
                     </div>
@@ -253,22 +235,29 @@ after the first paint so backlog queries and markup do not block the dashboard.
         </div>
         <div data-wins-host hidden></div>
         <div id="wins-dialog-archived" class="wins-archived-view" hidden aria-hidden="true" aria-busy="false">
-            <div class="wins-archive-skeleton wedit" data-wins-archived-loading>
+            <div class="eskeleton wedit" data-wins-archived-loading>
                 <header class="wehead">
                     <button class="weback" type="button" data-archived-back aria-label="Back to your wins">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
                         Your wins
                     </button>
                     <div class="wetitle" id="wins-archived-title">Archived</div>
-                    <div class="wesub">Loading your archived North Stars…</div>
+                    <div class="wesub">Loading your North Star history…</div>
                 </header>
+                <div class="card" aria-label="Loading achieved North Stars">
+                    <div class="card-body">
+                        <div class="eyebrow">Achieved</div>
+                        <div class="skeleton-line medium"></div>
+                        <div class="skeleton-line"></div>
+                    </div>
+                </div>
                 <div class="card" aria-label="Loading archived North Stars">
                     <div class="card-body">
-                        <div class="skeleton-line short"></div>
-                        <div class="skeleton-line"></div>
+                        <div class="eyebrow">Archived</div>
                         <div class="skeleton-line medium"></div>
-                        <div class="archive-load-error" data-wins-archived-error hidden>
-                            <span>Archived North Stars could not be loaded.</span>
+                        <div class="skeleton-line"></div>
+                        <div class="eskeleton-error" data-wins-archived-error hidden>
+                            <span>North Star history could not be loaded.</span>
                             <button type="button" data-wins-archived-retry>Try again</button>
                         </div>
                     </div>
@@ -276,6 +265,33 @@ after the first paint so backlog queries and markup do not block the dashboard.
             </div>
             <div data-wins-archived-host hidden></div>
         </div>
+    </div>
+</dialog>
+
+<dialog id="habits-dialog" class="wins-dialog habits-dialog" aria-labelledby="habits-dialog-title">
+    <div class="wins-dialog-shell">
+        <div class="eskeleton wedit" data-habits-loading aria-busy="true">
+            <header class="wehead">
+                <button class="weback" type="button" data-habits-loading-close aria-label="Back to today">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Today
+                </button>
+                <div class="wetitle" id="habits-dialog-title">Your habits</div>
+                <div class="wesub">Loading your weekly habits…</div>
+            </header>
+            <div class="card" aria-label="Loading your habits">
+                <div class="card-body">
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line medium"></div>
+                    <div class="eskeleton-error" data-habits-load-error hidden>
+                        <span>Your habits could not be loaded.</span>
+                        <button type="button" data-habits-load-retry>Try again</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div data-habits-host hidden></div>
     </div>
 </dialog>
 
@@ -293,6 +309,21 @@ after the first paint so backlog queries and markup do not block the dashboard.
         </div>
         <button type="button" class="intro-ok intro-anim" style="--d:.84s" onclick="window.__introGotIt()">let's go</button>
     </div>
+</div>
+
+{# --- One-time next-day report. This is intentionally separate from chat. --- #}
+<div id="morning-report-modal" class="morning-report-modal" hidden>
+    <section class="morning-report-card" role="dialog" aria-modal="true" aria-labelledby="morning-report-title">
+        <div class="morning-report-identity">
+            <img src="{% static 'daily/images/jamie-avatar.jpg' %}" width="42" height="42" alt="" aria-hidden="true">
+            <div>
+                <div class="morning-report-kicker">Your daily report</div>
+                <div class="morning-report-title" id="morning-report-title">Jamie</div>
+            </div>
+        </div>
+        <div class="morning-report-text" data-morning-report-text></div>
+        <button type="button" class="morning-report-ok" data-morning-report-ok>Got it</button>
+    </section>
 </div>
 
 {# --- Jamie: chat FAB + bottom-sheet panel --- #}
@@ -366,7 +397,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
 {% include "daily/_climb_core.html" %}
 {% if not backfill %}
 {% include "daily/_wins_chrome.html" %}
+{% include "daily/_editor_list_styles.html" %}
 {% include "daily/_wins_editor_styles.html" %}
+{% include "daily/_habits_editor_styles.html" %}
 {% endif %}
 <style>
     /* Local tokens layered on base.html's palette (--accent gold, --done green).
@@ -428,6 +461,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .eyebrow .cnt { margin-left: auto; letter-spacing: .06em; font-variant-numeric: tabular-nums; text-transform: none; }
 
     .rows { display: flex; flex-direction: column; }
+    .habits-today-empty { padding: 4px 0; color: var(--text-dim); font-size: .86rem; }
     .rows .row + .row { border-top: 1px solid var(--line-soft); }
     .row {
         display: flex; align-items: center; gap: 15px; width: 100%; padding: 14px 0;
@@ -500,7 +534,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .rowmenu { display: flex; border-top: 1px solid var(--line-soft); animation: subslide .16s ease; }
     .rowmenu .act { padding: 13px 6px; font-size: .8rem; white-space: nowrap; }
     .rowmenu .act + .act { border-left: 1px solid var(--line-soft); }
-    .rowmenu .act.danger { color: #e0a672; }
+    .rowmenu .act.danger { color: var(--danger-muted); }
     /* Swap composer: a small card in the row's place (input body + divided
        footer), mirroring the Add-habit card. Footer reuses .card-foot / .act. */
     .swap-composer { border: 1px solid var(--line); margin: 10px 0; }
@@ -604,6 +638,33 @@ route options by clicking instead of typing URLs. {% endcomment %}
         .intro-anim, .intro-title .ch { opacity: 1 !important; transform: none !important; animation: none !important; }
     }
 
+    /* Jamie's prior-day encouragement is a one-time report, not a chat bubble. */
+    .morning-report-modal {
+        position: fixed; inset: 0; z-index: 65; display: flex; align-items: center;
+        justify-content: center; padding: 24px; background: rgba(6,8,15,.72);
+        backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        opacity: 0; transition: opacity .2s ease;
+    }
+    .morning-report-modal[hidden] { display: none; }
+    .morning-report-modal.show { opacity: 1; }
+    .morning-report-card {
+        width: 100%; max-width: 24rem; padding: 26px 24px 22px;
+        border: 1px solid var(--line); background: var(--bg-solid);
+        box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .morning-report-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    .morning-report-identity img { border-radius: 50%; border: 1px solid var(--line); object-fit: cover; }
+    .morning-report-kicker {
+        color: var(--accent); font-size: .66rem; font-weight: 600;
+        letter-spacing: .14em; text-transform: uppercase;
+    }
+    .morning-report-title { margin-top: 3px; color: var(--text); font-size: 1.08rem; }
+    .morning-report-text { color: var(--text); font-size: .96rem; font-weight: 300; line-height: 1.65; }
+    .morning-report-ok {
+        width: 100%; min-height: 48px; margin-top: 24px; border: 1px solid var(--line);
+        background: transparent; color: var(--accent); font: inherit; cursor: pointer;
+    }
+
     /* Chat panel (bottom sheet) */
     #coach-scrim { position: fixed; inset: 0; z-index: 45; background: rgba(6,8,15,.5); opacity: 0; pointer-events: none; transition: opacity .2s; }
     #coach-scrim.show { opacity: 1; pointer-events: auto; }
@@ -621,6 +682,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .coach-close { background: none; border: 0; color: var(--text-dim); font-size: 1rem; cursor: pointer; }
     .coach-log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 160px; }
     .coach-empty { color: var(--text-dim); font-size: .9rem; text-align: center; margin: auto; padding: 0 20px; }
+    .chat-page-loader { flex: none; align-self: center; color: var(--text-faint); font-size: .72rem; padding: 4px 10px; }
     .msg { display: flex; flex-direction: column; max-width: 84%; }
     .msg-user { align-self: flex-end; align-items: flex-end; }
     .msg-coach { align-self: flex-start; }
@@ -741,7 +803,8 @@ route options by clicking instead of typing URLs. {% endcomment %}
         var rows = coreRows(), total = rows.length;
         var done = rows.filter(function (r) { return r.classList.contains("done"); }).length;
         if (todayEl) arc(todayEl, done, total);
-        var cnt = $("habit-count"); if (cnt) cnt.textContent = total ? (done + " of " + total) : "";
+        var empty = document.querySelector("#items .habits-today-empty");
+        if (empty) empty.classList.toggle("is-hidden", total > 0);
         try { if (window.__setBadge) window.__setBadge(Math.max(0, total - done)); } catch (e) {}
     }
 
@@ -765,9 +828,13 @@ route options by clicking instead of typing URLs. {% endcomment %}
             if (hasSubs && !e.target.closest(".check")) { e.stopPropagation(); toggleDrawer(habit); return; }
             if (row.classList.contains("locked")) return;
             var next = row.dataset.state === "done" ? "pending" : "done";
-            if (hasSubs && next === "pending") {
-                // Clearing the parent clears the drawer too (server cascades).
-                subrowsOf(habit).forEach(function (s) { s.classList.remove("done"); });
+            if (hasSubs) {
+                // The parent checkbox is a check-all/clear-all shortcut. This
+                // keeps an All steps habit from being completed accidentally.
+                subrowsOf(habit).forEach(function (s) {
+                    s.dataset.state = next === "done" ? "done" : "pending";
+                    s.classList.toggle("done", next === "done");
+                });
                 updateSubtag(habit);
             }
             setState(row, next);
@@ -800,17 +867,13 @@ route options by clicking instead of typing URLs. {% endcomment %}
 
     // ---------- nested detail checklists (sub-items) ----------
     // A core habit can carry a drawer of sub-items (e.g. exercises under
-    // "Strength training"). Checking any sub auto-fills the parent (server
-    // derives + persists it); the ring still counts the PARENT, never the subs.
+    // "Strength training"). The habit's Any step / All steps setting decides
+    // when the server fills the parent; the ring still counts the PARENT.
     function subrowsOf(habit) { return Array.prototype.slice.call(habit.querySelectorAll(".subrow")); }
     function updateSubtag(habit) {
         var subs = subrowsOf(habit), tag = habit.querySelector(".subtag");
         habit.classList.toggle("has-subs", subs.length > 0);
-        if (!tag) return;
-        if (subs.length) {
-            var done = subs.filter(function (s) { return s.classList.contains("done"); }).length;
-            tag.textContent = done + "/" + subs.length;
-        } else { tag.textContent = ""; }
+        if (tag) tag.textContent = "";
     }
     function toggleDrawer(habit, force) {
         var open = (force === undefined) ? !habit.classList.contains("open") : force;
@@ -840,13 +903,13 @@ route options by clicking instead of typing URLs. {% endcomment %}
     }
     function makeSubRow(item, parentKey) {
         var b = document.createElement("button");
-        b.className = "subrow"; b.setAttribute("data-subcheck", ""); b.dataset.key = item.key;
-        b.dataset.parent = parentKey; b.dataset.state = "pending"; b.type = "button";
+        var state = item.state || "pending";
+        b.className = "subrow" + (state === "done" ? " done" : "");
+        b.setAttribute("data-subcheck", ""); b.dataset.key = item.key;
+        b.dataset.parent = parentKey; b.dataset.state = state; b.type = "button";
         var c = document.createElement("span"); c.className = "check sm";
         var l = document.createElement("span"); l.className = "rlabel"; l.textContent = item.label;
-        var x = document.createElement("span"); x.className = "subx"; x.setAttribute("role", "button");
-        x.setAttribute("aria-label", "Remove " + item.label); x.textContent = "✕";
-        b.appendChild(c); b.appendChild(l); b.appendChild(x);
+        b.appendChild(c); b.appendChild(l);
         bindSubRow(b);
         return b;
     }
@@ -934,27 +997,29 @@ route options by clicking instead of typing URLs. {% endcomment %}
         };
     }
 
-    // Build a full core-habit element (wrapper + row + empty drawer) for the
-    // "Add habit" flow, so added habits gain sub-items and the "···" menu too.
+    // Build a full Today habit after a change in the separate Your habits view
+    // (or when a one-off win graduates into a habit).
     function coreHabitEl(item) {
-        var habit = document.createElement("div"); habit.className = "habit"; habit.dataset.hkey = item.key;
+        var state = item.state || "pending";
+        var habit = document.createElement("div");
+        habit.className = "habit" + ((item.items || []).length ? " has-subs" : "");
+        habit.dataset.hkey = item.key;
         var b = document.createElement("button");
-        b.className = "row"; b.setAttribute("data-check", ""); b.dataset.key = item.key;
-        b.dataset.core = "1"; b.dataset.state = "pending"; b.type = "button";
+        b.className = "row" + (state === "done" ? " done" : "") + (state === "skip" ? " skip" : "");
+        b.setAttribute("data-check", ""); b.dataset.key = item.key;
+        b.dataset.core = "1"; b.dataset.state = state; b.type = "button";
         var chk = document.createElement("span"); chk.className = "check";
         var lab = document.createElement("span"); lab.className = "rlabel"; lab.textContent = item.label;
         var tag = document.createElement("span"); tag.className = "subtag"; tag.setAttribute("aria-hidden", "true");
         var chev = document.createElement("span"); chev.className = "chev"; chev.setAttribute("aria-hidden", "true");
         chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
-        var more = document.createElement("span"); more.className = "more"; more.setAttribute("role", "button");
-        more.setAttribute("aria-haspopup", "true"); more.setAttribute("aria-label", "More actions for " + item.label);
-        more.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
-        b.appendChild(chk); b.appendChild(lab); b.appendChild(tag); b.appendChild(chev); b.appendChild(more);
+        b.appendChild(chk); b.appendChild(lab); b.appendChild(tag); b.appendChild(chev);
         var wrap = document.createElement("div"); wrap.className = "subwrap";
         var subrows = document.createElement("div"); subrows.className = "subrows";
+        (item.items || []).forEach(function (subitem) { subrows.appendChild(makeSubRow(subitem, item.key)); });
         wrap.appendChild(subrows);
         habit.appendChild(b); habit.appendChild(wrap);
-        bindRow(b);
+        bindRow(b); updateSubtag(habit);
         return habit;
     }
 
@@ -1128,7 +1193,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
     }
 
     // ---------- today's win (crown / invite / slim link) ----------
-    // Resting states when there is no surfaced win:
+    // Resting states when the user has no open win:
     //   - not collapsed → the full invite card (top)
     //   - collapsed (tapped "Not now") → a slim always-reachable link under the
     //     habits. Never a dead end: the slim link reopens the composer.
@@ -1136,7 +1201,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
         winSlim = $("win-slim"), winTitle = $("win-title"), winGoal = $("win-goal"),
         winGoalText = $("win-goal-text"),
         WIN_COLLAPSED = "daily_win_collapsed";
-    var completedWin = {% if completed_todays_win %}{ id: {{ completed_todays_win.id }}, title: "{{ completed_todays_win.title|escapejs }}", goal: "{{ completed_todays_win.goal|escapejs }}" }{% else %}null{% endif %};
+    var completedWin = {% if completed_todays_win %}{ id: {{ completed_todays_win.id }}, title: "{{ completed_todays_win.title|escapejs }}", goal: "{{ completed_todays_win.goal|escapejs }}", goal_id: {% if completed_todays_win.goal_id %}{{ completed_todays_win.goal_id }}{% else %}null{% endif %}, goal_can_complete: {% if completed_todays_win.goal_can_complete %}true{% else %}false{% endif %} }{% else %}null{% endif %};
     var WIN_EXPLAINED = "daily_win_explainer_seen";
     // ?winintro=1 replays the first-time win experience: clears the "explainer
     // seen" and "collapsed" flags so the full invite + long explainer show again.
@@ -1167,7 +1232,8 @@ route options by clicking instead of typing URLs. {% endcomment %}
         if (!crown) return;
         // Always clear the "want another?" prompt state (prompt line + swapped
         // footer) so the card returns to its normal Not today | Did it footer.
-        hide($("win-again")); hide($("win-success")); showEl($("win-foot")); hide($("win-foot-again"));
+        hide($("win-again")); hide($("win-success")); showEl($("win-foot"));
+        hide($("win-foot-again")); hide($("win-goal-foot"));
         if (win) {
             crown.dataset.winId = win.id;
             showEl(crown);
@@ -1187,9 +1253,21 @@ route options by clicking instead of typing URLs. {% endcomment %}
         var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done"); }
         winTitle.textContent = win.title;
         if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
-        if (askAnother) {
+        var canCompleteGoal = Boolean(win.goal_id && win.goal_can_complete);
+        var goalButton = $("win-goal-complete");
+        if (goalButton && canCompleteGoal) goalButton.dataset.goalId = win.goal_id;
+        if (canCompleteGoal) {
+            // Completing the final step adds the North Star action; it must not
+            // replace the existing Not today | Pick one choice.
+            hide($("win-again")); showEl($("win-success"));
+            if (askAnother) showEl($("win-foot-again"));
+            else hide($("win-foot-again"));
+            showEl($("win-goal-foot"));
+        } else if (askAnother) {
+            hide($("win-goal-foot"));
             showEl($("win-again")); hide($("win-success")); showEl($("win-foot-again"));
         } else {
+            hide($("win-goal-foot"));
             hide($("win-again")); showEl($("win-success")); hide($("win-foot-again"));
         }
     }
@@ -1215,6 +1293,20 @@ route options by clicking instead of typing URLs. {% endcomment %}
     // Keep the Today screen in sync while its full-screen wins editor is open,
     // so closing the dialog never needs a page reload.
     var winsRefreshQueued = false;
+    window.__syncHabitEditorResult = function (result) {
+        var host = $("items");
+        if (!host || !result) return;
+        var key = result.key || (result.item && result.item.key);
+        var current = key ? host.querySelector('.habit[data-hkey="' + key + '"]') : null;
+        if (result.action === "remove" || (result.item && result.item.scheduled_today === false)) {
+            if (current) current.remove();
+        } else if (result.item) {
+            var replacement = coreHabitEl(result.item);
+            if (current) current.replaceWith(replacement);
+            else host.appendChild(replacement);
+        }
+        refreshProgress();
+    };
     window.__syncWinsEditorResult = function (data) {
         if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(data);
         else if (winsRequestPending) winsRefreshQueued = true;
@@ -1222,6 +1314,7 @@ route options by clicking instead of typing URLs. {% endcomment %}
         if (data.item && !document.querySelector('#items [data-key="' + data.item.key + '"]')) {
             $("items").appendChild(coreHabitEl(data.item));
             refreshProgress(); syncAddCap();
+            if (window.__invalidateHabitsEditor) window.__invalidateHabitsEditor();
         }
         if (Object.prototype.hasOwnProperty.call(data, "today_has_completed_win")) {
             syncTodayStar(data.today_has_completed_win);
@@ -1329,6 +1422,80 @@ route options by clicking instead of typing URLs. {% endcomment %}
         if ("requestIdleCallback" in window) requestIdleCallback(warmWins, { timeout: 1200 });
         else requestAnimationFrame(function () { setTimeout(warmWins, 0); });
     }
+
+    // Habit management is fetched only when requested. The dashboard already
+    // has today's scheduled rows; loading the full weekly editor before the
+    // user opens it would add markup and work to the initial render for no gain.
+    var habitsDialog = $("habits-dialog");
+    var habitsLoading = document.querySelector("[data-habits-loading]");
+    var habitsHost = document.querySelector("[data-habits-host]");
+    var habitsLoaded = false;
+    var habitsRequestPending = false;
+    function loadHabitsEditor(force) {
+        if (!habitsHost || !habitsLoading) return;
+        if (force) habitsLoaded = false;
+        if (habitsLoaded || habitsRequestPending) return;
+        habitsRequestPending = true;
+        habitsLoading.setAttribute("aria-busy", "true");
+        var error = habitsLoading.querySelector("[data-habits-load-error]");
+        habitsLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = false; });
+        if (error) error.hidden = true;
+        if (!habitsHost.querySelector("[data-habits-editor]")) {
+            habitsLoading.hidden = false;
+            habitsHost.hidden = true;
+        }
+        fetch("/daily/habits/?fragment=1", {
+            method: "GET", credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
+        }).then(function (response) {
+            if (!response.ok) throw new Error("habits request failed");
+            return response.text();
+        }).then(function (html) {
+            var probe = document.createElement("template");
+            probe.innerHTML = html.trim();
+            if (!probe.content.querySelector("[data-habits-editor]")) throw new Error("habits fragment missing");
+            habitsHost.innerHTML = html;
+            habitsHost.hidden = false;
+            habitsLoading.hidden = true;
+            habitsLoading.setAttribute("aria-busy", "false");
+            var loadingTitle = habitsLoading.querySelector("#habits-dialog-title");
+            if (loadingTitle) loadingTitle.removeAttribute("id");
+            habitsLoaded = true;
+            habitsRequestPending = false;
+            if (window.__initHabitsEditor) window.__initHabitsEditor(habitsHost.querySelector("[data-habits-editor]"));
+        }).catch(function () {
+            habitsRequestPending = false;
+            habitsLoading.setAttribute("aria-busy", "false");
+            habitsLoading.querySelectorAll(".skeleton-line").forEach(function (line) { line.hidden = true; });
+            if (error) error.hidden = false;
+        });
+    }
+    function closeHabitsDialog() {
+        if (habitsDialog && habitsDialog.open) habitsDialog.close();
+        document.body.classList.remove("wins-dialog-open");
+    }
+    function goToHabits() {
+        if (!habitsDialog || typeof habitsDialog.showModal !== "function") {
+            location.href = "/daily/habits/";
+            return;
+        }
+        if (!habitsDialog.open) habitsDialog.showModal();
+        document.body.classList.add("wins-dialog-open");
+        loadHabitsEditor(false);
+    }
+    window.__closeHabitsDialog = closeHabitsDialog;
+    window.__invalidateHabitsEditor = function () { habitsLoaded = false; };
+    if (habitsDialog) {
+        habitsDialog.addEventListener("close", function () { document.body.classList.remove("wins-dialog-open"); });
+        habitsDialog.addEventListener("cancel", function () { document.body.classList.remove("wins-dialog-open"); });
+    }
+    if ($("habits-dialog-open")) $("habits-dialog-open").onclick = goToHabits;
+    if (habitsLoading) {
+        habitsLoading.addEventListener("click", function (event) {
+            if (event.target.closest("[data-habits-loading-close]")) closeHabitsDialog();
+            if (event.target.closest("[data-habits-load-retry]")) loadHabitsEditor(false);
+        });
+    }
     if (crown) {
         $("win-row").onclick = function () { winAction("did_it"); };
         $("win-didit").onclick = function () { winAction("did_it"); };
@@ -1338,11 +1505,29 @@ route options by clicking instead of typing URLs. {% endcomment %}
     // lasting success state. Picking another always goes through the chooser.
     if ($("win-again-yes")) $("win-again-yes").onclick = goToWins;
     if ($("win-again-no")) $("win-again-no").onclick = function () { renderCompleted(completedWin, false); };
+    if ($("win-goal-complete")) $("win-goal-complete").onclick = function () {
+        var button = $("win-goal-complete");
+        var goalId = button.dataset.goalId;
+        if (!goalId || button.disabled) return;
+        button.disabled = true;
+        button.textContent = "Completing…";
+        post("/daily/win/goal/complete/", { id: goalId }, function (data) {
+            button.textContent = "Mark complete";
+            button.disabled = false;
+            if (completedWin) completedWin.goal_can_complete = false;
+            renderWinState(data);
+            if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(data);
+        }, function () {
+            button.textContent = "Mark complete";
+            button.disabled = false;
+            window.alert("Check off every step before completing this North Star.");
+        });
+    };
     if ($("win-invite-open")) $("win-invite-open").onclick = goToWins;
     // "Not now" collapses the card to the slim link (remembered), never removes it.
     if ($("win-invite-x")) $("win-invite-x").onclick = function () { setCollapsed(true); paintRest(); };
     if (winSlim) winSlim.onclick = goToWins;
-    // On load: if there's no surfaced win, honor the collapsed state.
+    // On load: if there are no open wins, honor the collapsed state.
     if (crown && crown.classList.contains("is-hidden")) paintRest();
 
     // ---------- metrics (understated) ----------
@@ -1414,9 +1599,46 @@ route options by clicking instead of typing URLs. {% endcomment %}
     }
 
     // ---------- Jamie chat ----------
+    var morningReportModal = $("morning-report-modal");
+    function closeMorningReport() {
+        if (!morningReportModal) return;
+        morningReportModal.classList.remove("show");
+        setTimeout(function () { morningReportModal.hidden = true; }, 220);
+    }
+    function showMorningReport(report) {
+        if (!morningReportModal || !report || !report.text) return;
+        var text = morningReportModal.querySelector("[data-morning-report-text]");
+        if (text) text.textContent = report.text;
+        function reveal() {
+            if (modal && modal.classList.contains("show")) {
+                setTimeout(reveal, 250);
+                return;
+            }
+            morningReportModal.hidden = false;
+            requestAnimationFrame(function () { morningReportModal.classList.add("show"); });
+        }
+        reveal();
+    }
+    if (morningReportModal && !BACKFILL) {
+        var reportOk = morningReportModal.querySelector("[data-morning-report-ok]");
+        if (reportOk) reportOk.addEventListener("click", closeMorningReport);
+        morningReportModal.addEventListener("click", function (event) {
+            if (event.target === morningReportModal) closeMorningReport();
+        });
+        fetch("/daily/morning-report/" + qs, {
+            method: "GET", credentials: "same-origin", headers: {"Accept": "application/json"},
+        }).then(function (response) {
+            if (!response.ok) throw new Error("morning_report_" + response.status);
+            return response.json();
+        }).then(function (data) {
+            if (data && data.ok && data.report) showMorningReport(data.report);
+        }).catch(function () { /* A report is supportive, never page-blocking. */ });
+    }
+
     var fab = $("coach-fab"), panel = $("coach-panel"), scrim = $("coach-scrim"),
         log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false,
-        chatHistoryPromise = null;
+        chatHistoryPromise = null, chatOlderPromise = null,
+        chatHistoryLoaded = false, chatHasMore = false, chatBefore = null;
     function scrollLog() { if (log) log.scrollTop = log.scrollHeight; }
     function openChat() {
         if (!panel) return;
@@ -1431,32 +1653,60 @@ route options by clicking instead of typing URLs. {% endcomment %}
     if (fab) fab.onclick = openChat;
     if ($("coach-close")) $("coach-close").onclick = closeChat;
     if (scrim) scrim.onclick = closeChat;
-    function bubble(role, text, time) {
+    function messageEl(role, text, time) {
         var w = document.createElement("div"); w.className = "msg msg-" + role;
         var b = document.createElement("div"); b.className = "bubble"; b.textContent = text; w.appendChild(b);
         if (time) { var t = document.createElement("div"); t.className = "mtime"; t.textContent = time; w.appendChild(t); }
+        return w;
+    }
+    function bubble(role, text, time) {
+        var w = messageEl(role, text, time);
         var em = log.querySelector(".coach-empty"); if (em) em.remove();
         log.appendChild(w); scrollLog(); return w;
     }
-    function loadChatHistory() {
-        if (chatHistoryPromise) return chatHistoryPromise;
-        chatHistoryPromise = fetch("/daily/chat/history/" + qs, {
+    function chatHistoryUrl(before) {
+        var url = "/daily/chat/history/" + qs;
+        if (before) url += (url.indexOf("?") === -1 ? "?" : "&") + "before=" + encodeURIComponent(before);
+        return url;
+    }
+    function fetchChatPage(before, lowPriority) {
+        var options = {
             method: "GET", credentials: "same-origin",
             headers: { "Accept": "application/json" },
-        }).then(function (r) {
+        };
+        // Chromium supports this hint; other browsers safely ignore it.
+        if (lowPriority) options.priority = "low";
+        return fetch(chatHistoryUrl(before), options).then(function (r) {
             if (!r.ok) throw new Error("chat_history_" + r.status);
             return r.json();
         }).then(function (d) {
             if (!d || !d.ok) throw new Error("chat_history_invalid");
-            log.innerHTML = "";
-            (d.messages || []).forEach(function (m) { bubble(m.role, m.text, m.at); });
-            if (!d.messages || !d.messages.length) {
-                var empty = document.createElement("div"); empty.className = "coach-empty";
-                empty.textContent = "Tell me anything: a note, your numbers, or ask for a hand.";
-                log.appendChild(empty);
-            }
+            return d;
+        });
+    }
+    function renderChatPage(data, prepend) {
+        var messages = data.messages || [];
+        var fragment = document.createDocumentFragment();
+        messages.forEach(function (m) { fragment.appendChild(messageEl(m.role, m.text, m.at)); });
+        var em = log.querySelector(".coach-empty"); if (em) em.remove();
+        if (prepend) log.insertBefore(fragment, log.firstChild);
+        else { log.innerHTML = ""; log.appendChild(fragment); }
+        chatHasMore = !!data.has_more;
+        chatBefore = data.next_before || null;
+        if (!prepend && !messages.length) {
+            var empty = document.createElement("div"); empty.className = "coach-empty";
+            empty.textContent = "Tell me anything: a note, your numbers, or ask for a hand.";
+            log.appendChild(empty);
+        }
+    }
+    function loadChatHistory(lowPriority) {
+        if (chatHistoryPromise) return chatHistoryPromise;
+        chatHistoryPromise = fetchChatPage(null, !!lowPriority).then(function (d) {
+            renderChatPage(d, false);
+            chatHistoryLoaded = true;
             scrollLog();
         }).catch(function () {
+            chatHistoryPromise = null; // a click or later idle window can retry
             log.innerHTML = "";
             var empty = document.createElement("div"); empty.className = "coach-empty";
             empty.textContent = "Earlier messages couldn't be loaded. You can still message Jamie.";
@@ -1466,6 +1716,44 @@ route options by clicking instead of typing URLs. {% endcomment %}
         });
         return chatHistoryPromise;
     }
+    function loadOlderChatHistory() {
+        if (!chatHistoryLoaded || !chatHasMore || !chatBefore || chatOlderPromise) return;
+        var oldHeight = log.scrollHeight, oldTop = log.scrollTop;
+        var loader = document.createElement("div"); loader.className = "chat-page-loader";
+        loader.textContent = "Loading earlier messages…";
+        log.insertBefore(loader, log.firstChild);
+        chatOlderPromise = fetchChatPage(chatBefore, false).then(function (d) {
+            if (loader.parentNode) loader.remove();
+            renderChatPage(d, true);
+            // Prepending must not yank the current messages out from under the user.
+            log.scrollTop = oldTop + (log.scrollHeight - oldHeight);
+        }).catch(function () {
+            if (loader.parentNode) loader.remove();
+        }).then(function () { chatOlderPromise = null; });
+    }
+    if (log) log.addEventListener("scroll", function () {
+        if (log.scrollTop <= 40) loadOlderChatHistory();
+    });
+
+    // There is no standardized browser signal for "the network is idle."
+    // Window load means initial resources have settled; requestIdleCallback
+    // then waits for a quiet main-thread window. Avoid speculative traffic on
+    // Data Saver and slow connections. A click reuses this same promise.
+    function scheduleChatWarmup() {
+        if (!fab || !log || BACKFILL || chatHistoryPromise || chatHistoryLoaded) return;
+        var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        var speed = connection && connection.effectiveType;
+        if (connection && (connection.saveData || speed === "slow-2g" || speed === "2g")) return;
+        var warm = function () {
+            // Do not overlap the Wins editor warm-up already in flight.
+            if (winsRequestPending) { setTimeout(scheduleChatWarmup, 500); return; }
+            if (document.visibilityState === "visible") loadChatHistory(true);
+        };
+        if ("requestIdleCallback" in window) requestIdleCallback(warm, { timeout: 2000 });
+        else setTimeout(warm, 1200);
+    }
+    if (document.readyState === "complete") scheduleChatWarmup();
+    else window.addEventListener("load", scheduleChatWarmup, { once: true });
     function nowTime() { var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + (m < 10 ? "0" : "") + m + " " + ap; }
     function setPlanning(on) { planning = on; var c = $("chip-plan"); if (c) c.classList.toggle("on", on); }
     function sendLoadedChat(text) {
@@ -1591,5 +1879,6 @@ route options by clicking instead of typing URLs. {% endcomment %}
 </script>
 {% if not backfill %}
 {% include "daily/_wins_editor_script.html" with wins_dialog=True %}
+{% include "daily/_habits_editor_script.html" %}
 {% endif %}
 {% endblock %}

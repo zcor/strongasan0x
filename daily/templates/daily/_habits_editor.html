@@ -1,0 +1,63 @@
+{% comment %}
+Shared Your habits editor. It renders inside the Today full-screen dialog and
+as the direct /daily/habits/ fallback when <dialog> is unavailable.
+{% endcomment %}
+<div class="habits-editor" data-habits-editor data-max-habits="{{ max_checklist_size }}">
+    <div class="wedit">
+        <header class="wehead">
+            {% if habits_dialog %}
+                <button class="weback" type="button" data-habits-close aria-label="Back to today">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Today
+                </button>
+            {% else %}
+                <a class="weback" href="/daily/checkin/" aria-label="Back to today">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Today
+                </a>
+            {% endif %}
+            <div class="wetitle"{% if habits_dialog %} id="habits-dialog-title"{% endif %}>Your habits</div>
+            <div class="wesub">Choose the days each habit should appear on Today.</div>
+        </header>
+
+        <div class="card habits-list-card">
+            <div class="card-body habits-list-body">
+                <div class="eyebrow">Weekly habits</div>
+                <div data-habit-list></div>
+                <div class="empty" data-habits-empty>No habits yet. Add something small you want to repeat.</div>
+            </div>
+            <div class="card-foot" data-habit-add-foot>
+                <button class="act gold" type="button" data-habit-add-open>Add a habit</button>
+            </div>
+            <div class="habit-add-composer esheet" data-habit-add-composer hidden>
+                <div class="habit-add-card esheet-card">
+                    <div class="card-body">
+                        <div class="eyebrow gold">Add a habit</div>
+                        <div class="habit-add-name-row">
+                            <input class="composer-input" id="habit-add-name" data-habit-add-name maxlength="60"
+                                   aria-label="Habit name" placeholder="e.g. Walk for 20 minutes" autocomplete="off">
+                            <button type="button" data-habit-add-auto>Auto</button>
+                        </div>
+                        <div class="habit-add-fields">
+                            <div class="habit-add-steps" data-habit-add-step-section hidden>
+                                <div data-habit-add-step-list></div>
+                                <div class="habit-field-label">When is this habit complete?</div>
+                                <div data-habit-add-step-rule></div>
+                            </div>
+                            <div class="habit-field-label">Show this habit on</div>
+                            <div data-habit-add-days></div>
+                        </div>
+                        <div class="habit-editor-message" data-habit-add-message hidden></div>
+                    </div>
+                    <div class="card-foot">
+                        <button class="act" type="button" data-habit-add-cancel>Cancel</button>
+                        <button class="act" type="button" data-habit-add-step>Add a step</button>
+                        <button class="act gold" type="button" data-habit-add-save>Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{ habits|json_script:"habits-editor-data" }}
+    <div class="edit-toast" data-habit-toast role="status" aria-live="polite"></div>
+</div>
