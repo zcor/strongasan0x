@@ -1516,9 +1516,12 @@ def win_action(request):
         else:
             # is_goal=False: only leaves (standalone wins / stepping stones)
             # can be acted on. A North Star has its own completion endpoint.
-            win = participant.wins.get(
-                id=win_id, is_goal=False, status=WinItem.STATUS_OPEN
-            )
+            # Promotion is limited further, to standalone one-off wins: a
+            # North Star step never graduates into a habit.
+            leaf_filters = {"id": win_id, "is_goal": False, "status": WinItem.STATUS_OPEN}
+            if action == "promote":
+                leaf_filters["parent__isnull"] = True
+            win = participant.wins.get(**leaf_filters)
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
@@ -1883,17 +1886,28 @@ def win_goal_restore(request):
     body, err = _json_body(request)
     if err:
         return err
+    # The no-JS archived page submits one form per card with a checkbox per
+    # goal, so a native POST may carry several ids. The dialog posts JSON with
+    # a single id per request.
+    raw_ids = body.getlist("id") if hasattr(body, "getlist") else [body.get("id")]
     try:
-        goal = participant.wins.get(
-            id=body.get("id"),
-            is_goal=True,
-            status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
-        )
+        goals = [
+            participant.wins.get(
+                id=raw_id,
+                is_goal=True,
+                status__in=[WinItem.STATUS_DONE, WinItem.STATUS_ARCHIVED],
+            )
+            for raw_id in raw_ids
+        ]
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    restored = restore_goal(goal)
+    restored_goals = [restore_goal(goal) for goal in goals]
     if request.content_type != "application/json":
+        # Covers the nothing-checked native submit too: just show the page.
         return redirect("daily:wins_archived")
+    if not restored_goals:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    restored = restored_goals[0]
     today = _resolve_today(request)
     return JsonResponse({
         "ok": True,

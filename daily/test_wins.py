@@ -18,7 +18,6 @@ from daily.services.wins import (
     get_dashboard_wins,
     get_todays_win,
     list_backlog,
-    promote_to_habit,
     restore_goal,
     select_todays_win,
     todays_win_done_dates,
@@ -135,27 +134,6 @@ class WinsServiceTests(TestCase):
     def test_empty_goal_rejected(self):
         self.assertIsNone(create_north_star(self.p, "", ["a"]))
         self.assertIsNone(create_north_star(self.p, "Goal", []))
-
-    def test_promote_last_stone_waits_for_explicit_goal_completion(self):
-        goal = create_north_star(self.p, "Get moving", ["Walk daily"])
-        (stone,) = list(goal.stones.all())
-        item, completed = promote_to_habit(stone, self.p)
-        self.assertIsNotNone(item)
-        self.assertIsNone(completed)
-        goal.refresh_from_db()
-        self.assertEqual(goal.status, WinItem.STATUS_OPEN)
-        stone.refresh_from_db()
-        self.assertEqual(stone.status, WinItem.STATUS_GRADUATED)
-        self.assertEqual(complete_goal(goal).id, goal.id)
-
-    def test_promote_with_stones_left_keeps_goal_open(self):
-        goal = create_north_star(self.p, "Get strong", ["Stretch", "Lift"])
-        s1, _s2 = list(goal.stones.order_by("order"))
-        item, completed = promote_to_habit(s1, self.p)
-        self.assertIsNotNone(item)
-        self.assertIsNone(completed)
-        goal.refresh_from_db()
-        self.assertEqual(goal.status, WinItem.STATUS_OPEN)
 
     def test_removing_last_stale_stone_still_requires_complete(self):
         from daily.services.wins import remove_win
@@ -347,7 +325,9 @@ class WinsEndpointTests(TestCase):
         self.assertTrue(checked.json()["today_has_completed_win"])
 
         editor = self.c.get("/daily/wins/")
+        self.assertContains(editor, 'class="stone done"')
         self.assertContains(editor, f'data-uncheck-step="{stone.id}"')
+        self.assertContains(editor, ">Uncheck</button>")
         self.assertContains(editor, "0 left")
 
         unchecked = self._post("/daily/win/", {"id": stone.id, "action": "uncheck"})
@@ -361,19 +341,12 @@ class WinsEndpointTests(TestCase):
         blocked = self._post("/daily/win/goal/complete/", {"id": goal.id})
         self.assertEqual(blocked.status_code, 409)
 
-    def test_promote_endpoint_leaves_north_star_ready_to_complete(self):
+    def test_promote_endpoint_rejects_north_star_steps(self):
         goal = create_north_star(self.p, "Get fit", ["Walk 20 min"])
         stone = goal.stones.get()
         r = self._post("/daily/win/", {"id": stone.id, "action": "promote"})
-        self.assertEqual(r.status_code, 200)
-        body = r.json()
-        self.assertIn("item", body)
-        self.assertNotIn("north_star_done", body)
-        self.assertEqual(goal.stones.get().status, WinItem.STATUS_GRADUATED)
-        self.assertEqual(
-            self._post("/daily/win/goal/complete/", {"id": goal.id}).status_code,
-            200,
-        )
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(goal.stones.get().status, WinItem.STATUS_OPEN)
 
     def test_editor_page_renders(self):
         create_north_star(self.p, "Learn guitar", ["Buy picks"])
@@ -399,15 +372,15 @@ class WinsEndpointTests(TestCase):
         self.assertContains(fragment, "data-wins-close")
         self.assertNotContains(fragment, "<!doctype html>", html=False)
 
-    def test_one_off_actions_render_in_divided_footer_with_clear_labels(self):
+    def test_one_off_rows_render_with_select_and_shared_promote(self):
         add_win(self.p, "Call parents regarding flight info")
 
         response = self.c.get("/daily/wins/")
 
-        self.assertContains(response, 'class="single-main"')
-        self.assertContains(response, 'class="single-actions"')
+        self.assertContains(response, "data-select-win")
+        self.assertContains(response, 'id="promote-selected-btn"')
         self.assertContains(response, ">Pick today</button>")
-        self.assertContains(response, ">Delete</button>")
+        self.assertContains(response, 'aria-label="Delete Call parents regarding flight info"')
         self.assertContains(response, ">Move to habit</button>")
         self.assertNotContains(response, "→ habit")
 
@@ -460,6 +433,26 @@ class WinsEndpointTests(TestCase):
         self.assertEqual(restored_json.status_code, 200)
         self.assertEqual(restored_json.json()["goal"]["text"], "Plan a trip")
         self.assertEqual(len(restored_json.json()["goal"]["stones"]), 2)
+
+    def test_restore_form_moves_every_checked_goal(self):
+        first = create_north_star(self.p, "Goal A", ["a"])
+        second = create_north_star(self.p, "Goal B", ["b"])
+        archive_goal(first)
+        archive_goal(second)
+
+        page = self.c.get("/daily/wins/archived/")
+        self.assertContains(page, 'class="goal-select"', count=2)
+        self.assertContains(page, "Move to Working Toward", count=2)
+
+        r = self.c.post("/daily/win/goal/restore/", {"id": [first.id, second.id]})
+        self.assertEqual(r.status_code, 302)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, WinItem.STATUS_OPEN)
+        self.assertEqual(second.status, WinItem.STATUS_OPEN)
+
+        empty_submit = self.c.post("/daily/win/goal/restore/", {})
+        self.assertEqual(empty_submit.status_code, 302)
 
     def test_add_win_returns_created_row_and_today_state(self):
         r = self._post("/daily/win/add/", {"text": "Book the dentist"})
@@ -538,12 +531,10 @@ class WinsEndpointTests(TestCase):
         self.assertContains(after, ">Mark complete</button>")
 
     def test_achieved_page_shows_goal_with_steps(self):
-        from daily.services.wins import promote_to_habit
-
         goal = create_north_star(self.p, "Run a 5k", ["Buy shoes", "Jog twice"])
         s1, s2 = list(goal.stones.order_by("order"))
         complete_win(s1)
-        promote_to_habit(s2, self.p)
+        complete_win(s2)
         complete_goal(goal)
 
         # Working toward has one history entry point; its destination separates
@@ -566,7 +557,6 @@ class WinsEndpointTests(TestCase):
         self.assertContains(r2, "Run a 5k")
         self.assertContains(r2, "Buy shoes")
         self.assertContains(r2, "Jog twice")
-        self.assertContains(r2, "now a habit")   # the graduated stone's tag
         self.assertContains(r2, "/daily/wins/")  # back link to the editor
 
         moved = self._post("/daily/win/goal/restore/", {"id": goal.id})
@@ -577,7 +567,7 @@ class WinsEndpointTests(TestCase):
         self.assertIsNone(goal.done_at)
         self.assertEqual(
             list(goal.stones.order_by("order").values_list("status", flat=True)),
-            [WinItem.STATUS_DONE, WinItem.STATUS_GRADUATED],
+            [WinItem.STATUS_DONE, WinItem.STATUS_DONE],
         )
 
     def test_achieved_page_is_beta_gated(self):

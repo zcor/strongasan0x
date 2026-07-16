@@ -35,8 +35,7 @@ the primary history screen; this route remains available as a read-only fallback
                             <div class="stone done">
                                 <span class="dot" aria-hidden="true"></span>
                                 <span class="rlabel">{{ s.text }}</span>
-                                {% if s.status == "graduated" %}<span class="stag">now a habit</span>{% endif %}
-                            </div>
+                                                            </div>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -53,7 +52,5 @@ the primary history screen; this route remains available as a read-only fallback
 {% include "daily/_wins_chrome.html" %}
 <style>
     .card-body { padding: 18px 16px; }
-    /* A stone that graduated into a recurring habit */
-    .stag { margin-left: auto; flex: none; font-size: .66rem; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); }
 </style>
 {% endblock %}

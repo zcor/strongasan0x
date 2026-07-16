@@ -51,10 +51,22 @@
         var goalsEmpty = $("goals-empty");
         var singlesEmpty = $("singles-empty");
         var hasGoals = $("goals").children.length > 0;
+        var hasSingles = $("singles").children.length > 0;
         $("goals").classList.toggle("has-goals", hasGoals);
+        $("singles").classList.toggle("has-singles", hasSingles);
         syncGoalCollapseMode();
         if (goalsEmpty) goalsEmpty.classList.toggle("is-hidden", hasGoals);
-        if (singlesEmpty) singlesEmpty.classList.toggle("is-hidden", $("singles").children.length > 0);
+        if (singlesEmpty) singlesEmpty.classList.toggle("is-hidden", hasSingles);
+        syncPromoteFoot();
+    }
+
+    function syncPromoteFoot() {
+        var button = $("promote-selected-btn");
+        if (!button) return;
+        var checked = $("singles").querySelectorAll(".single.checked").length;
+        button.classList.toggle("is-hidden", $("singles").children.length === 0);
+        button.disabled = checked === 0;
+        button.textContent = checked > 1 ? "Move " + checked + " to habits" : "Move to habit";
     }
 
     function syncGoalCollapseMode() {
@@ -77,10 +89,10 @@
         row.dataset.stoneId = stone.id;
         row.dataset.status = stone.status || "open";
         if (stone.done) {
-            row.innerHTML = '<button class="step-check" type="button" ' + (stone.status === "done" ? 'data-uncheck-step="' + stone.id + '" aria-label="Uncheck step"' : 'disabled aria-label="Step is now a habit"') + '><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span>'
-                + (stone.status === "graduated" ? '<span class="stone-state">habit</span>' : '');
+            row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span>'
+                + (stone.status === "done" ? '<button class="stone-undo" type="button" data-uncheck-step="' + stone.id + '" aria-label="Uncheck step">Uncheck</button>' : '');
         } else {
-            row.innerHTML = '<button class="step-check" type="button" data-complete-step="' + stone.id + '" aria-label="Check off step"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="today-pick' + (stone.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + stone.id + '" aria-pressed="' + (stone.selected_today ? 'true' : 'false') + '">' + (stone.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
+            row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span><button class="today-pick' + (stone.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + stone.id + '" aria-pressed="' + (stone.selected_today ? 'true' : 'false') + '">' + (stone.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
         }
         row.querySelector(".rlabel").textContent = stone.text;
         return row;
@@ -91,7 +103,7 @@
         row.className = "single";
         row.dataset.stoneId = single.id;
         row.dataset.status = single.status || "open";
-        row.innerHTML = '<div class="single-main"><span class="dot" aria-hidden="true"></span><span class="rlabel"></span></div><div class="single-actions"><button class="today-pick' + (single.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + single.id + '" aria-pressed="' + (single.selected_today ? 'true' : 'false') + '">' + (single.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + single.id + '">Delete</button><button class="spromote" type="button" data-promote="' + single.id + '">Move to habit</button></div>';
+        row.innerHTML = '<button class="step-check" type="button" data-select-win="' + single.id + '" aria-pressed="false" aria-label="Select win"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="today-pick' + (single.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + single.id + '" aria-pressed="' + (single.selected_today ? 'true' : 'false') + '">' + (single.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + single.id + '" aria-label="Delete win">✕</button>';
         row.querySelector(".rlabel").textContent = single.text;
         return row;
     }
@@ -205,26 +217,15 @@
 
     function markStoneDone(row, status) {
         if (!row) return;
-        row.dataset.status = status || "done";
-        row.classList.add("done");
-        var check = row.querySelector(".step-check");
-        if (check) {
-            check.removeAttribute("data-complete-step");
-            if (status === "done") {
-                check.disabled = false;
-                check.setAttribute("data-uncheck-step", row.dataset.stoneId);
-                check.setAttribute("aria-label", "Uncheck step");
-            } else {
-                check.disabled = true;
-                check.removeAttribute("data-uncheck-step");
-            }
-        }
-        var pick = row.querySelector("[data-pick-today]"); if (pick) pick.remove();
-        var remove = row.querySelector(".sremove"); if (remove) remove.remove();
-        if (status === "graduated" && !row.querySelector(".stone-state")) {
-            var state = document.createElement("span"); state.className = "stone-state"; state.textContent = "habit"; row.appendChild(state);
-        }
-        var goal = row.closest(".goal"); if (goal) goalCount(goal);
+        var goal = row.closest(".goal");
+        var label = row.querySelector(".rlabel");
+        row.replaceWith(stoneEl({
+            id: row.dataset.stoneId,
+            text: label ? label.textContent : "",
+            status: status || "done",
+            done: true,
+        }));
+        if (goal) goalCount(goal);
     }
 
     function markStoneOpen(row, stone) {
@@ -270,27 +271,14 @@
     });
 
     root.addEventListener("click", function (e) {
-        var check = e.target.closest("[data-complete-step]");
-        if (!check || !root.contains(check)) return;
-        check.disabled = true;
-        post("/daily/win/", { id: check.getAttribute("data-complete-step"), action: "check_off" }, function (data) {
-            markStoneDone(check.closest(".stone"), data.completed && data.completed.status);
+        var undo = e.target.closest("[data-uncheck-step]");
+        if (!undo || !root.contains(undo)) return;
+        undo.disabled = true;
+        post("/daily/win/", { id: undo.getAttribute("data-uncheck-step"), action: "uncheck" }, function (data) {
+            markStoneOpen(undo.closest(".stone"), data.reopened);
             syncToday(data);
         }, function () {
-            check.disabled = false;
-            editToast("Couldn't check off that step right now.");
-        });
-    });
-
-    root.addEventListener("click", function (e) {
-        var check = e.target.closest("[data-uncheck-step]");
-        if (!check || !root.contains(check)) return;
-        check.disabled = true;
-        post("/daily/win/", { id: check.getAttribute("data-uncheck-step"), action: "uncheck" }, function (data) {
-            markStoneOpen(check.closest(".stone"), data.reopened);
-            syncToday(data);
-        }, function () {
-            check.disabled = false;
+            undo.disabled = false;
             editToast("Couldn't uncheck that step right now.");
         });
     });
@@ -329,22 +317,51 @@
     });
 
     root.addEventListener("click", function (e) {
-        var promote = e.target.closest("[data-promote]");
-        if (!promote || !root.contains(promote)) return;
-        var id = promote.getAttribute("data-promote");
-        promote.disabled = true;
-        post("/daily/win/", { id: id, action: "promote" }, function (data) {
-            var row = promote.closest(".single");
-            if (row) row.remove();
-            syncEmpty();
-            syncToday(data);
-            editToast("Added to your daily list: " + ((data.item && data.item.label) || "new habit"));
-        }, function (res) {
-            promote.disabled = false;
-            editToast(res && res.status === 409
-                ? "Your daily list is full. Remove a habit first."
-                : "Couldn't add that right now.");
-        });
+        var select = e.target.closest("[data-select-win]");
+        if (!select || !root.contains(select)) return;
+        var row = select.closest(".single");
+        var on = !row.classList.contains("checked");
+        row.classList.toggle("checked", on);
+        select.setAttribute("aria-pressed", on ? "true" : "false");
+        syncPromoteFoot();
+    });
+
+    root.addEventListener("click", function (e) {
+        var button = e.target.closest("#promote-selected-btn");
+        if (!button || !root.contains(button) || button.disabled) return;
+        var rows = Array.prototype.slice.call($("singles").querySelectorAll(".single.checked"));
+        if (!rows.length) return;
+        button.disabled = true;
+        button.textContent = "Moving…";
+        var moved = 0;
+        var listFull = false;
+        (function next(index) {
+            if (index >= rows.length || listFull) {
+                syncEmpty();
+                if (moved && listFull) {
+                    editToast("Added " + moved + " to your daily list; the rest didn't fit.");
+                } else if (listFull) {
+                    editToast("Your daily list is full. Remove a habit first.");
+                } else if (moved) {
+                    editToast(moved === 1
+                        ? "Added to your daily list."
+                        : "Added " + moved + " to your daily list.");
+                } else {
+                    editToast("Couldn't add those right now.");
+                }
+                return;
+            }
+            var row = rows[index];
+            post("/daily/win/", { id: row.dataset.stoneId, action: "promote" }, function (data) {
+                moved += 1;
+                row.remove();
+                syncToday(data);
+                next(index + 1);
+            }, function (res) {
+                if (res && res.status === 409) listFull = true;
+                next(index + 1);
+            });
+        })(0);
     });
 
     root.addEventListener("click", function (e) {
@@ -526,6 +543,7 @@
             archivedLoaded = true;
             archivedRequestPending = false;
             archivedPanel.setAttribute("aria-busy", "false");
+            syncRestoreFoots();
             if (archivedReloadQueued) {
                 archivedReloadQueued = false;
                 loadArchived(true);
@@ -556,33 +574,62 @@
             var retry = event.target.closest("[data-wins-archived-retry]");
             if (retry) loadArchived(false);
         });
+        archivedPanel.addEventListener("change", function (event) {
+            if (event.target.closest('input[name="id"]')) syncRestoreFoots();
+        });
         archivedPanel.addEventListener("submit", function (event) {
-            var form = event.target.closest("[data-restore-goal]");
+            var form = event.target.closest("[data-restore-list]");
             if (!form || !archivedPanel.contains(form)) return;
             event.preventDefault();
+            var checks = Array.prototype.slice.call(form.querySelectorAll('input[name="id"]:checked'));
+            if (!checks.length) return;
             var button = form.querySelector('button[type="submit"]');
-            var originalLabel = button ? button.textContent : "Move to Working Toward";
-            var id = form.querySelector('input[name="id"]').value;
-            var goal = form.closest("[data-history-goal]");
-            var title = goal && goal.querySelector(".gtitle");
-            var titleText = title ? title.textContent.trim() : "North Star";
             if (button) { button.disabled = true; button.textContent = "Moving…"; }
-            post(form.action, { id: id }, function (data) {
-                if (goal) goal.remove();
-                if (data.goal && !root.querySelector('[data-goal-id="' + data.goal.id + '"]')) {
-                    $("goals").appendChild(goalEl(data.goal));
+            var moved = [];
+            (function next(index) {
+                if (index >= checks.length) {
+                    var content = archivedPanel.querySelector("[data-wins-archived-content]");
+                    var archivedEmpty = content && content.querySelector("[data-archived-empty]");
+                    var achievedEmpty = content && content.querySelector("[data-achieved-empty]");
+                    if (archivedEmpty) archivedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
+                    if (achievedEmpty) achievedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-achieved-goal]")));
+                    syncEmpty();
+                    syncRestoreFoots();
+                    if (moved.length === 1) editToast("Moved to Working Toward: " + moved[0], archivedPanel);
+                    else if (moved.length) editToast("Moved " + moved.length + " to Working Toward.", archivedPanel);
+                    else editToast("Couldn't move those right now.", archivedPanel);
+                    return;
                 }
-                var content = archivedPanel.querySelector("[data-wins-archived-content]");
-                var archivedEmpty = content && content.querySelector("[data-archived-empty]");
-                var achievedEmpty = content && content.querySelector("[data-achieved-empty]");
-                if (archivedEmpty) archivedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
-                if (achievedEmpty) achievedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-achieved-goal]")));
-                syncEmpty(); syncToday(data);
-                editToast("Moved to Working Toward: " + titleText, archivedPanel);
-            }, function () {
-                if (button) { button.disabled = false; button.textContent = originalLabel; }
-                editToast("Couldn't move that North Star right now.", archivedPanel);
-            });
+                var box = checks[index];
+                var goal = box.closest("[data-history-goal]");
+                var title = goal && goal.querySelector(".gtitle");
+                post(form.action, { id: box.value }, function (data) {
+                    moved.push(title ? title.textContent.trim() : "North Star");
+                    if (goal) goal.remove();
+                    if (data.goal && !root.querySelector('[data-goal-id="' + data.goal.id + '"]')) {
+                        $("goals").appendChild(goalEl(data.goal));
+                    }
+                    syncToday(data);
+                    next(index + 1);
+                }, function () {
+                    next(index + 1);
+                });
+            })(0);
+        });
+    }
+
+    function syncRestoreFoots() {
+        if (!archivedPanel) return;
+        Array.prototype.forEach.call(archivedPanel.querySelectorAll("[data-restore-list]"), function (form) {
+            var button = form.querySelector('button[type="submit"]');
+            var foot = form.querySelector("[data-restore-foot]");
+            if (!button || !foot) return;
+            var checked = form.querySelectorAll('input[name="id"]:checked').length;
+            foot.classList.toggle("is-hidden", !form.querySelector("[data-history-goal]"));
+            button.disabled = checked === 0;
+            button.textContent = checked > 1
+                ? "Move " + checked + " to Working Toward"
+                : "Move to Working Toward";
         });
     }
     window.__showWinsEditor = showWinsEditor;

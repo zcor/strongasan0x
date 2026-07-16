@@ -215,8 +215,8 @@ def archive_goal(goal: WinItem) -> WinItem:
 def restore_goal(goal: WinItem) -> WinItem:
     """Return an achieved or archived North Star to Working toward.
 
-    Completed and graduated steps stay intact so reopening a North Star never
-    erases the work that got it into history.
+    Completed steps stay intact so reopening a North Star never erases the
+    work that got it into history.
     """
     with transaction.atomic():
         locked = WinItem.objects.select_for_update().get(
@@ -474,11 +474,11 @@ def defer_win(win: WinItem, today: date_cls) -> WinItem:
 
 
 def promote_to_habit(win: WinItem, participant: DailyParticipant):
-    """A win that has started sticking graduates into a recurring habit (plan
-    section 1a). Appends it to the current checklist and marks the win
-    graduated. The parent north star remains open for the user's explicit
-    Complete action. Returns (item, None), or (None, None) if the checklist is
-    full. Caller owns the label -> habit wording.
+    """A standalone one-off win that has started sticking graduates into a
+    recurring habit (plan section 1a). Appends it to the current checklist and
+    marks the win graduated. North Star steps never graduate; the endpoint
+    only routes standalone wins here. Returns (item, None), or (None, None) if
+    the checklist is full. Caller owns the label -> habit wording.
     """
     from .checklist import MAX_CHECKLIST_SIZE, all_version_keys
     from ..models import ChecklistVersion
