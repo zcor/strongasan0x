@@ -1,3 +1,4 @@
+{% include "daily/_elist_toggle_script.html" %}
 <script>
 (function () {
     "use strict";
@@ -123,30 +124,6 @@
         goalCount(block);
         return block;
     }
-
-    function setGoalExpanded(goal, expanded) {
-        if (expanded) {
-            Array.prototype.forEach.call($("goals").querySelectorAll(".goal:not(.collapsed)"), function (other) {
-                if (other !== goal) setGoalExpanded(other, false);
-            });
-        }
-        goal.classList.toggle("collapsed", !expanded);
-        goal.classList.toggle("expanded", expanded);
-        var toggle = goal.querySelector("[data-toggle-goal]");
-        if (toggle) toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-    }
-
-    root.addEventListener("click", function (e) {
-        var toggle = e.target.closest("[data-toggle-goal]");
-        if (toggle && root.contains(toggle) && !toggle.disabled) {
-            setGoalExpanded(toggle.closest(".goal"), toggle.closest(".goal").classList.contains("collapsed"));
-            return;
-        }
-        var head = e.target.closest(".goalhead");
-        if (!head || !root.contains(head)) return;
-        var goal = head.closest(".goal");
-        if (goal && goal.classList.contains("collapsed")) setGoalExpanded(goal, true);
-    });
 
     function saveGoalTitle(input, save) {
         if (!input || !save || input.dataset.saving === "1") return;

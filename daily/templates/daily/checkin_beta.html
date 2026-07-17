@@ -362,38 +362,6 @@ after the first paint so backlog queries and markup do not block the dashboard.
 </div>
 {% endif %}
 
-{% comment %} DEV only: config panel (gear FAB above the chat FAB). Toggle the
-route options by clicking instead of typing URLs. {% endcomment %}
-{% if beta_toggle and dev_config %}
-<button type="button" id="dev-gear" class="fab dev-gear" aria-label="Dev config" title="Dev config">
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
-</button>
-<div id="dev-panel" class="dev-panel" aria-hidden="true">
-    <div class="dev-panel-head"><span>DEV CONFIG</span><button type="button" id="dev-panel-close" aria-label="Close">✕</button></div>
-    <div class="dev-row"><span>Beta UI</span><button type="button" class="dev-toggle{% if dev_config.beta %} on{% endif %}" data-nav-on="beta=1" data-nav-off="beta=0" aria-label="Beta UI"></button></div>
-    <div class="dev-row"><span>Dev QR</span><button type="button" class="dev-toggle{% if dev_config.qr %} on{% endif %}" data-nav-on="qr=1" data-nav-off="qr=0" aria-label="Dev QR"></button></div>
-    <div class="dev-row"><span>Streak pill</span><button type="button" class="dev-toggle{% if dev_config.streak %} on{% endif %}" data-nav-on="streak=1" data-nav-off="streak=0" aria-label="Streak pill"></button></div>
-    <div class="dev-row"><span>Notification preview</span><button type="button" class="dev-toggle{% if dev_config.notification_preview %} on{% endif %}" data-nav-on="notification_preview=1" data-nav-off="notification_preview=0" aria-label="Notification preview"></button></div>
-    <div class="dev-row"><span>Welcome / setup</span><button type="button" class="dev-toggle{% if first_visit %} on{% endif %}" data-nav-on="intro=1" data-nav-off="intro=0" aria-label="Welcome setup"></button></div>
-    <div class="dev-row"><span>Win explainer</span><button type="button" class="dev-toggle" data-ls="daily_win_explainer_seen" data-ls-val="1" aria-label="Win explainer"></button></div>
-    <div class="dev-note">Flip toggles, then Apply. On = shows, off = suppressed.</div>
-    <button type="button" id="dev-apply" class="dev-apply">Apply changes</button>
-    <button type="button" id="dev-reset" class="dev-reset">Full reset</button>
-</div>
-{% endif %}
-
-{% comment %} DEV only: scannable QR to open this app on a phone over the LAN. {% endcomment %}
-{% if beta_toggle and dev_qr %}
-<div id="dev-qr" class="dev-qr">
-    <img class="dev-qr-img" src="{{ dev_qr.svg }}" width="128" height="128" alt="Scan to open on your phone">
-    <div class="dev-qr-cap">
-        <strong>scan to open on your phone</strong>
-        <span>{{ dev_qr.ip }} · same Wi-Fi</span>
-    </div>
-    <button type="button" class="dev-qr-x" id="dev-qr-x" aria-label="Hide">✕</button>
-</div>
-{% endif %}
-
 {% include "daily/_climb_core.html" %}
 {% if not backfill %}
 {% include "daily/_wins_chrome.html" %}
@@ -495,7 +463,10 @@ route options by clicking instead of typing URLs. {% endcomment %}
        habits (was between rows). */
     .rows .habit + .habit { border-top: 1px solid var(--line-soft); }
     /* Right-side row controls: an optional "2/8" count, an expand chevron
-       (only when the habit has sub-items), and the "···" overflow menu. */
+       (only when the habit has sub-items), and the "···" overflow menu. The
+       label flex-fills so they sit on the row's right edge, like every other
+       expandable row. */
+    .habit .row .rlabel { flex: 1; min-width: 0; }
     .subtag { font-size: .72rem; color: var(--text-dim); font-variant-numeric: tabular-nums; flex: none; }
     .subtag:empty { display: none; }
     .chev { display: none; color: var(--text-faint); flex: none; transition: transform .18s ease; }
@@ -701,56 +672,6 @@ route options by clicking instead of typing URLs. {% endcomment %}
     .coach-send:disabled { opacity: .5; }
 
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
-
-    /* DEV-only QR panel (local dev). White card so the code scans; bottom-left,
-       clear of the chat/help FABs on the right. */
-    .dev-qr {
-        position: fixed; left: 14px; bottom: 16px; z-index: 55;
-        display: flex; align-items: center; gap: 12px;
-        background: #fff; color: #0a0b12; padding: 12px 14px 12px 12px;
-        border-radius: 12px; box-shadow: 0 12px 30px -8px rgba(0,0,0,.6);
-        max-width: calc(100vw - 28px);
-    }
-    .dev-qr-img { display: block; width: 128px; height: 128px; flex: none; }
-    .dev-qr-cap { font-size: .78rem; line-height: 1.4; max-width: 130px; }
-    .dev-qr-cap strong { display: block; font-weight: 600; margin-bottom: 4px; }
-    .dev-qr-cap span { color: #555; font-variant-numeric: tabular-nums; }
-    .dev-qr-x {
-        position: absolute; top: 4px; right: 6px; background: none; border: 0;
-        color: #999; font-size: .8rem; cursor: pointer; padding: 4px;
-    }
-    .dev-qr-x:hover { color: #333; }
-
-    /* DEV config panel (gear FAB stacked above the chat FAB) */
-    .dev-gear { bottom: 90px; right: 28px; width: 38px; height: 38px; border-radius: 19px;
-        color: var(--text-dim); background: rgba(255,255,255,.06); border: 1px solid var(--line); }
-    .dev-gear svg { width: 19px; height: 19px; }
-    .dev-gear:hover { color: var(--text); }
-    .dev-panel {
-        position: fixed; right: 20px; bottom: 138px; z-index: 56; width: 232px;
-        background: var(--bg-solid); border: 1px solid var(--line); border-radius: 12px;
-        padding: 8px; box-shadow: 0 16px 40px -12px rgba(0,0,0,.7);
-        display: none;
-    }
-    .dev-panel.show { display: block; }
-    .dev-panel-head { display: flex; align-items: center; justify-content: space-between;
-        font-size: .66rem; font-weight: 600; letter-spacing: .12em; color: var(--text-faint);
-        padding: 4px 6px 8px; }
-    .dev-panel-head button { background: none; border: 0; color: var(--text-faint); font-size: .8rem; cursor: pointer; }
-    .dev-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px; font-size: .9rem; color: var(--text); }
-    .dev-toggle { position: relative; width: 40px; height: 23px; flex: none; border: 0; cursor: pointer;
-        border-radius: 12px; background: rgba(255,255,255,.14); transition: background .15s; }
-    .dev-toggle::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 18px; height: 18px;
-        border-radius: 50%; background: #fff; transition: transform .15s; }
-    .dev-toggle.on { background: var(--done); }
-    .dev-toggle.on::after { transform: translateX(17px); }
-    .dev-note { font-size: .72rem; color: var(--text-faint); padding: 6px 6px 4px; line-height: 1.4; }
-    .dev-apply { width: 100%; margin-top: 4px; padding: 10px; background: var(--accent-grad);
-        border: 0; border-radius: 8px; color: var(--acc-ink); font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer; }
-    .dev-apply.pending { box-shadow: 0 0 0 2px rgba(255,217,122,.4); }
-    .dev-reset { width: 100%; margin-top: 6px; padding: 8px; background: transparent;
-        border: 1px solid var(--line); border-radius: 8px; color: var(--text-dim); font: inherit; font-size: .8rem; cursor: pointer; }
-    .dev-reset:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 
 <script>
@@ -1593,9 +1514,9 @@ route options by clicking instead of typing URLs. {% endcomment %}
         // ?intro=1 now exercises base.html's full-screen Welcome/setup flow;
         // this compact modal remains replay-only.
         var _ip = null; try { _ip = new URLSearchParams(location.search).get("intro"); } catch (e) {}
-        // Auto-show only if it hasn't been seen/dismissed (or dev-toggled off).
-        // This respects the "seen" flag even on a genuine first visit, so
-        // dismissing once (or turning it off in the dev panel) keeps it closed.
+        // Auto-show only if it hasn't been seen/dismissed. This respects the
+        // "seen" flag even on a genuine first visit, so dismissing once keeps
+        // it closed.
         // First visits use base.html's full-screen Welcome/setup flow. Keep this
         // modal for explicit replays only, so new users do not get a second dialog.
         var _auto = !seen() && modal.dataset.replay === "1";
@@ -1823,64 +1744,6 @@ route options by clicking instead of typing URLs. {% endcomment %}
         if (menuOpen && !e.target.closest(".rowmenu") && !e.target.closest(".more")) closeRowMenu();
     });
 
-    // ===== DEV config panel (gear FAB) =====
-    // Session-backed toggles (beta/qr/gate) navigate with the param; the server
-    // remembers them. The win-explainer toggle uses localStorage; Welcome/setup
-    // uses the intro route flag so it can be forced on any dev account.
-    var devGear = $("dev-gear"), devPanel = $("dev-panel");
-    if (devGear && devPanel) {
-        devGear.onclick = function () { devPanel.classList.toggle("show"); };
-        var dpc = $("dev-panel-close"); if (dpc) dpc.onclick = function () { devPanel.classList.remove("show"); };
-        var devApply = $("dev-apply");
-        function markPending() { if (devApply) devApply.classList.add("pending"); }
-        // All toggles flip visual state ONLY — nothing applies until "Apply".
-        // Init the localStorage toggles from their stored state (ON = will show).
-        devPanel.querySelectorAll(".dev-toggle[data-ls]").forEach(function (btn) {
-            var key = btn.dataset.ls, val = btn.dataset.lsVal, stored = null;
-            try { stored = localStorage.getItem(key); } catch (e) {}
-            btn.classList.toggle("on", stored !== val);
-        });
-        devPanel.querySelectorAll(".dev-toggle").forEach(function (btn) {
-            btn.onclick = function () { btn.classList.toggle("on"); markPending(); };
-        });
-        // Apply: commit every toggle at once — session params via one navigation,
-        // localStorage flags written just before it. Single reload.
-        if (devApply) devApply.onclick = function () {
-            var u = new URL(location.href);
-            devPanel.querySelectorAll(".dev-toggle[data-nav-on]").forEach(function (btn) {
-                var kv = (btn.classList.contains("on") ? btn.dataset.navOn : btn.dataset.navOff).split("=");
-                u.searchParams.set(kv[0], kv[1]);
-            });
-            devPanel.querySelectorAll(".dev-toggle[data-ls]").forEach(function (btn) {
-                var key = btn.dataset.ls, val = btn.dataset.lsVal;
-                try { btn.classList.contains("on") ? localStorage.removeItem(key) : localStorage.setItem(key, val); } catch (e) {}
-            });
-            location.href = u.toString();
-        };
-        // Full reset: wipe our localStorage flags + clear session flags server-side.
-        var devReset = $("dev-reset");
-        if (devReset) devReset.onclick = function () {
-            try {
-                ["daily_intro_version_seen", "daily_win_explainer_seen", "daily_win_collapsed",
-                 "daily_win_invite_dismissed", "daily_last_local_date"].forEach(function (k) { localStorage.removeItem(k); });
-            } catch (e) {}
-            var u = new URL(location.href);
-            ["beta", "qr", "gate", "streak", "intro", "winintro", "nogate"].forEach(function (p) { u.searchParams.delete(p); });
-            u.searchParams.set("devreset", "1");
-            location.href = u.toString();
-        };
-    }
-
-    // Dev QR panel: visibility is decided server-side by the route (?qr=0 hides,
-    // remembered in the session; ?qr=1 shows). The × hides it now and pings the
-    // server with ?qr=0 so it stays hidden on the next load, no reload needed.
-    var devqx = $("dev-qr-x");
-    if (devqx) devqx.onclick = function () {
-        var p = $("dev-qr"); if (p) p.style.display = "none";
-        var u = new URL(location.href); u.searchParams.set("qr", "0");
-        history.replaceState(null, "", u.toString());
-        fetch(u.toString(), { credentials: "same-origin" }).catch(function () {});
-    };
 })();
 </script>
 {% if not backfill %}

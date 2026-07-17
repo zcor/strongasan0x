@@ -27,7 +27,7 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                         <a class="eyelink" href="/daily/wins/archived/"{% if wins_dialog %} data-wins-archived{% endif %}>Archived ›</a>
                     </span>
                 </div>
-                <div id="goals"{% if goals %} class="has-goals"{% endif %}>
+                <div id="goals" data-elist-accordion{% if goals %} class="has-goals"{% endif %}>
                     {% for g in goals %}
                         <div class="elist-item goal collapsible collapsed" data-goal-id="{{ g.goal.id }}">
                             <div class="goalhead elist-heading">

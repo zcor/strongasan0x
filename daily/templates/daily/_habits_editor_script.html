@@ -1,3 +1,4 @@
+{% include "daily/_elist_toggle_script.html" %}
 <script>
 (function () {
     "use strict";
@@ -219,7 +220,7 @@
 
         function collapseHabitCards(except) {
             Array.prototype.forEach.call(list.querySelectorAll(".habit-editor-item.expanded"), function (habit) {
-                if (habit !== except && habit.__setExpanded) habit.__setExpanded(false);
+                if (habit !== except) window.elistSetExpanded(habit, false);
             });
         }
 
@@ -228,7 +229,7 @@
             item.items = Array.isArray(item.items) ? item.items : [];
 
             var wrap = document.createElement("section");
-            wrap.className = "elist-item habit-editor-item";
+            wrap.className = "elist-item habit-editor-item collapsible collapsed";
             wrap.dataset.habitKey = item.key;
 
             var heading = document.createElement("div");
@@ -251,7 +252,6 @@
             name.className = "composer-input habit-name-input";
             name.value = item.label;
             name.setAttribute("aria-label", "Habit name");
-            name.hidden = true;
             var toggle = document.createElement("button");
             toggle.type = "button";
             toggle.className = "elist-toggle";
@@ -265,7 +265,6 @@
 
             var body = document.createElement("div");
             body.className = "elist-body";
-            body.hidden = true;
             var schedule = scheduleControl(item.days);
 
             var stepRule = null;
@@ -328,24 +327,14 @@
             actions.appendChild(removeHabit);
             actions.appendChild(addDetail);
             actions.appendChild(save);
-            actions.hidden = true;
             wrap.appendChild(actions);
 
-            function setExpanded(expanded) {
-                if (expanded) collapseHabitCards(wrap);
-                wrap.classList.toggle("expanded", expanded);
-                collapsedLabel.hidden = expanded;
-                name.hidden = !expanded;
-                body.hidden = !expanded;
-                actions.hidden = !expanded;
-                toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+            // Expansion itself is the shared elist accordion (chevron + heading
+            // taps, one open at a time); this hook only keeps the toggle's
+            // spoken label matching the state.
+            wrap.__onElistExpanded = function (expanded) {
                 toggle.setAttribute("aria-label", (expanded ? "Close " : "Edit ") + item.label);
-            }
-            wrap.__setExpanded = setExpanded;
-            collapsedLabel.addEventListener("click", function () { setExpanded(true); });
-            toggle.addEventListener("click", function () {
-                setExpanded(toggle.getAttribute("aria-expanded") !== "true");
-            });
+            };
 
             function setBusy(busy, activeLabel) {
                 name.disabled = busy;
@@ -379,7 +368,7 @@
                 post("/daily/item/edit/", editBody, function (data) {
                     var replacement = habitElement(data.item);
                     wrap.replaceWith(replacement);
-                    replacement.__setExpanded(true);
+                    window.elistSetExpanded(replacement, true);
                     notifyDashboard("upsert", data.item);
                     toast("Habit saved.");
                 }, function () {
@@ -605,7 +594,6 @@
             post("/daily/item/add/", body, function (data) {
                 var newHabit = habitElement(data.item);
                 list.appendChild(newHabit);
-                newHabit.__setExpanded(false);
                 collapseHabitCards(null);
                 closeAdd();
                 setAddBusy(false);

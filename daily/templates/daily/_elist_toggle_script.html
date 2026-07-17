@@ -1,0 +1,53 @@
+{% comment %}
+Shared expand/collapse behavior for .elist-item rows (wins editor, habits
+editor, archived panel). Mark the list container with data-elist-accordion:
+the chevron (.elist-toggle) toggles its row, tapping a collapsed heading
+expands it, and expanding one row collapses its siblings. State is the
+collapsed/expanded class pair on the item; each editor's CSS decides what
+those classes reveal (details only, or the label <-> rename-input swap).
+
+Delegation is document-level on purpose: the archived dialog injects its
+panel via innerHTML, where per-element listeners (and inline scripts) never
+attach. window.elistSetExpanded(item, expanded) is the programmatic hook;
+an optional item.__onElistExpanded(expanded) callback lets an editor react
+(the habits editor swaps its toggle's aria-label). Include from any page
+that renders elist rows; the guard makes repeat includes a no-op.
+{% endcomment %}
+<script>
+(function () {
+    "use strict";
+    if (window.elistSetExpanded) return;
+    function setExpanded(item, expanded) {
+        if (expanded) {
+            var container = item.closest("[data-elist-accordion]");
+            if (container) {
+                container.querySelectorAll(".elist-item.expanded").forEach(function (other) {
+                    if (other !== item) setExpanded(other, false);
+                });
+            }
+        }
+        item.classList.toggle("collapsed", !expanded);
+        item.classList.toggle("expanded", expanded);
+        var toggle = item.querySelector(".elist-toggle");
+        if (toggle) toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        if (item.__onElistExpanded) item.__onElistExpanded(expanded);
+    }
+    window.elistSetExpanded = setExpanded;
+    document.addEventListener("click", function (e) {
+        if (!e.target.closest("[data-elist-accordion]")) return;
+        var item = e.target.closest(".elist-item");
+        if (!item) return;
+        var toggle = e.target.closest(".elist-toggle");
+        if (toggle && item.contains(toggle)) {
+            if (!toggle.disabled) setExpanded(item, item.classList.contains("collapsed"));
+            return;
+        }
+        if (!item.classList.contains("collapsed") || !e.target.closest(".elist-heading")) return;
+        // A collapsed row also expands on a heading tap, except taps on real
+        // controls (e.g. the archived panel's select-circle label).
+        var control = e.target.closest("label, input, a, button");
+        if (control && !control.classList.contains("elist-label")) return;
+        setExpanded(item, true);
+    });
+})();
+</script>

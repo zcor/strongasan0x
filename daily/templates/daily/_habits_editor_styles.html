@@ -2,7 +2,11 @@
     .habits-editor .habits-list-body { padding-bottom: 0; }
     .habits-editor [hidden] { display: none !important; }
     .habits-editor .empty { padding: 4px 0 20px; color: var(--text-dim); font-size: .86rem; line-height: 1.5; }
-    .habits-editor .habit-name-input { flex: 1; min-width: 0; margin: 9px 8px 9px 0; }
+    /* Label <-> rename-input swap, driven by the shared accordion's
+       collapsed/expanded classes (same pattern as the wins editor). */
+    .habits-editor .habit-name-input { display: none; flex: 1; min-width: 0; margin: 9px 8px 9px 0; }
+    .habits-editor .habit-editor-item.expanded .habit-name-input { display: block; }
+    .habits-editor .habit-editor-item.expanded .elist-heading .elist-label { display: none; }
     .habits-editor .habit-field-label {
         display: block; margin: 0 0 8px; color: var(--text-dim); font-size: .7rem;
         font-weight: 600; letter-spacing: .12em; text-transform: uppercase;

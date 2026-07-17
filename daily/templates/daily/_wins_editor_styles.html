@@ -22,7 +22,6 @@
     .wins-editor .goal:not(.collapsed) .gtitle { display: none; }
     .wins-editor .goal:not(.collapsed) .gcount { display: none; }
     .wins-editor .goal:not(.collapsed) .goal-title-input { display: block; }
-    .wins-editor .goal.collapsed .goal-details { display: none; }
     /* Steps sit close under the goal title. */
     .wins-editor .goal .stones.elist-body { padding-top: 0; }
     .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
@@ -112,9 +111,14 @@
     .wins-archived .card-body { padding: 18px 16px 0; }
     .wins-archived .empty { padding-bottom: 18px; }
     .wins-archived .eyebrow + .goal { border-top: 0; }
-    /* The whole heading is a <label>: tapping it toggles the goal's select
-       circle, and the card's shared footer restores every checked goal. */
-    .wins-archived .goalhead { cursor: pointer; }
+    /* Tapping the label toggles the goal's select circle (the card's shared
+       footer restores every checked goal); the chevron expands the row to
+       show its steps, same as Working Toward. */
+    .wins-archived .goal-pick {
+        display: flex; flex: 1; min-width: 0; align-items: center;
+        align-self: stretch; cursor: pointer;
+    }
+    .wins-archived .goalhead .gcount { margin-left: 0; }
     .wins-archived .goal-select {
         -webkit-appearance: none; appearance: none; flex: none;
         width: 18px; height: 18px; margin: 0 11px 0 0; border-radius: 50%;
@@ -128,8 +132,6 @@
     }
     .wins-archived .goal-select:checked { border-color: transparent; background: var(--accent); }
     .wins-archived .goal-select:checked::after { opacity: 1; }
-    /* Steps sit close under the goal title (the 64px heading centers its
-       text, so the row's own bottom whitespace is most of the gap). */
-    .wins-archived .goal .stones.elist-body { margin-top: -14px; padding-top: 0; }
+    .wins-archived .goal .stones.elist-body { padding-top: 0; }
     .wins-archived-view[hidden] { display: none; }
 </style>

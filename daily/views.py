@@ -139,65 +139,6 @@ def _is_beta(request, participant) -> bool:
     return bool(getattr(participant, "beta", False))
 
 
-_ACTIVE_TOKEN_UNSET = object()
-
-
-def _dev_qr(request, participant, active_token=_ACTIVE_TOKEN_UNSET):
-    """LOCAL DEV only: a scannable QR that opens THIS app on a phone over the
-    LAN (token URL, gate auto-skipped by DEBUG, beta on). Returns
-    {"url","svg","ip"} or None. Never runs outside DEBUG; degrades to None if
-    segno isn't installed or the LAN IP can't be resolved."""
-    if not settings.DEBUG:
-        return None
-    # Visibility is controlled by the ROUTE (like the ?beta toggle): ?qr=0 hides
-    # it (remembered in the session so it stops popping up), ?qr=1 shows it again.
-    q = request.GET.get("qr")
-    if q == "0":
-        request.session["daily_qr_hidden"] = True
-    elif q == "1":
-        request.session.pop("daily_qr_hidden", None)
-    if request.session.get("daily_qr_hidden"):
-        return None
-    try:
-        import socket
-        import segno
-    except ImportError:
-        return None
-    tok = (
-        _active_token(participant)
-        if active_token is _ACTIVE_TOKEN_UNSET
-        else active_token
-    )
-    if not tok:
-        return None
-    # Best-effort primary LAN IP (no packets actually sent by the UDP connect).
-    ip = None
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        ip = None
-    if not ip or ip.startswith("127."):
-        return None  # no usable LAN IP → the QR would point at localhost
-    # Port the client actually reached us on (from the Host header), so the QR
-    # matches the running dev server even when viewed at 127.0.0.1 on the Mac.
-    try:
-        host = request.get_host()
-        port = host.split(":", 1)[1] if ":" in host else "8001"
-    except Exception:
-        port = "8001"
-    url = f"http://{ip}:{port}/daily/c/{tok}/?beta=1"
-    try:
-        svg = segno.make(url, error="m").svg_data_uri(
-            scale=1, border=2, dark="#0a0b12", light="#ffffff"
-        )
-    except Exception:
-        return None
-    return {"url": url, "svg": svg, "ip": f"{ip}:{port}"}
-
-
 def _as_of_query(request) -> str:
     day = request.GET.get("day")
     if day and _is_backfill(request):
@@ -411,14 +352,10 @@ def _render_checkin(request, from_token=""):
     # guarantee lives with the render, not incidentally on a form tag.
     get_token(request)
     participant: DailyParticipant = request.daily_participant
-    # DEV config panel (local only): route toggles that persist in the session,
-    # so the dev config UI can flip them by navigation. Processed BEFORE _is_beta
-    # so a reset takes effect this render. See the gear panel in checkin_beta.html.
+    # DEV route toggles (local only), flipped by typing the query param; the
+    # session remembers them. Processed BEFORE _is_beta so a flip takes effect
+    # this render.
     if settings.DEBUG:
-        if request.GET.get("devreset") == "1":
-            for _k in ("daily_beta_override", "daily_qr_hidden", "daily_gate_forced",
-                       "daily_streak_forced", "daily_notification_preview"):
-                request.session.pop(_k, None)
         _g = request.GET.get("gate")
         if _g == "1":
             request.session["daily_gate_forced"] = True
@@ -727,22 +664,12 @@ def _render_checkin(request, from_token=""):
         context["todays_win"] = _win_json(todays_win)
         context["completed_todays_win"] = _win_json(completed_todays_win)
         context["ai_mutations_enabled"] = participant.ai_mutations_enabled
-        context["dev_qr"] = _dev_qr(request, participant, active_token)
         # DEV: force-show the streak pill even when the real streak is < 2, so its
         # look can be previewed on a fresh account. Keeps a real streak (>=2)
         # honest; only fabricates a demo number when there's nothing to show.
         if settings.DEBUG and request.session.get("daily_streak_forced", False):
             if context["streak"] < 2:
                 context["streak"] = 3
-        # State for the dev config panel (gear FAB). DEBUG-only.
-        if settings.DEBUG:
-            context["dev_config"] = {
-                "beta": is_beta,
-                "qr": not request.session.get("daily_qr_hidden", False),
-                "gate": request.session.get("daily_gate_forced", False),
-                "streak": request.session.get("daily_streak_forced", False),
-                "notification_preview": request.session.get("daily_notification_preview", False),
-            }
         return render(request, "daily/checkin_beta.html", context)
     context["is_beta"] = False
     return render(request, "daily/checkin.html", context)

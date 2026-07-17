@@ -137,14 +137,12 @@ class HabitManagementTests(TestCase):
         self.assertContains(response, "Adding…")
         self.assertContains(response, 'post("/daily/item/edit/"')
         self.assertContains(response, 'post("/daily/item/remove/"')
-        self.assertContains(
-            response,
-            'setExpanded(toggle.getAttribute("aria-expanded") !== "true");',
-        )
+        self.assertContains(response, "window.elistSetExpanded = setExpanded;")
+        self.assertContains(response, "data-elist-accordion")
         self.assertContains(response, "When is this habit complete?")
         self.assertContains(response, "Any step")
         self.assertContains(response, "All steps")
-        self.assertContains(response, "replacement.__setExpanded(true);")
+        self.assertContains(response, "window.elistSetExpanded(replacement, true);")
         self.assertContains(response, "if (event.target === addComposer) closeAdd();")
         self.assertNotContains(response, "focusName")
         self.assertNotContains(response, "name.select()")

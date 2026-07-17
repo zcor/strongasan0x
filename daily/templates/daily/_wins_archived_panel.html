@@ -1,10 +1,12 @@
 {% comment %}
 Archived North Stars rendered either as a lazy dialog panel or as the direct
-page fallback. Each card is ONE form: goal headings are tap-to-select labels
-and the shared footer restores every checked North Star. The native submit
-(multiple id values) keeps the no-JS page working; the dialog intercepts it.
+page fallback. Each card is ONE form: tapping a goal's label toggles its
+select circle and the shared footer restores every checked North Star; the
+chevron on the right expands the row to show its steps (same collapsed rows
+as Working Toward). The native submit (multiple id values) keeps the no-JS
+page working; the dialog intercepts it.
 {% endcomment %}
-<div class="wins-archived" data-wins-archived-content>
+<div class="wins-archived" data-wins-archived-content data-elist-accordion>
     <div class="wedit">
         <header class="wehead">
             {% if wins_dialog %}
@@ -27,20 +29,31 @@ and the shared footer restores every checked North Star. The native submit
             <div class="card-body">
                 <div class="eyebrow">Achieved</div>
                 {% for g in achieved %}
-                    <div class="elist-item goal" data-history-goal data-achieved-goal="{{ g.goal.id }}">
-                        <label class="goalhead elist-heading">
-                            <input class="goal-select" type="checkbox" name="id" value="{{ g.goal.id }}" aria-label="Select {{ g.goal.text }}">
-                            <span class="gtitle">{{ g.goal.text }}</span>
-                            {% if g.goal.done_at %}<span class="gcount">{{ g.goal.done_at|date:"M j" }}</span>{% endif %}
-                        </label>
+                    <div class="elist-item goal collapsible collapsed" data-history-goal data-achieved-goal="{{ g.goal.id }}">
+                        <div class="goalhead elist-heading">
+                            <label class="goal-pick">
+                                <input class="goal-select" type="checkbox" name="id" value="{{ g.goal.id }}" aria-label="Select {{ g.goal.text }}">
+                                <span class="goal-summary elist-label">
+                                    <span class="gtitle elist-name">{{ g.goal.text }}</span>
+                                    {% if g.goal.done_at %}<span class="gcount elist-meta">{{ g.goal.done_at|date:"M j" }}</span>{% endif %}
+                                </span>
+                            </label>
+                            {% if g.stones %}
+                                <button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-label="Show steps for {{ g.goal.text }}" aria-expanded="false">
+                                    <span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+                                </button>
+                            {% endif %}
+                        </div>
                         {% if g.stones %}
-                            <div class="stones elist-body">
-                                {% for s in g.stones %}
-                                    <div class="stone done">
-                                        <span class="dot" aria-hidden="true"></span>
-                                        <span class="rlabel">{{ s.text }}</span>
-                                    </div>
-                                {% endfor %}
+                            <div class="goal-details">
+                                <div class="stones elist-body">
+                                    {% for s in g.stones %}
+                                        <div class="stone done">
+                                            <span class="dot" aria-hidden="true"></span>
+                                            <span class="rlabel">{{ s.text }}</span>
+                                        </div>
+                                    {% endfor %}
+                                </div>
                             </div>
                         {% endif %}
                     </div>
@@ -57,19 +70,30 @@ and the shared footer restores every checked North Star. The native submit
             <div class="card-body">
                 <div class="eyebrow">Archived</div>
                 {% for g in archived %}
-                    <div class="elist-item goal" data-history-goal data-archived-goal="{{ g.goal.id }}">
-                        <label class="goalhead elist-heading">
-                            <input class="goal-select" type="checkbox" name="id" value="{{ g.goal.id }}" aria-label="Select {{ g.goal.text }}">
-                            <span class="gtitle">{{ g.goal.text }}</span>
-                        </label>
+                    <div class="elist-item goal collapsible collapsed" data-history-goal data-archived-goal="{{ g.goal.id }}">
+                        <div class="goalhead elist-heading">
+                            <label class="goal-pick">
+                                <input class="goal-select" type="checkbox" name="id" value="{{ g.goal.id }}" aria-label="Select {{ g.goal.text }}">
+                                <span class="goal-summary elist-label">
+                                    <span class="gtitle elist-name">{{ g.goal.text }}</span>
+                                </span>
+                            </label>
+                            {% if g.stones %}
+                                <button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-label="Show steps for {{ g.goal.text }}" aria-expanded="false">
+                                    <span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+                                </button>
+                            {% endif %}
+                        </div>
                         {% if g.stones %}
-                            <div class="stones elist-body">
-                                {% for s in g.stones %}
-                                    <div class="stone{% if s.status != 'open' %} done{% endif %}">
-                                        <span class="dot" aria-hidden="true"></span>
-                                        <span class="rlabel">{{ s.text }}</span>
-                                    </div>
-                                {% endfor %}
+                            <div class="goal-details">
+                                <div class="stones elist-body">
+                                    {% for s in g.stones %}
+                                        <div class="stone{% if s.status != 'open' %} done{% endif %}">
+                                            <span class="dot" aria-hidden="true"></span>
+                                            <span class="rlabel">{{ s.text }}</span>
+                                        </div>
+                                    {% endfor %}
+                                </div>
                             </div>
                         {% endif %}
                     </div>

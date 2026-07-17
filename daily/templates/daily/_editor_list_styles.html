@@ -5,8 +5,9 @@ defaults (.goalhead, .gtitle, .stones, ...).
 
 - .elist-item / -heading / -label / -name / -meta / -toggle / -body / -actions:
   a full-bleed expandable list row inside a .card (64px two-line summary,
-  hairline separators, inset panel while expanded). Expanded state is the
-  .expanded class on the item.
+  hairline separators, inset panel while expanded). State is the
+  collapsed/expanded class pair on the item, driven by
+  _elist_toggle_script.html (mark the list container data-elist-accordion).
 - .elist-actions buttons: full-width strip; add .danger / .primary for the
   destructive / confirming action.
 - .esheet / .esheet-card: bottom-sheet composer overlay (centered card ≥520px).
@@ -24,6 +25,12 @@ defaults (.goalhead, .gtitle, .stones, ...).
         background: rgba(0,0,0,.18);
         box-shadow: inset 0 1px 0 var(--line-soft), inset 0 -1px 0 var(--line-soft);
     }
+    /* A collapsed row shows only its heading. The wins rows keep their details
+       in a .goal-details wrapper; the habits editor's body/actions are direct
+       children of the item. */
+    .elist-item.collapsed .goal-details,
+    .elist-item.collapsed > .elist-body,
+    .elist-item.collapsed > .elist-actions { display: none; }
     .elist-heading { display: flex; align-items: center; gap: 0; min-height: 64px; padding: 0 10px 0 16px; }
     .elist-label {
         display: flex; flex: 1; align-self: stretch; min-width: 0; flex-direction: column;
