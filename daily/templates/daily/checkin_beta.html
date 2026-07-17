@@ -299,9 +299,10 @@ after the first paint so backlog queries and markup do not block the dashboard.
 </dialog>
 
 {% comment %}
-Focused "Pick one" chooser: a full-screen checklist of every open Working
-Toward step and one-off win, styled like Your wins. Rows are built
-client-side from /daily/win/candidates/ each time it opens.
+Focused "Pick one" chooser: a full-screen checklist of every open win
+(north-star steps grouped under their goal, then one-offs), styled like
+Your wins. Rows are built client-side from /daily/win/candidates/ each
+time it opens.
 {% endcomment %}
 <dialog id="win-picker-dialog" class="wins-dialog" aria-labelledby="win-picker-title">
     <div class="wins-dialog-shell">
@@ -314,25 +315,15 @@ client-side from /daily/win/candidates/ each time it opens.
                 <div class="wetitle" id="win-picker-title">Pick today's win</div>
                 <div class="wesub">Choose the one thing you want to move forward today.</div>
             </header>
-            <div class="card is-hidden" id="win-picker-steps-card">
+            <div class="card is-hidden" id="win-picker-list-card">
                 <div class="card-body">
-                    <div class="eyebrow">Working Toward</div>
-                    <div class="eskeleton" id="win-picker-steps-skel" aria-hidden="true">
+                    <div class="eyebrow">Wins</div>
+                    <div class="eskeleton" id="win-picker-list-skel" aria-hidden="true">
                         <div class="skeleton-line short"></div>
                         <div class="skeleton-line"></div>
                         <div class="skeleton-line medium"></div>
                     </div>
-                    <div id="win-picker-steps"></div>
-                </div>
-            </div>
-            <div class="card is-hidden" id="win-picker-singles-card">
-                <div class="card-body">
-                    <div class="eyebrow">One-off wins</div>
-                    <div class="eskeleton" id="win-picker-singles-skel" aria-hidden="true">
-                        <div class="skeleton-line"></div>
-                        <div class="skeleton-line medium"></div>
-                    </div>
-                    <div id="win-picker-singles"></div>
+                    <div id="win-picker-list"></div>
                 </div>
             </div>
             <div class="card is-hidden" id="win-picker-empty-card">
@@ -610,6 +601,10 @@ client-side from /daily/win/candidates/ each time it opens.
        under their North Star; today's current pick shows a gold check. */
     .win-picker .wp-goal { font-size: .72rem; color: var(--text-dim); margin: 14px 0 2px; }
     .win-picker .wp-goal:first-child { margin-top: 0; }
+    /* One-offs share the list with north-star steps; the group gap keeps a
+       one-off from reading as a step of the goal above it. */
+    .win-picker .wp-singles { margin-top: 14px; }
+    .win-picker .wp-singles:first-child { margin-top: 0; }
     .win-picker-row {
         display: flex; align-items: center; gap: 15px; width: 100%; min-height: 56px;
         padding: 6px 0; background: none; border: 0; color: var(--text);
@@ -1616,19 +1611,21 @@ client-side from /daily/win/candidates/ each time it opens.
     }
     function openWinPicker() {
         if (!pickerDialog || typeof pickerDialog.showModal !== "function") { goToWins(); return; }
-        var stepsHost = $("win-picker-steps"), singlesHost = $("win-picker-singles");
-        stepsHost.innerHTML = ""; singlesHost.innerHTML = "";
-        // Both sections open as skeletons; the fetch decides what stays.
+        var listHost = $("win-picker-list");
+        listHost.innerHTML = "";
+        // The list opens as a skeleton; the fetch decides what stays.
         hide($("win-picker-empty-card"));
-        showEl($("win-picker-steps-card")); showEl($("win-picker-singles-card"));
-        showEl($("win-picker-steps-skel")); showEl($("win-picker-singles-skel"));
+        showEl($("win-picker-list-card"));
+        showEl($("win-picker-list-skel"));
         if (!pickerDialog.open) pickerDialog.showModal();
         document.body.classList.add("wins-dialog-open");
         fetch("/daily/win/candidates/" + qs, { credentials: "same-origin" })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d.ok) throw 0;
-                hide($("win-picker-steps-skel")); hide($("win-picker-singles-skel"));
+                hide($("win-picker-list-skel"));
+                // North-star steps grouped under their goal first, then
+                // one-off wins, matching the order in Your wins.
                 var steps = d.candidates.filter(function (c) { return c.goal; });
                 var singles = d.candidates.filter(function (c) { return !c.goal; });
                 var lastGoal = null;
@@ -1636,14 +1633,17 @@ client-side from /daily/win/candidates/ each time it opens.
                     if (c.goal !== lastGoal) {
                         var g = document.createElement("div");
                         g.className = "wp-goal"; g.textContent = c.goal;
-                        stepsHost.appendChild(g); lastGoal = c.goal;
+                        listHost.appendChild(g); lastGoal = c.goal;
                     }
-                    stepsHost.appendChild(pickerRow(c));
+                    listHost.appendChild(pickerRow(c));
                 });
-                singles.forEach(function (c) { singlesHost.appendChild(pickerRow(c)); });
-                if (!steps.length) hide($("win-picker-steps-card"));
-                if (!singles.length) hide($("win-picker-singles-card"));
-                if (!d.candidates.length) showEl($("win-picker-empty-card"));
+                if (singles.length) {
+                    var sg = document.createElement("div");
+                    sg.className = "wp-singles";
+                    singles.forEach(function (c) { sg.appendChild(pickerRow(c)); });
+                    listHost.appendChild(sg);
+                }
+                if (!d.candidates.length) { hide($("win-picker-list-card")); showEl($("win-picker-empty-card")); }
             })
             .catch(function () { closeWinPicker(); goToWins(); });
     }
