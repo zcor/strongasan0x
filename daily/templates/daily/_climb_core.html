@@ -56,4 +56,15 @@ Beta-only: never include this from a legacy (frozen path) template.
     }
     .composer-input:focus { outline: none; border-color: rgba(255,217,122,.5); }
     .composer-input + .composer-input { margin-top: 8px; }
+
+    /* Step composer rows (habits and wins editors): input beside a boxed ✕ */
+    .new-step-row { display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }
+    .new-step-row:first-child { margin-top: 0; }
+    .new-step-row .composer-input { flex: 1; min-width: 0; }
+    .new-step-remove {
+        flex: none; min-width: 44px; padding: 0 10px; border: 1px solid var(--line);
+        background: transparent; color: var(--text-faint);
+        font: inherit; font-size: .82rem; line-height: 1; cursor: pointer;
+    }
+    .new-step-remove:hover { color: #e0a672; }
 </style>

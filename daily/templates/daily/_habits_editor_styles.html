@@ -51,9 +51,11 @@
     .habits-editor .habit-detail-row:first-child { border-top: 0; }
     .habits-editor .habit-detail-name { flex: 1; min-width: 0; font-size: .9rem; line-height: 1.35; }
     .habits-editor .habit-detail-delete {
-        flex: none; min-height: 38px; padding: 8px 4px 8px 12px; border: 0;
-        background: none; color: var(--danger-muted); font: inherit; font-size: .76rem; cursor: pointer;
+        flex: none; min-width: 44px; min-height: 38px; padding: 0 10px; border: 1px solid var(--line);
+        background: transparent; color: var(--text-faint);
+        font: inherit; font-size: .82rem; line-height: 1; cursor: pointer;
     }
+    .habits-editor .habit-detail-delete:hover { color: #e0a672; }
     .habits-editor .habit-detail-composer { padding: 14px 16px; border-top: 1px solid var(--line-soft); }
     .habits-editor .habit-detail-composer .card-foot { margin: 10px -16px -14px; }
     .habits-editor .habit-editor-message {
@@ -70,12 +72,4 @@
     }
     .habits-editor .habit-add-name-row [data-habit-add-auto]:disabled { opacity: .5; cursor: default; }
     .habits-editor .habit-add-steps { margin-top: 16px; }
-    .habits-editor .habit-new-step-row { display: flex; align-items: stretch; margin-top: 8px; }
-    .habits-editor .habit-new-step-row:first-child { margin-top: 0; }
-    .habits-editor .habit-new-step-row .composer-input { flex: 1; min-width: 0; }
-    .habits-editor .habit-new-step-remove {
-        flex: none; min-width: 44px; padding: 0 10px; border: 1px solid var(--line);
-        border-left: 0; background: transparent; color: var(--danger-muted);
-        font: inherit; font-size: .8rem; cursor: pointer;
-    }
 </style>

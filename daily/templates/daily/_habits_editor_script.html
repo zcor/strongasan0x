@@ -281,7 +281,7 @@
                     var remove = document.createElement("button");
                     remove.type = "button";
                     remove.className = "habit-detail-delete";
-                    remove.textContent = "Delete";
+                    remove.textContent = "✕";
                     remove.setAttribute("aria-label", "Delete " + detail.label);
                     remove.addEventListener("click", function () {
                         remove.disabled = true;
@@ -392,10 +392,22 @@
                 });
             });
 
+            // Editing any other field (name, schedule, step rule) dismisses an
+            // open step composer instead of stacking two editing surfaces.
+            function dismissComposer() {
+                var composer = wrap.querySelector(".habit-detail-composer");
+                if (!composer || composer.querySelector("input:disabled")) return;
+                composer.remove();
+                actions.classList.remove("is-hidden");
+            }
+            name.addEventListener("focus", dismissComposer);
+            schedule.element.addEventListener("click", dismissComposer);
+            if (stepRule) stepRule.element.addEventListener("click", dismissComposer);
+
             addDetail.addEventListener("click", function () {
                 var existing = wrap.querySelector(".habit-detail-composer");
                 if (existing) {
-                    var lastInput = existing.querySelector(".habit-new-step-row:last-child input");
+                    var lastInput = existing.querySelector(".new-step-row:last-child input");
                     if (lastInput) lastInput.focus();
                     return;
                 }
@@ -412,21 +424,27 @@
                 var another = document.createElement("button");
                 another.type = "button";
                 another.className = "act";
-                another.textContent = "Another step";
+                another.textContent = "Add another";
                 var add = document.createElement("button");
                 add.type = "button";
                 add.className = "act gold";
-                add.textContent = "Add all";
+                add.textContent = "Save";
                 foot.appendChild(cancel);
                 foot.appendChild(another);
                 foot.appendChild(add);
                 composer.appendChild(fields);
                 composer.appendChild(foot);
                 wrap.insertBefore(composer, actions);
+                actions.classList.add("is-hidden");
+
+                function closeComposer() {
+                    composer.remove();
+                    actions.classList.remove("is-hidden");
+                }
 
                 function addField() {
                     var row = document.createElement("div");
-                    row.className = "habit-new-step-row";
+                    row.className = "new-step-row";
                     var input = document.createElement("input");
                     input.type = "text";
                     input.maxLength = 60;
@@ -435,18 +453,19 @@
                     input.setAttribute("aria-label", "Small step");
                     var remove = document.createElement("button");
                     remove.type = "button";
-                    remove.className = "habit-new-step-remove";
-                    remove.textContent = "Delete";
+                    remove.className = "new-step-remove";
+                    remove.textContent = "✕";
+                    remove.setAttribute("aria-label", "Remove step");
                     remove.addEventListener("click", function () {
                         row.remove();
-                        if (!fields.children.length) composer.remove();
+                        if (!fields.children.length) closeComposer();
                     });
                     input.addEventListener("keydown", function (event) {
                         if (event.key === "Enter") {
                             event.preventDefault();
                             if (input.value.trim()) addField();
                         } else if (event.key === "Escape") {
-                            composer.remove();
+                            closeComposer();
                         }
                     });
                     row.appendChild(input);
@@ -459,7 +478,7 @@
                     Array.prototype.forEach.call(composer.querySelectorAll("input, button"), function (control) {
                         control.disabled = busy;
                     });
-                    add.textContent = busy ? "Adding…" : "Add all";
+                    add.textContent = busy ? "Saving…" : "Save";
                 }
 
                 function submitDetail() {
@@ -482,7 +501,7 @@
                         toast("Couldn't add those small steps.");
                     });
                 }
-                cancel.addEventListener("click", function () { composer.remove(); });
+                cancel.addEventListener("click", closeComposer);
                 another.addEventListener("click", addField);
                 add.addEventListener("click", submitDetail);
                 addField();
@@ -512,7 +531,7 @@
         function addNewHabitStep() {
             addStepSection.hidden = false;
             var row = document.createElement("div");
-            row.className = "habit-new-step-row";
+            row.className = "new-step-row";
             var input = document.createElement("input");
             input.type = "text";
             input.maxLength = 60;
@@ -521,9 +540,9 @@
             input.setAttribute("aria-label", "Small step");
             var remove = document.createElement("button");
             remove.type = "button";
-            remove.className = "habit-new-step-remove";
-            remove.textContent = "Delete";
-            remove.setAttribute("aria-label", "Delete small step");
+            remove.className = "new-step-remove";
+            remove.textContent = "✕";
+            remove.setAttribute("aria-label", "Remove step");
             remove.addEventListener("click", function () {
                 row.remove();
                 if (!addStepList.children.length) addStepSection.hidden = true;

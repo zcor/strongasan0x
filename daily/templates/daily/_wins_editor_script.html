@@ -158,6 +158,18 @@
         saveGoalTitle(save.closest(".elist-item").querySelector("[data-goal-title-input]"), save);
     });
 
+    // Focusing the win name field dismisses an open step composer instead
+    // of stacking two editing surfaces.
+    root.addEventListener("focusin", function (e) {
+        if (!e.target.matches("[data-goal-title-input]")) return;
+        var item = e.target.closest(".elist-item");
+        var composer = item && item.querySelector(".stone-composer");
+        if (!composer || composer.querySelector("input:disabled")) return;
+        composer.remove();
+        var actions = item.querySelector(".goal-actions");
+        if (actions) actions.classList.remove("is-hidden");
+    });
+
     root.addEventListener("keydown", function (e) {
         if (!e.target.matches("[data-goal-title-input]")) return;
         if (e.key === "Enter") {
@@ -263,57 +275,103 @@
         var goalId = button.getAttribute("data-add-stone");
         var goal = button.closest(".elist-item");
         var existing = goal.querySelector(".stone-composer");
-        if (existing) { existing.querySelector("input").focus(); return; }
+        if (existing) {
+            var lastInput = existing.querySelector(".new-step-row:last-child input");
+            if (lastInput) lastInput.focus();
+            return;
+        }
         var wrap = document.createElement("div"); wrap.className = "stone-composer";
-        var body = document.createElement("div"); body.className = "stone-composer-body";
-        var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
-        input.className = "composer-input"; input.placeholder = "e.g. Ask Dana for a referral"; input.autocomplete = "off";
+        var fields = document.createElement("div"); fields.className = "stone-composer-body";
         var foot = document.createElement("div"); foot.className = "card-foot";
         var cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "act"; cancel.textContent = "Cancel";
-        var add = document.createElement("button"); add.type = "button"; add.className = "act gold"; add.textContent = "Add";
-        body.appendChild(input); foot.appendChild(cancel); foot.appendChild(add);
-        wrap.appendChild(body); wrap.appendChild(foot);
+        var another = document.createElement("button"); another.type = "button"; another.className = "act"; another.textContent = "Add another";
+        var add = document.createElement("button"); add.type = "button"; add.className = "act gold"; add.textContent = "Save";
+        foot.appendChild(cancel); foot.appendChild(another); foot.appendChild(add);
+        wrap.appendChild(fields); wrap.appendChild(foot);
         var actions = button.closest(".goal-actions");
         actions.parentNode.insertBefore(wrap, actions);
-        button.classList.add("is-hidden");
-        input.focus();
+        actions.classList.add("is-hidden");
         var pending = false;
         function close() {
             if (pending) return;
             wrap.remove();
-            button.classList.remove("is-hidden");
+            actions.classList.remove("is-hidden");
+        }
+        function addField() {
+            var row = document.createElement("div"); row.className = "new-step-row";
+            var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
+            input.className = "composer-input"; input.placeholder = "e.g. Ask Dana for a referral"; input.autocomplete = "off";
+            input.setAttribute("aria-label", "Step");
+            var remove = document.createElement("button"); remove.type = "button";
+            remove.className = "new-step-remove"; remove.textContent = "✕";
+            remove.setAttribute("aria-label", "Remove step");
+            remove.addEventListener("click", function () {
+                row.remove();
+                if (!fields.children.length) close();
+            });
+            input.addEventListener("keydown", function (event) {
+                if (event.key === "Enter") { event.preventDefault(); if (input.value.trim()) addField(); }
+                else if (event.key === "Escape") close();
+            });
+            row.appendChild(input); row.appendChild(remove);
+            fields.appendChild(row); input.focus();
+        }
+        function setBusy(busy) {
+            pending = busy;
+            Array.prototype.forEach.call(wrap.querySelectorAll("input, button"), function (control) { control.disabled = busy; });
+            add.textContent = busy ? "Saving…" : "Save";
+            add.classList.toggle("loading", busy);
         }
         function submit() {
             if (pending) return;
-            var text = input.value.trim(); if (!text) { input.focus(); return; }
-            pending = true; input.disabled = true; cancel.disabled = true; add.disabled = true;
-            add.textContent = "Adding…"; add.classList.add("loading");
-            post("/daily/win/stone/add/", { goal_id: goalId, text: text }, function (data) {
-                pending = false;
-                if (data.converted && data.goal) {
+            var entries = Array.prototype.slice.call(fields.querySelectorAll(".new-step-row")).map(function (row) {
+                return { row: row, text: row.querySelector("input").value.trim() };
+            }).filter(function (entry) { return entry.text; });
+            if (!entries.length) {
+                var first = fields.querySelector("input");
+                if (first) first.focus();
+                return;
+            }
+            setBusy(true);
+            var added = [];
+            var convertedGoal = null;
+            var currentGoalId = goalId;
+            function finish(allOk) {
+                if (convertedGoal) {
                     // The one-off grew into a north star: rebuild the row in
                     // goal form, keep it with the other goals, leave it open.
-                    var replacement = goalEl({ id: data.goal.id, text: data.goal.text, stones: [data.stone] });
+                    var replacement = goalEl({ id: convertedGoal.id, text: convertedGoal.text, stones: added });
                     goal.remove();
                     insertGoal(replacement);
                     if (window.elistSetExpanded) window.elistSetExpanded(replacement, true);
-                } else {
-                    goal.querySelector(".stones").appendChild(stoneEl(data.stone));
-                    goalCount(goal); close();
+                    if (!allOk) editToast("Couldn't add every step right now.");
+                    return;
                 }
-                syncToday(data);
-            }, function () {
-                pending = false; input.disabled = false; cancel.disabled = false; add.disabled = false;
-                add.textContent = "Add"; add.classList.remove("loading");
-                editToast("Couldn't add that step right now."); input.focus();
-            });
+                added.forEach(function (stone) { goal.querySelector(".stones").appendChild(stoneEl(stone)); });
+                goalCount(goal);
+                setBusy(false);
+                if (allOk) { close(); return; }
+                editToast("Couldn't add that step right now.");
+                var firstInput = fields.querySelector("input");
+                if (firstInput) firstInput.focus();
+            }
+            // The endpoint takes one step per request, so rows submit in
+            // sequence; each saved row leaves the composer as it lands.
+            (function next(index) {
+                if (index >= entries.length) { finish(true); return; }
+                post("/daily/win/stone/add/", { goal_id: currentGoalId, text: entries[index].text }, function (data) {
+                    added.push(data.stone);
+                    entries[index].row.remove();
+                    if (data.converted && data.goal) { convertedGoal = data.goal; currentGoalId = data.goal.id; }
+                    syncToday(data);
+                    next(index + 1);
+                }, function () { finish(false); });
+            })(0);
         }
-        cancel.onclick = close;
-        add.onclick = submit;
-        input.onkeydown = function (event) {
-            if (event.key === "Enter") { event.preventDefault(); submit(); }
-            else if (event.key === "Escape") close();
-        };
+        cancel.addEventListener("click", close);
+        another.addEventListener("click", addField);
+        add.addEventListener("click", submit);
+        addField();
     });
 
     // One composer covers both shapes: plain text adds a one-off win, adding
@@ -331,12 +389,22 @@
     if (composer) composer.addEventListener("click", function (e) { if (e.target === composer) closeComposer(); });
     if ($("ncomp-more")) $("ncomp-more").onclick = function () {
         stepsSection.classList.remove("is-hidden");
+        var row = document.createElement("div"); row.className = "new-step-row";
         var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
         input.className = "composer-input nc-step"; input.autocomplete = "off";
+        input.setAttribute("aria-label", "Step");
         input.placeholder = stepsHost.children.length
             ? "Next step (optional)"
             : "First step, e.g. Update your resume";
-        stepsHost.appendChild(input); input.focus();
+        var remove = document.createElement("button"); remove.type = "button";
+        remove.className = "new-step-remove"; remove.textContent = "✕";
+        remove.setAttribute("aria-label", "Remove step");
+        remove.addEventListener("click", function () {
+            row.remove();
+            if (!stepsHost.children.length) stepsSection.classList.add("is-hidden");
+        });
+        row.appendChild(input); row.appendChild(remove);
+        stepsHost.appendChild(row); input.focus();
     };
     if ($("ncomp-save")) $("ncomp-save").onclick = function () {
         var text = goalInput.value.trim();

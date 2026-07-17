@@ -31,6 +31,7 @@
        just have no step list or count. Picking today's win lives in the
        Today card's picker, and "Add a step" grows one into a north star. */
     .wins-editor .stone { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
+    .wins-editor .stone .dot { display: none; }
     .wins-editor .stone .rlabel { flex: 1; min-width: 0; line-height: 1.35; }
     .wins-editor .stone .sremove {
         display: grid; place-items: center; flex: none; width: 44px; height: 44px;
@@ -60,9 +61,9 @@
     /* Meet the footer flush, like the habits list meets its footer. */
     .wins-editor #wins-list.has-items { margin-bottom: -18px; }
     .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
-    .wins-editor .stone-composer { margin: 8px 16px 4px 42px; border: 1px solid var(--line); }
-    .wins-editor .stone-composer-body { padding: 12px; }
-    .wins-editor .stone-composer .card-foot { border-top-color: var(--line); }
+    /* Full width of the card, mirroring the habits step composer. */
+    .wins-editor .stone-composer { padding: 14px 16px; border-top: 1px solid var(--line-soft); }
+    .wins-editor .stone-composer .card-foot { margin: 10px -16px -14px; }
 
     .wins-editor .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin: 16px 0 10px; }
     .wins-editor .ncomposer .composer-msg {

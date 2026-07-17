@@ -1437,9 +1437,17 @@ client-side from /daily/win/candidates/ each time it opens.
         document.body.classList.remove("wins-dialog-open");
     }
     // A reopened editor starts fresh: any row left expanded last visit
-    // collapses before the dialog shows again.
+    // collapses, and any step composer left open is discarded (with the
+    // action row it was hiding brought back) before the dialog shows again.
     function collapseEditorRows(dialog) {
-        if (!dialog || !window.elistSetExpanded) return;
+        if (!dialog) return;
+        dialog.querySelectorAll(".habit-detail-composer, .stone-composer").forEach(function (composer) {
+            composer.remove();
+        });
+        dialog.querySelectorAll(".elist-actions.is-hidden").forEach(function (actions) {
+            actions.classList.remove("is-hidden");
+        });
+        if (!window.elistSetExpanded) return;
         dialog.querySelectorAll(".elist-item.expanded").forEach(function (item) {
             window.elistSetExpanded(item, false);
         });
