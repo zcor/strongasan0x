@@ -280,11 +280,13 @@ after the first paint so backlog queries and markup do not block the dashboard.
                     Today
                 </button>
                 <div class="wetitle" id="habits-dialog-title">Your habits</div>
-                <div class="wesub">Loading your weekly habits…</div>
+                {# Static copy renders for real right away; only the habit list
+                   itself gets skeleton stand-ins. #}
+                <div class="wesub">Choose the days each habit should appear on Today.</div>
             </header>
             <div class="card" aria-label="Loading your habits">
                 <div class="card-body">
-                    <div class="skeleton-line short"></div>
+                    <div class="eyebrow">Weekly habits</div>
                     <div class="skeleton-line"></div>
                     <div class="skeleton-line medium"></div>
                     <div class="eskeleton-error" data-habits-load-error hidden>
@@ -1669,9 +1671,9 @@ time it opens.
         else requestAnimationFrame(function () { setTimeout(warmWins, 0); });
     }
 
-    // Habit management is fetched only when requested. The dashboard already
-    // has today's scheduled rows; loading the full weekly editor before the
-    // user opens it would add markup and work to the initial render for no gain.
+    // Habit management is prefetched on idle after first paint (same as the
+    // wins editor below), so opening Your habits is instant; the skeleton
+    // remains as the slow-network / failed-fetch fallback.
     var habitsDialog = $("habits-dialog");
     var habitsLoading = document.querySelector("[data-habits-loading]");
     var habitsHost = document.querySelector("[data-habits-host]");
@@ -1745,6 +1747,11 @@ time it opens.
         if (habitsLoaded) applyHabitsEditorMode();
     }
     window.__closeHabitsDialog = closeHabitsDialog;
+    if (habitsHost) {
+        var warmHabits = function () { loadHabitsEditor(false); };
+        if ("requestIdleCallback" in window) requestIdleCallback(warmHabits, { timeout: 1200 });
+        else requestAnimationFrame(function () { setTimeout(warmHabits, 0); });
+    }
     window.__invalidateHabitsEditor = function () { habitsLoaded = false; };
     if (habitsDialog) {
         habitsDialog.addEventListener("close", function () {
