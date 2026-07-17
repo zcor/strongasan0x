@@ -12,41 +12,27 @@
     .wins-editor .card-body { padding: 18px 16px; }
     .wins-editor .gremove, .wins-editor .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
     .wins-editor .gremove { margin-left: 10px; }
-    /* North Star rows build on the shared .elist-* components; only the
-       chrome overrides and the title <-> input swap live here. */
-    .wins-editor .goal.collapsed .goalhead { cursor: pointer; }
+    /* North Star and one-off rows build on the shared .elist-* components;
+       only the chrome overrides and the title <-> input swap live here. */
+    .wins-editor .elist-item.collapsed .goalhead { cursor: pointer; }
     .wins-editor .goalhead .gcount { margin-left: 0; }
     .wins-editor .goal-title-input {
         display: none; width: 100%; min-width: 0; margin: 9px 0;
     }
-    .wins-editor .goal:not(.collapsed) .gtitle { display: none; }
-    .wins-editor .goal:not(.collapsed) .gcount { display: none; }
-    .wins-editor .goal:not(.collapsed) .goal-title-input { display: block; }
+    .wins-editor .elist-item:not(.collapsed) .gtitle { display: none; }
+    .wins-editor .elist-item:not(.collapsed) .gcount { display: none; }
+    .wins-editor .elist-item:not(.collapsed) .goal-title-input { display: block; }
     /* Steps sit close under the goal title. */
     .wins-editor .goal .stones.elist-body { padding-top: 0; }
     .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
     .wins-editor .sremove { margin-left: auto; }
 
-    /* One-off wins are stone-style rows: select circle, label, ✕. The shared
-       "Move to habit" strip below acts on the checked rows. Picking today's
-       win lives in the Today card's picker, not here. */
-    .wins-editor .single {
-        display: flex; align-items: center; gap: 11px;
-        min-height: 56px; padding: 6px 0;
-    }
-    .wins-editor .single + .single { border-top: 1px solid var(--line-soft); }
-    .wins-editor .single .rlabel { flex: 1; min-width: 0; font-size: .92rem; line-height: 1.35; }
-    .wins-editor .single.checked .step-check .check {
-        border-color: transparent; background: var(--accent); color: var(--on-done);
-    }
-    /* Meet the footer flush, like the goals list meets its footer. */
-    .wins-editor #singles.has-singles { margin-bottom: -18px; }
-    /* No stray divider on "Add a win" while the promote button is hidden. */
-    .wins-editor .act.is-hidden + .act { border-left: 0; }
+    /* One-off wins share the list and row anatomy with north stars; they
+       just have no step list or count. Picking today's win lives in the
+       Today card's picker, and "Add a step" grows one into a north star. */
     .wins-editor .stone { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
     .wins-editor .stone .rlabel { flex: 1; min-width: 0; line-height: 1.35; }
-    .wins-editor .stone .sremove,
-    .wins-editor .single .sremove {
+    .wins-editor .stone .sremove {
         display: grid; place-items: center; flex: none; width: 44px; height: 44px;
         margin-left: 0; padding: 0; border: 1px solid var(--line);
     }
@@ -71,18 +57,14 @@
     }
     .wins-editor .stone-undo:disabled { opacity: .5; cursor: default; }
 
-    .wins-editor #goals.has-goals { margin-bottom: -18px; }
+    /* Meet the footer flush, like the habits list meets its footer. */
+    .wins-editor #wins-list.has-items { margin-bottom: -18px; }
     .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
     .wins-editor .stone-composer { margin: 8px 16px 4px 42px; border: 1px solid var(--line); }
     .wins-editor .stone-composer-body { padding: 12px; }
     .wins-editor .stone-composer .card-foot { border-top-color: var(--line); }
-    .wins-editor .stone-inline { display: flex; gap: 8px; margin: 8px 0 4px 26px; }
-    .wins-editor #single-inline { margin-left: 0; }
-    .wins-editor .stone-inline input { flex: 1; }
-    .wins-editor .stone-inline .mini { flex: none; background: none; border: 1px solid var(--line); color: var(--accent); font: inherit; font-size: .82rem; padding: 0 12px; cursor: pointer; }
 
     .wins-editor .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin: 16px 0 10px; }
-    .wins-editor .addstep-more { background: none; border: 0; color: var(--accent); font: inherit; font-size: .82rem; cursor: pointer; padding: 10px 0 2px; }
     .wins-editor .ncomposer .composer-msg {
         width: 100%; box-sizing: border-box; margin: 16px 0 0; padding: 11px 12px;
         border: 1px solid #c96565; background: transparent; color: var(--text);

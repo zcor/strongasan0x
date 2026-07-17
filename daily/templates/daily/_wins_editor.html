@@ -2,7 +2,7 @@
 Shared "Your wins" editor body. It renders inside the full-screen dialog on
 the daily page and inside wins_edit.html as a direct-link fallback.
 {% endcomment %}
-<div class="wins-editor{% if goals|length > 2 %} many-goals{% endif %}" data-wins-editor>
+<div class="wins-editor" data-wins-editor>
     <div class="wedit">
         <header class="wehead">
             {% if wins_dialog %}
@@ -20,14 +20,14 @@ the daily page and inside wins_edit.html as a direct-link fallback.
             <div class="wesub">One-off things or bigger goals broken into small steps. You choose which open item becomes Today's Win.</div>
         </header>
 
-        <div class="card" id="goals-card">
+        <div class="card" id="wins-card">
             <div class="card-body">
-                <div class="eyebrow">Working toward
+                <div class="eyebrow">Wins
                     <span class="eye-actions">
                         <a class="eyelink" href="/daily/wins/archived/"{% if wins_dialog %} data-wins-archived{% endif %}>Archived ›</a>
                     </span>
                 </div>
-                <div id="goals" data-elist-accordion{% if goals %} class="has-goals"{% endif %}>
+                <div id="wins-list" data-elist-accordion{% if goals or singles %} class="has-items"{% endif %}>
                     {% for g in goals %}
                         <div class="elist-item goal collapsible collapsed" data-goal-id="{{ g.goal.id }}">
                             <div class="goalhead elist-heading">
@@ -35,7 +35,7 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                                     <span class="gtitle elist-name">{{ g.goal.text }}</span>
                                     <input class="composer-input goal-title-input" type="text" value="{{ g.goal.text }}"
                                            data-goal-title-input data-saved-value="{{ g.goal.text }}"
-                                           maxlength="200" aria-label="North Star name" autocomplete="off">
+                                           maxlength="200" aria-label="Win name" autocomplete="off">
                                     <span class="gcount elist-meta" data-count>{{ g.open_count }} left</span>
                                 </span>
                                 <button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-label="Toggle {{ g.goal.text }}" aria-expanded="false">
@@ -64,31 +64,33 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                             </div>
                         </div>
                     {% endfor %}
-                </div>
-                <div class="empty{% if goals %} is-hidden{% endif %}" id="goals-empty">No goals yet. A goal is a north star you chip away at, one step per day.</div>
-            </div>
-            <div class="card-foot">
-                <button class="act gold" id="add-goal-btn" type="button">Add a north star</button>
-            </div>
-        </div>
-
-        <div class="card" id="singles-card">
-            <div class="card-body">
-                <div class="eyebrow">One-off wins</div>
-                <div id="singles"{% if singles %} class="has-singles"{% endif %}>
                     {% for s in singles %}
-                        <div class="single" data-stone-id="{{ s.id }}" data-status="{{ s.status }}">
-                            <button class="step-check" type="button" data-select-win="{{ s.id }}" aria-pressed="false" aria-label="Select {{ s.text }}"><span class="check sm" aria-hidden="true"></span></button>
-                            <span class="rlabel">{{ s.text }}</span>
-                            <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Delete {{ s.text }}">✕</button>
+                        <div class="elist-item single collapsible collapsed" data-stone-id="{{ s.id }}" data-status="{{ s.status }}">
+                            <div class="goalhead elist-heading">
+                                <span class="goal-summary elist-label">
+                                    <span class="gtitle elist-name">{{ s.text }}</span>
+                                    <input class="composer-input goal-title-input" type="text" value="{{ s.text }}"
+                                           data-goal-title-input data-saved-value="{{ s.text }}"
+                                           maxlength="200" aria-label="Win name" autocomplete="off">
+                                </span>
+                                <button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-label="Toggle {{ s.text }}" aria-expanded="false">
+                                    <span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+                                </button>
+                            </div>
+                            <div class="goal-details">
+                                <div class="goal-actions elist-actions">
+                                    <button class="danger" type="button" data-remove="{{ s.id }}" aria-label="Delete {{ s.text }}">Delete</button>
+                                    <button class="addstone" type="button" data-add-stone="{{ s.id }}">Add a step</button>
+                                    <button class="goal-save primary" type="button" data-save-goal="{{ s.id }}">Save</button>
+                                </div>
+                            </div>
                         </div>
                     {% endfor %}
                 </div>
-                <div class="empty{% if singles %} is-hidden{% endif %}" id="singles-empty">Nothing here. One-off wins are single things you want to knock out.</div>
+                <div class="empty{% if goals or singles %} is-hidden{% endif %}" id="wins-empty">Nothing here yet. Add one-off wins to knock out, or a bigger one you chip away at one step per day.</div>
             </div>
             <div class="card-foot">
-                <button class="act{% if not singles %} is-hidden{% endif %}" id="promote-selected-btn" type="button" disabled>Move to habit</button>
-                <button class="act gold" id="add-single-btn" type="button">Add a win</button>
+                <button class="act gold" id="add-win-btn" type="button">Add a win</button>
             </div>
         </div>
 
@@ -102,20 +104,19 @@ the daily page and inside wins_edit.html as a direct-link fallback.
     <div class="ncomposer esheet is-hidden" id="ncomposer">
         <div class="ncard esheet-card">
             <div class="card-body">
-                <div class="eyebrow gold">New north star</div>
+                <div class="eyebrow gold">Add a win</div>
                 <input type="text" id="ncomp-goal" class="composer-input" maxlength="200"
-                       placeholder="The big thing, e.g. Get a new job" autocomplete="off">
-                <div class="nc-steps-label">Break it into small steps</div>
-                <div id="ncomp-steps">
-                    <input type="text" class="composer-input nc-step" maxlength="200" placeholder="First step, e.g. Update your resume" autocomplete="off">
-                    <input type="text" class="composer-input nc-step" maxlength="200" placeholder="Next step (optional)" autocomplete="off">
+                       placeholder="e.g. Book the dentist, or Get a new job" autocomplete="off">
+                <div id="ncomp-steps-section" class="is-hidden">
+                    <div class="nc-steps-label">Break it into small steps</div>
+                    <div id="ncomp-steps"></div>
                 </div>
-                <button type="button" class="addstep-more" id="ncomp-more">Another step</button>
                 <div class="composer-msg is-hidden" id="ncomp-msg"></div>
             </div>
             <div class="card-foot">
                 <button class="act" id="ncomp-cancel" type="button">Cancel</button>
-                <button class="act gold" id="ncomp-save" type="button">Create</button>
+                <button class="act" id="ncomp-more" type="button">Add a step</button>
+                <button class="act gold" id="ncomp-save" type="button">Add</button>
             </div>
         </div>
     </div>

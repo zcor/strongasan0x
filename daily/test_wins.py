@@ -406,12 +406,13 @@ class WinsEndpointTests(TestCase):
         self.assertContains(page, 'id="win-picker-dialog"')
         self.assertContains(page, "/daily/win/candidates/")
 
-    def test_promote_endpoint_rejects_north_star_steps(self):
-        goal = create_north_star(self.p, "Get fit", ["Walk 20 min"])
-        stone = goal.stones.get()
-        r = self._post("/daily/win/", {"id": stone.id, "action": "promote"})
-        self.assertEqual(r.status_code, 404)
-        self.assertEqual(goal.stones.get().status, WinItem.STATUS_OPEN)
+    def test_promote_action_is_gone(self):
+        win = add_win(self.p, "Stretch for five minutes")
+        r = self._post("/daily/win/", {"id": win.id, "action": "promote"})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["error"], "bad_action")
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_OPEN)
 
     def test_editor_page_renders(self):
         create_north_star(self.p, "Learn guitar", ["Buy picks"])
@@ -438,17 +439,75 @@ class WinsEndpointTests(TestCase):
         self.assertContains(fragment, "data-wins-close")
         self.assertNotContains(fragment, "<!doctype html>", html=False)
 
-    def test_one_off_rows_render_with_select_and_shared_promote(self):
+    def test_one_off_rows_render_as_expandable_rows_without_promote(self):
         add_win(self.p, "Call parents regarding flight info")
 
         response = self.c.get("/daily/wins/")
 
-        self.assertContains(response, "data-select-win")
-        self.assertContains(response, 'id="promote-selected-btn"')
-        self.assertNotContains(response, "Pick today")
+        # One-off wins share the list and the row anatomy with north stars:
+        # chevron toggle, rename input, and Delete | Add a step | Save.
+        self.assertContains(response, 'class="elist-item single collapsible collapsed"')
+        self.assertContains(response, 'data-toggle-goal aria-label="Toggle Call parents regarding flight info"')
         self.assertContains(response, 'aria-label="Delete Call parents regarding flight info"')
-        self.assertContains(response, ">Move to habit</button>")
-        self.assertNotContains(response, "→ habit")
+        self.assertContains(response, 'data-add-stone')
+        self.assertContains(response, 'data-save-goal')
+        # "Move to habit" is gone, along with the row select circles.
+        self.assertNotContains(response, "Move to habit")
+        self.assertNotContains(response, "data-select-win")
+        self.assertNotContains(response, 'id="promote-selected-btn"')
+        self.assertNotContains(response, "Pick today")
+
+    def test_one_off_win_can_be_renamed_through_the_goal_edit_endpoint(self):
+        win = add_win(self.p, "Book the dentist")
+        r = self._post("/daily/win/goal/edit/", {"id": win.id, "text": "Book the good dentist"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["goal"]["text"], "Book the good dentist")
+        win.refresh_from_db()
+        self.assertEqual(win.text, "Book the good dentist")
+        self.assertFalse(win.is_goal)
+
+    def test_adding_a_step_grows_a_one_off_win_into_a_north_star(self):
+        win = add_win(self.p, "Get a new job")
+        self._post("/daily/win/select/", {"id": win.id})
+
+        r = self._post("/daily/win/stone/add/", {"goal_id": win.id, "text": "Update the resume"})
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["converted"])
+        self.assertEqual(body["goal"], {"id": win.id, "text": "Get a new job"})
+        self.assertEqual(body["stone"]["text"], "Update the resume")
+        win.refresh_from_db()
+        self.assertTrue(win.is_goal)
+        # A goal is never itself the daily leaf; the selection cleared.
+        self.assertIsNone(win.surfaced_on)
+        stone = win.stones.get()
+        self.assertEqual(stone.text, "Update the resume")
+        self.assertEqual(stone.status, WinItem.STATUS_OPEN)
+
+        # An empty first step must not convert anything.
+        other = add_win(self.p, "Call the plumber")
+        bad = self._post("/daily/win/stone/add/", {"goal_id": other.id, "text": "   "})
+        self.assertEqual(bad.status_code, 400)
+        other.refresh_from_db()
+        self.assertFalse(other.is_goal)
+
+    def test_editor_renders_one_combined_wins_section(self):
+        create_north_star(self.p, "Learn guitar", ["Buy picks"])
+        add_win(self.p, "Book the dentist")
+
+        r = self.c.get("/daily/wins/")
+
+        self.assertContains(r, 'id="wins-list"', count=1)
+        self.assertContains(r, 'id="wins-card"')
+        self.assertNotContains(r, 'id="goals-card"')
+        self.assertNotContains(r, 'id="singles-card"')
+        self.assertNotContains(r, ">One-off wins</div>")
+        # One footer serves both shapes: the composer's optional steps decide
+        # whether "Add a win" creates a one-off or a north star.
+        self.assertContains(r, ">Add a win</button>")
+        self.assertNotContains(r, ">Add a north star</button>")
+        self.assertContains(r, 'id="ncomp-steps-section"')
 
     def test_north_stars_render_initially_collapsed(self):
         create_north_star(self.p, "Only goal", ["Only step"])
@@ -459,7 +518,6 @@ class WinsEndpointTests(TestCase):
         create_north_star(self.p, "Goal one", ["Step one"])
         create_north_star(self.p, "Goal two", ["Step two"])
         r = self.c.get("/daily/wins/")
-        self.assertContains(r, 'class="wins-editor many-goals"')
         self.assertContains(r, 'class="elist-item goal collapsible collapsed"', count=3)
         self.assertContains(r, 'class="goal-toggle elist-toggle" type="button" data-toggle-goal')
 
@@ -475,8 +533,10 @@ class WinsEndpointTests(TestCase):
         self.assertEqual(list(goal.stones.values_list("id", flat=True)), stone_ids)
 
         page = self.c.get("/daily/wins/archived/")
-        self.assertContains(page, ">Achieved</div>")
-        self.assertContains(page, ">Archived</div>")
+        # Achieved and archived wins share one history section.
+        self.assertContains(page, '<div class="eyebrow">Wins</div>', html=True, count=1)
+        self.assertNotContains(page, '<div class="eyebrow">Achieved</div>', html=True)
+        self.assertNotContains(page, '<div class="eyebrow">Archived</div>', html=True)
         self.assertContains(page, "Plan a trip")
         self.assertContains(page, "Pick dates")
         self.assertContains(page, "Move to Working Toward")
@@ -508,7 +568,7 @@ class WinsEndpointTests(TestCase):
 
         page = self.c.get("/daily/wins/archived/")
         self.assertContains(page, 'class="goal-select"', count=2)
-        self.assertContains(page, "Move to Working Toward", count=2)
+        self.assertContains(page, "Move to Working Toward", count=1)
 
         r = self.c.post("/daily/win/goal/restore/", {"id": [first.id, second.id]})
         self.assertEqual(r.status_code, 302)
@@ -618,19 +678,20 @@ class WinsEndpointTests(TestCase):
         complete_win(s2)
         complete_goal(goal)
 
-        # Working toward has one history entry point; its destination separates
-        # completed and deleted North Stars into distinct sections.
+        # The editor has one history entry point; achieved and archived North
+        # Stars share its single list, achieved rows dated "Achieved <date>".
         r = self.c.get("/daily/wins/")
         self.assertNotContains(r, "/daily/wins/achieved/")
         self.assertContains(r, "/daily/wins/archived/")
         self.assertNotContains(r, "Run a 5k")  # finished goals left the editor
 
         history = self.c.get("/daily/wins/archived/")
-        self.assertContains(history, ">Achieved</div>")
+        self.assertContains(history, '<div class="eyebrow">Wins</div>', html=True, count=1)
         self.assertContains(history, "Run a 5k")
         self.assertContains(history, "Buy shoes")
         self.assertContains(history, "Move to Working Toward")
         self.assertContains(history, f'data-achieved-goal="{goal.id}"')
+        self.assertContains(history, ">Achieved ")
         self.assertNotContains(history, 'data-archived-goal="')
 
         r2 = self.c.get("/daily/wins/achieved/")
@@ -677,9 +738,8 @@ class WinsEndpointTests(TestCase):
         self.assertContains(r, "data-wins-loading")
         self.assertContains(r, "data-wins-host")
         self.assertContains(r, "data-wins-archived-loading")
-        self.assertContains(r, 'aria-label="Loading achieved North Stars"')
-        self.assertContains(r, '<div class="eyebrow">Achieved</div>', html=True)
-        self.assertContains(r, '<div class="eyebrow">Archived</div>', html=True)
+        self.assertContains(r, 'aria-label="Loading win history"')
+        self.assertContains(r, '<div class="eyebrow">Wins</div>', html=True)
         self.assertContains(r, 'data-wins-loading-close')
         self.assertNotContains(r, "{# The full wins editor")
         self.assertContains(r, "/static/daily/images/jamie-avatar.jpg")

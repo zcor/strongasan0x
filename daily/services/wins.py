@@ -485,28 +485,11 @@ def defer_win(win: WinItem, today: date_cls) -> WinItem:
     return win
 
 
-def promote_to_habit(win: WinItem, participant: DailyParticipant):
-    """A standalone one-off win that has started sticking graduates into a
-    recurring habit (plan section 1a). Appends it to the current checklist and
-    marks the win graduated. North Star steps never graduate; the endpoint
-    only routes standalone wins here. Returns (item, None), or (None, None) if
-    the checklist is full. Caller owns the label -> habit wording.
-    """
-    from .checklist import MAX_CHECKLIST_SIZE, all_version_keys
-    from ..models import ChecklistVersion
-    import uuid
-
-    version = participant.get_or_create_current_checklist()
-    if len(version.questions) >= MAX_CHECKLIST_SIZE:
-        return None, None
-    item = {"key": "w_" + uuid.uuid4().hex[:8], "label": win.text[:60]}
-    with transaction.atomic():
-        v = ChecklistVersion.objects.select_for_update().get(id=version.id)
-        if item["key"] in all_version_keys(v):
-            return None, None
-        v.questions = list(v.questions) + [item]
-        v.save(update_fields=["questions"])
-        win.status = WinItem.STATUS_GRADUATED
-        win.surfaced_on = None
-        win.save(update_fields=["status", "surfaced_on"])
-    return item, None
+def convert_to_north_star(win: WinItem) -> WinItem:
+    """Grow a standalone one-off win into a north star: its text becomes the
+    goal and the first step arrives via add_stone. Clears daily-selection
+    state, since a goal is never itself the daily leaf."""
+    win.is_goal = True
+    win.surfaced_on = None
+    win.save(update_fields=["is_goal", "surfaced_on"])
+    return win

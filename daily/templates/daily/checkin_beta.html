@@ -221,7 +221,7 @@ after the first paint so backlog queries and markup do not block the dashboard.
                     Today
                 </button>
                 <div class="wetitle" id="wins-dialog-title">Your wins</div>
-                <div class="wesub">Loading your North Stars and wins…</div>
+                <div class="wesub">Loading your wins…</div>
             </header>
             <div class="card" aria-label="Loading your wins">
                 <div class="card-body">
@@ -244,22 +244,16 @@ after the first paint so backlog queries and markup do not block the dashboard.
                         Your wins
                     </button>
                     <div class="wetitle" id="wins-archived-title">Archived</div>
-                    <div class="wesub">Loading your North Star history…</div>
+                    <div class="wesub">Loading your win history…</div>
                 </header>
-                <div class="card" aria-label="Loading achieved North Stars">
+                <div class="card" aria-label="Loading win history">
                     <div class="card-body">
-                        <div class="eyebrow">Achieved</div>
+                        <div class="eyebrow">Wins</div>
                         <div class="skeleton-line medium"></div>
                         <div class="skeleton-line"></div>
-                    </div>
-                </div>
-                <div class="card" aria-label="Loading archived North Stars">
-                    <div class="card-body">
-                        <div class="eyebrow">Archived</div>
                         <div class="skeleton-line medium"></div>
-                        <div class="skeleton-line"></div>
                         <div class="eskeleton-error" data-wins-archived-error hidden>
-                            <span>North Star history could not be loaded.</span>
+                            <span>Win history could not be loaded.</span>
                             <button type="button" data-wins-archived-retry>Try again</button>
                         </div>
                     </div>
@@ -336,7 +330,7 @@ client-side from /daily/win/candidates/ each time it opens.
             </div>
             <div class="card is-hidden" id="win-picker-empty-card">
                 <div class="card-body">
-                    <div class="empty">Nothing to pick right now. Add a win or a North Star step in Your wins.</div>
+                    <div class="empty">Nothing to pick right now. Add a win or a step in Your wins.</div>
                 </div>
                 <div class="card-foot">
                     <button class="act gold" id="win-picker-manage" type="button">Your wins</button>
@@ -1442,11 +1436,20 @@ client-side from /daily/win/candidates/ each time it opens.
         if (winsDialog && winsDialog.open) winsDialog.close();
         document.body.classList.remove("wins-dialog-open");
     }
+    // A reopened editor starts fresh: any row left expanded last visit
+    // collapses before the dialog shows again.
+    function collapseEditorRows(dialog) {
+        if (!dialog || !window.elistSetExpanded) return;
+        dialog.querySelectorAll(".elist-item.expanded").forEach(function (item) {
+            window.elistSetExpanded(item, false);
+        });
+    }
     function goToWins() {
         if (!winsDialog || typeof winsDialog.showModal !== "function") {
             location.href = "/daily/wins/";
             return;
         }
+        collapseEditorRows(winsDialog);
         if (!winsDialog.open) winsDialog.showModal();
         document.body.classList.add("wins-dialog-open");
         loadWinsEditor(false);
@@ -1610,6 +1613,7 @@ client-side from /daily/win/candidates/ each time it opens.
             location.href = "/daily/habits/";
             return;
         }
+        collapseEditorRows(habitsDialog);
         if (!habitsDialog.open) habitsDialog.showModal();
         document.body.classList.add("wins-dialog-open");
         loadHabitsEditor(false);
@@ -1655,7 +1659,7 @@ client-side from /daily/win/candidates/ each time it opens.
         }, function () {
             button.textContent = "Mark complete";
             button.disabled = false;
-            window.alert("Check off every step before completing this North Star.");
+            window.alert("Check off every step before completing this win.");
         });
     };
     if ($("win-invite-open")) $("win-invite-open").onclick = goToWins;

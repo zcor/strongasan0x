@@ -1,10 +1,11 @@
 {% comment %}
-Archived North Stars rendered either as a lazy dialog panel or as the direct
-page fallback. Each card is ONE form: tapping a goal's label toggles its
-select circle and the shared footer restores every checked North Star; the
-chevron on the right expands the row to show its steps (same collapsed rows
-as Working Toward). The native submit (multiple id values) keeps the no-JS
-page working; the dialog intercepts it.
+North Star history rendered either as a lazy dialog panel or as the direct
+page fallback. ONE card, one form: achieved North Stars (with an
+"Achieved <date>" meta) and archived ones share the list. Tapping a goal's
+label toggles its select circle and the shared footer restores every checked
+North Star; the chevron on the right expands the row to show its steps (same
+collapsed rows as the wins editor). The native submit (multiple id values)
+keeps the no-JS page working; the dialog intercepts it.
 {% endcomment %}
 <div class="wins-archived" data-wins-archived-content data-elist-accordion>
     <div class="wedit">
@@ -21,13 +22,13 @@ page working; the dialog intercepts it.
                 </a>
             {% endif %}
             <div class="wetitle"{% if wins_dialog %} id="wins-archived-title"{% endif %}>Archived</div>
-            <div class="wesub">Your completed North Stars and the ones you removed from active work.</div>
+            <div class="wesub">Your completed wins and the ones you removed from active work.</div>
         </header>
 
         <form class="card" method="post" action="/daily/win/goal/restore/" data-restore-list>
             {% csrf_token %}
             <div class="card-body">
-                <div class="eyebrow">Achieved</div>
+                <div class="eyebrow">Wins</div>
                 {% for g in achieved %}
                     <div class="elist-item goal collapsible collapsed" data-history-goal data-achieved-goal="{{ g.goal.id }}">
                         <div class="goalhead elist-heading">
@@ -35,7 +36,7 @@ page working; the dialog intercepts it.
                                 <input class="goal-select" type="checkbox" name="id" value="{{ g.goal.id }}" aria-label="Select {{ g.goal.text }}">
                                 <span class="goal-summary elist-label">
                                     <span class="gtitle elist-name">{{ g.goal.text }}</span>
-                                    {% if g.goal.done_at %}<span class="gcount elist-meta">{{ g.goal.done_at|date:"M j" }}</span>{% endif %}
+                                    {% if g.goal.done_at %}<span class="gcount elist-meta">Achieved {{ g.goal.done_at|date:"M j" }}</span>{% endif %}
                                 </span>
                             </label>
                             {% if g.stones %}
@@ -58,17 +59,6 @@ page working; the dialog intercepts it.
                         {% endif %}
                     </div>
                 {% endfor %}
-                <div class="empty{% if achieved %} is-hidden{% endif %}" data-achieved-empty>No achieved North Stars yet.</div>
-            </div>
-            <div class="card-foot{% if not achieved %} is-hidden{% endif %}" data-restore-foot>
-                <button class="act gold" type="submit">Move to Working Toward</button>
-            </div>
-        </form>
-
-        <form class="card" method="post" action="/daily/win/goal/restore/" data-restore-list>
-            {% csrf_token %}
-            <div class="card-body">
-                <div class="eyebrow">Archived</div>
                 {% for g in archived %}
                     <div class="elist-item goal collapsible collapsed" data-history-goal data-archived-goal="{{ g.goal.id }}">
                         <div class="goalhead elist-heading">
@@ -98,9 +88,9 @@ page working; the dialog intercepts it.
                         {% endif %}
                     </div>
                 {% endfor %}
-                <div class="empty{% if archived %} is-hidden{% endif %}" data-archived-empty>No archived North Stars.</div>
+                <div class="empty{% if achieved or archived %} is-hidden{% endif %}" data-history-empty>Nothing here yet. Completed wins and ones you remove land here.</div>
             </div>
-            <div class="card-foot{% if not archived %} is-hidden{% endif %}" data-restore-foot>
+            <div class="card-foot{% if not achieved and not archived %} is-hidden{% endif %}" data-restore-foot>
                 <button class="act gold" type="submit">Move to Working Toward</button>
             </div>
         </form>

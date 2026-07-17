@@ -3,8 +3,8 @@ sub-item preservation through overnight mutations, evening-plan merge (reorder,
 never shrink), the beta gate on beta onboarding, and crisis-regex precision.
 
 Also covers the Climb beta-review fixes: skip-clears-subitem-done, the
-case-folded label fallback in _merge_subitems, explicit North Star completion,
-and the win_action 'promote' endpoint."""
+case-folded label fallback in _merge_subitems, and explicit North Star
+completion."""
 import json
 from datetime import timedelta
 
@@ -792,57 +792,3 @@ class WinRemoveKeepsGoalOpenTests(TestCase):
         self.assertEqual(goal.status, WinItem.STATUS_OPEN)
 
 
-class WinPromoteEndpointTests(TestCase):
-    """win_action action='promote': graduates a one-off win into a recurring
-    habit on the current checklist. Reachable from the UI now; test the
-    endpoint directly, including the checklist-full failure mode."""
-
-    def setUp(self):
-        self.p = DailyParticipant.objects.create(
-            display_name="Tester", kind=DailyParticipant.KIND_EXTERNAL, beta=True
-        )
-        self.c = Client()
-        s = self.c.session
-        s[SESSION_DAILY_PARTICIPANT_ID] = self.p.id
-        s.save()
-
-    def _post(self, url, body):
-        return self.c.post(url, data=json.dumps(body), content_type="application/json")
-
-    def test_promote_graduates_win_into_habit(self):
-        from daily.services.wins import add_win
-
-        win = add_win(self.p, "Stretch every morning")
-        r = self._post("/daily/win/", {"id": win.id, "action": "promote"})
-        self.assertEqual(r.status_code, 200)
-        body = r.json()
-        self.assertTrue(body["ok"])
-        self.assertTrue(body["item"]["core"])
-
-        win.refresh_from_db()
-        self.assertEqual(win.status, WinItem.STATUS_GRADUATED)
-
-        current = self.p.checklist_versions.get(is_current=True)
-        labels = [q["label"] for q in current.questions]
-        self.assertIn("Stretch every morning", labels)
-
-    def test_promote_when_checklist_full_returns_409_and_does_not_graduate(self):
-        from daily.services.checklist import MAX_CHECKLIST_SIZE
-        from daily.services.wins import add_win
-
-        ChecklistVersion.objects.create(
-            participant=self.p,
-            questions=[
-                {"key": f"q_{i}", "label": f"Habit {i}"}
-                for i in range(MAX_CHECKLIST_SIZE)
-            ],
-            source=ChecklistVersion.SOURCE_BASELINE,
-            is_current=True,
-        )
-        win = add_win(self.p, "One more thing")
-        r = self._post("/daily/win/", {"id": win.id, "action": "promote"})
-        self.assertEqual(r.status_code, 409)
-        self.assertEqual(r.json()["error"], "checklist_full")
-
-        win.refresh_from_db()
-        self.assertEqual(win.status, WinItem.STATUS_OPEN)

@@ -1427,8 +1427,8 @@ def win_select(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_action(request):
-    """Check off, defer, or promote a participant-owned win leaf."""
-    from .services.wins import complete_win, defer_win, promote_to_habit, uncomplete_win
+    """Check off, uncheck, or defer a participant-owned win leaf."""
+    from .services.wins import complete_win, defer_win, uncomplete_win
 
     participant = request.daily_participant
     if not _is_beta(request, participant):
@@ -1457,16 +1457,12 @@ def win_action(request):
         else:
             # is_goal=False: only leaves (standalone wins / stepping stones)
             # can be acted on. A North Star has its own completion endpoint.
-            # Promotion is limited further, to standalone one-off wins: a
-            # North Star step never graduates into a habit.
-            leaf_filters = {"id": win_id, "is_goal": False, "status": WinItem.STATUS_OPEN}
-            if action == "promote":
-                leaf_filters["parent__isnull"] = True
-            win = participant.wins.get(**leaf_filters)
+            win = participant.wins.get(
+                id=win_id, is_goal=False, status=WinItem.STATUS_OPEN
+            )
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
-    graduated_item = None
     if action == "did_it":
         # The daily-card action is valid only for the leaf selected today
         # (automatically or by the user). This is the sole path that earns the
@@ -1485,10 +1481,6 @@ def win_action(request):
         if win.surfaced_on != today:
             return JsonResponse({"ok": False, "error": "not_selected"}, status=409)
         defer_win(win, today)
-    elif action == "promote":
-        graduated_item, _ = promote_to_habit(win, participant)
-        if graduated_item is None:
-            return JsonResponse({"ok": False, "error": "checklist_full"}, status=409)
     else:
         return JsonResponse({"ok": False, "error": "bad_action"}, status=400)
 
@@ -1498,8 +1490,6 @@ def win_action(request):
         payload["featured_done"] = completed.surfaced_on == today
     elif action == "uncheck":
         payload["reopened"] = _stone_json(reopened, today)
-    if graduated_item is not None:
-        payload["item"] = {**graduated_item, "core": True}
     return JsonResponse(payload)
 
 
@@ -1740,8 +1730,8 @@ def win_goal_add(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_goal_edit(request):
-    """Rename an active, participant-owned North Star. Beta-only.
-    Body: {id: int, text: str}."""
+    """Rename an active, participant-owned North Star or one-off win (both
+    are parentless rows). Beta-only. Body: {id: int, text: str}."""
     participant = request.daily_participant
     if not _is_beta(request, participant):
         return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
@@ -1753,7 +1743,7 @@ def win_goal_edit(request):
         return JsonResponse({"ok": False, "error": "bad_text"}, status=400)
     try:
         goal = participant.wins.get(
-            id=body.get("id"), is_goal=True, status=WinItem.STATUS_OPEN
+            id=body.get("id"), parent__isnull=True, status=WinItem.STATUS_OPEN
         )
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
@@ -1770,9 +1760,11 @@ def win_goal_edit(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def win_stone_add(request):
-    """Append a stepping stone to an existing north star. Beta-only.
+    """Append a stepping stone to a north star. Pointing it at a standalone
+    one-off win first grows that win into a north star (its text becomes the
+    goal, this step becomes the first stone). Beta-only.
     Body: {goal_id: int, text: str}."""
-    from .services.wins import add_stone
+    from .services.wins import add_stone, convert_to_north_star
 
     participant = request.daily_participant
     if not _is_beta(request, participant):
@@ -1781,18 +1773,33 @@ def win_stone_add(request):
     if err:
         return err
     try:
-        goal = participant.wins.get(id=body.get("goal_id"), is_goal=True)
+        goal = participant.wins.filter(parent__isnull=True).filter(
+            Q(is_goal=True) | Q(status=WinItem.STATUS_OPEN)
+        ).get(id=body.get("goal_id"))
     except (WinItem.DoesNotExist, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    stone = add_stone(participant, goal, str(body.get("text", "")))
+    text = str(body.get("text", ""))
+    converted = False
+    if not goal.is_goal:
+        # Validate before converting, so an empty step never leaves behind a
+        # stoneless north star.
+        if not text.strip():
+            return JsonResponse({"ok": False, "error": "empty_or_full"}, status=400)
+        goal = convert_to_north_star(goal)
+        converted = True
+    stone = add_stone(participant, goal, text)
     if stone is None:
         return JsonResponse({"ok": False, "error": "empty_or_full"}, status=400)
     today = _resolve_today(request)
-    return JsonResponse({
+    payload = {
         "ok": True,
         "stone": _stone_json(stone, today),
         **_wins_state_json(participant, today),
-    })
+    }
+    if converted:
+        payload["converted"] = True
+        payload["goal"] = {"id": goal.id, "text": goal.text}
+    return JsonResponse(payload)
 
 
 @require_daily_actor

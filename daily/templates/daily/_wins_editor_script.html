@@ -49,39 +49,19 @@
     }
 
     function syncEmpty() {
-        var goalsEmpty = $("goals-empty");
-        var singlesEmpty = $("singles-empty");
-        var hasGoals = $("goals").children.length > 0;
-        var hasSingles = $("singles").children.length > 0;
-        $("goals").classList.toggle("has-goals", hasGoals);
-        $("singles").classList.toggle("has-singles", hasSingles);
-        syncGoalCollapseMode();
-        if (goalsEmpty) goalsEmpty.classList.toggle("is-hidden", hasGoals);
-        if (singlesEmpty) singlesEmpty.classList.toggle("is-hidden", hasSingles);
-        syncPromoteFoot();
+        var list = $("wins-list");
+        var empty = $("wins-empty");
+        var hasItems = list.children.length > 0;
+        list.classList.toggle("has-items", hasItems);
+        if (empty) empty.classList.toggle("is-hidden", hasItems);
     }
 
-    function syncPromoteFoot() {
-        var button = $("promote-selected-btn");
-        if (!button) return;
-        var checked = $("singles").querySelectorAll(".single.checked").length;
-        button.classList.toggle("is-hidden", $("singles").children.length === 0);
-        button.disabled = checked === 0;
-        button.textContent = checked > 1 ? "Move " + checked + " to habits" : "Move to habit";
-    }
-
-    function syncGoalCollapseMode() {
-        var goals = Array.prototype.slice.call($("goals").children);
-        var many = goals.length > 2;
-        root.classList.toggle("many-goals", many);
-        goals.forEach(function (goal) {
-            var toggle = goal.querySelector("[data-toggle-goal]");
-            goal.classList.add("collapsible");
-            if (toggle) {
-                toggle.disabled = false;
-                toggle.setAttribute("aria-expanded", goal.classList.contains("collapsed") ? "false" : "true");
-            }
-        });
+    // North stars sit above one-off wins in the shared list.
+    function insertGoal(el) {
+        var list = $("wins-list");
+        var firstSingle = list.querySelector(".single");
+        if (firstSingle) list.insertBefore(el, firstSingle);
+        else list.appendChild(el);
     }
 
     function stoneEl(stone) {
@@ -101,11 +81,15 @@
 
     function singleEl(single) {
         var row = document.createElement("div");
-        row.className = "single";
+        row.className = "elist-item single collapsible collapsed";
         row.dataset.stoneId = single.id;
         row.dataset.status = single.status || "open";
-        row.innerHTML = '<button class="step-check" type="button" data-select-win="' + single.id + '" aria-pressed="false" aria-label="Select win"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="sremove" type="button" data-remove="' + single.id + '" aria-label="Delete win">✕</button>';
-        row.querySelector(".rlabel").textContent = single.text;
+        row.innerHTML = '<div class="goalhead elist-heading"><span class="goal-summary elist-label"><span class="gtitle elist-name"></span><input class="composer-input goal-title-input" type="text" data-goal-title-input maxlength="200" aria-label="Win name" autocomplete="off"></span><button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-expanded="false"><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="goal-actions elist-actions"><button class="danger" type="button" data-remove="' + single.id + '" aria-label="Delete this win">Delete</button><button class="addstone" type="button" data-add-stone="' + single.id + '">Add a step</button><button class="goal-save primary" type="button" data-save-goal="' + single.id + '">Save</button></div></div>';
+        row.querySelector(".gtitle").textContent = single.text;
+        var titleInput = row.querySelector("[data-goal-title-input]");
+        titleInput.value = single.text;
+        titleInput.dataset.savedValue = single.text;
+        row.querySelector("[data-toggle-goal]").setAttribute("aria-label", "Toggle " + single.text);
         return row;
     }
 
@@ -114,7 +98,7 @@
         var collapsed = true;
         block.className = "elist-item goal collapsible collapsed";
         block.dataset.goalId = goal.id;
-        block.innerHTML = '<div class="goalhead elist-heading"><span class="goal-summary elist-label"><span class="gtitle elist-name"></span><input class="composer-input goal-title-input" type="text" data-goal-title-input maxlength="200" aria-label="North Star name" autocomplete="off"><span class="gcount elist-meta" data-count></span></span><button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-expanded="false"><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="stones elist-body"></div><div class="goal-actions elist-actions"><button class="goal-archive danger" type="button" data-archive-goal="' + goal.id + '" aria-label="Delete this North Star">Delete</button><button class="addstone" type="button" data-add-stone="' + goal.id + '">Add a step</button><button class="goal-save primary" type="button" data-save-goal="' + goal.id + '">Save</button></div></div>';
+        block.innerHTML = '<div class="goalhead elist-heading"><span class="goal-summary elist-label"><span class="gtitle elist-name"></span><input class="composer-input goal-title-input" type="text" data-goal-title-input maxlength="200" aria-label="Win name" autocomplete="off"><span class="gcount elist-meta" data-count></span></span><button class="goal-toggle elist-toggle" type="button" data-toggle-goal aria-expanded="false"><span class="goal-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></button></div><div class="goal-details"><div class="stones elist-body"></div><div class="goal-actions elist-actions"><button class="goal-archive danger" type="button" data-archive-goal="' + goal.id + '" aria-label="Delete this win">Delete</button><button class="addstone" type="button" data-add-stone="' + goal.id + '">Add a step</button><button class="goal-save primary" type="button" data-save-goal="' + goal.id + '">Save</button></div></div>';
         block.querySelector(".gtitle").textContent = goal.text;
         var titleInput = block.querySelector("[data-goal-title-input]");
         titleInput.value = goal.text;
@@ -125,21 +109,24 @@
         return block;
     }
 
+    // Renames a north star or a one-off win; both live behind the same
+    // parentless /daily/win/goal/edit/ endpoint.
     function saveGoalTitle(input, save) {
         if (!input || !save || input.dataset.saving === "1") return;
         var saved = input.dataset.savedValue || "";
         var value = input.value.trim();
+        var item = input.closest(".elist-item");
+        var isGoal = item.classList.contains("goal");
         if (!value) {
-            editToast("A North Star needs a name.");
+            editToast("A win needs a name.");
             return;
         }
         if (value === saved) return;
-        var goal = input.closest(".goal");
         input.dataset.saving = "1";
         input.disabled = true;
         save.disabled = true;
         save.textContent = "Saving…";
-        post("/daily/win/goal/edit/", { id: goal.dataset.goalId, text: value }, function (data) {
+        post("/daily/win/goal/edit/", { id: item.dataset.goalId || item.dataset.stoneId, text: value }, function (data) {
             var title = data.goal.text;
             input.disabled = false;
             save.disabled = false;
@@ -147,33 +134,35 @@
             delete input.dataset.saving;
             input.value = title;
             input.dataset.savedValue = title;
-            goal.querySelector(".gtitle").textContent = title;
-            var toggle = goal.querySelector("[data-toggle-goal]");
-            var archive = goal.querySelector("[data-archive-goal]");
+            item.querySelector(".gtitle").textContent = title;
+            var toggle = item.querySelector("[data-toggle-goal]");
+            var remove = isGoal
+                ? item.querySelector("[data-archive-goal]")
+                : item.querySelector(".goal-actions [data-remove]");
             if (toggle) toggle.setAttribute("aria-label", "Toggle " + title);
-            if (archive) archive.setAttribute("aria-label", "Delete " + title);
+            if (remove) remove.setAttribute("aria-label", "Delete " + title);
             syncToday(data);
-            editToast("North Star saved.");
+            editToast("Win saved.");
         }, function () {
             input.disabled = false;
             save.disabled = false;
             save.textContent = "Save";
             delete input.dataset.saving;
-            editToast("Couldn't save that North Star right now.");
+            editToast("Couldn't save that right now.");
         });
     }
 
     root.addEventListener("click", function (e) {
         var save = e.target.closest("[data-save-goal]");
         if (!save || !root.contains(save)) return;
-        saveGoalTitle(save.closest(".goal").querySelector("[data-goal-title-input]"), save);
+        saveGoalTitle(save.closest(".elist-item").querySelector("[data-goal-title-input]"), save);
     });
 
     root.addEventListener("keydown", function (e) {
         if (!e.target.matches("[data-goal-title-input]")) return;
         if (e.key === "Enter") {
             e.preventDefault();
-            var save = e.target.closest(".goal").querySelector("[data-save-goal]");
+            var save = e.target.closest(".elist-item").querySelector("[data-save-goal]");
             saveGoalTitle(e.target, save);
         }
         else if (e.key === "Escape") {
@@ -246,7 +235,7 @@
             editToast("Moved to Archived: " + data.archived.title);
         }, function () {
             archive.disabled = false;
-            editToast("Couldn't archive that North Star right now.");
+            editToast("Couldn't archive that right now.");
         });
     });
 
@@ -269,58 +258,10 @@
     });
 
     root.addEventListener("click", function (e) {
-        var select = e.target.closest("[data-select-win]");
-        if (!select || !root.contains(select)) return;
-        var row = select.closest(".single");
-        var on = !row.classList.contains("checked");
-        row.classList.toggle("checked", on);
-        select.setAttribute("aria-pressed", on ? "true" : "false");
-        syncPromoteFoot();
-    });
-
-    root.addEventListener("click", function (e) {
-        var button = e.target.closest("#promote-selected-btn");
-        if (!button || !root.contains(button) || button.disabled) return;
-        var rows = Array.prototype.slice.call($("singles").querySelectorAll(".single.checked"));
-        if (!rows.length) return;
-        button.disabled = true;
-        button.textContent = "Moving…";
-        var moved = 0;
-        var listFull = false;
-        (function next(index) {
-            if (index >= rows.length || listFull) {
-                syncEmpty();
-                if (moved && listFull) {
-                    editToast("Added " + moved + " to your daily list; the rest didn't fit.");
-                } else if (listFull) {
-                    editToast("Your daily list is full. Remove a habit first.");
-                } else if (moved) {
-                    editToast(moved === 1
-                        ? "Added to your daily list."
-                        : "Added " + moved + " to your daily list.");
-                } else {
-                    editToast("Couldn't add those right now.");
-                }
-                return;
-            }
-            var row = rows[index];
-            post("/daily/win/", { id: row.dataset.stoneId, action: "promote" }, function (data) {
-                moved += 1;
-                row.remove();
-                syncToday(data);
-                next(index + 1);
-            }, function (res) {
-                if (res && res.status === 409) listFull = true;
-                next(index + 1);
-            });
-        })(0);
-    });
-
-    root.addEventListener("click", function (e) {
         var button = e.target.closest("[data-add-stone]");
         if (!button || !root.contains(button)) return;
         var goalId = button.getAttribute("data-add-stone");
-        var goal = button.closest(".goal");
+        var goal = button.closest(".elist-item");
         var existing = goal.querySelector(".stone-composer");
         if (existing) { existing.querySelector("input").focus(); return; }
         var wrap = document.createElement("div"); wrap.className = "stone-composer";
@@ -348,8 +289,18 @@
             pending = true; input.disabled = true; cancel.disabled = true; add.disabled = true;
             add.textContent = "Adding…"; add.classList.add("loading");
             post("/daily/win/stone/add/", { goal_id: goalId, text: text }, function (data) {
-                goal.querySelector(".stones").appendChild(stoneEl(data.stone));
-                goalCount(goal); pending = false; close();
+                pending = false;
+                if (data.converted && data.goal) {
+                    // The one-off grew into a north star: rebuild the row in
+                    // goal form, keep it with the other goals, leave it open.
+                    var replacement = goalEl({ id: data.goal.id, text: data.goal.text, stones: [data.stone] });
+                    goal.remove();
+                    insertGoal(replacement);
+                    if (window.elistSetExpanded) window.elistSetExpanded(replacement, true);
+                } else {
+                    goal.querySelector(".stones").appendChild(stoneEl(data.stone));
+                    goalCount(goal); close();
+                }
                 syncToday(data);
             }, function () {
                 pending = false; input.disabled = false; cancel.disabled = false; add.disabled = false;
@@ -365,65 +316,52 @@
         };
     });
 
-    var singleButton = $("add-single-btn");
-    if (singleButton) singleButton.onclick = function () {
-        var host = $("singles");
-        var existing = $("single-inline");
-        if (existing) { existing.querySelector("input").focus(); return; }
-        var wrap = document.createElement("div"); wrap.className = "stone-inline"; wrap.id = "single-inline";
-        var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
-        input.className = "composer-input"; input.placeholder = "e.g. Book the dentist"; input.autocomplete = "off";
-        var add = document.createElement("button"); add.type = "button"; add.className = "mini"; add.textContent = "Add";
-        wrap.appendChild(input); wrap.appendChild(add);
-        host.parentNode.insertBefore(wrap, host.nextSibling);
-        input.focus();
-        function submit() {
-            var text = input.value.trim(); if (!text) { input.focus(); return; }
-            add.disabled = true;
-            post("/daily/win/add/", { text: text }, function (data) {
-                if (data.added) host.appendChild(singleEl(data.added));
-                wrap.remove(); syncEmpty(); syncToday(data);
-            }, function () { add.disabled = false; editToast("Couldn't add that right now."); });
-        }
-        add.onclick = submit;
-        input.onkeydown = function (event) {
-            if (event.key === "Enter") { event.preventDefault(); submit(); }
-            else if (event.key === "Escape") wrap.remove();
-        };
-    };
-
-    {% if not wins_dialog %}
-    try { if (singleButton && new URLSearchParams(location.search).get("add") === "1") singleButton.onclick(); } catch (e) {}
-    {% endif %}
-
-    var composer = $("ncomposer"), goalInput = $("ncomp-goal"), stepsHost = $("ncomp-steps"), message = $("ncomp-msg");
+    // One composer covers both shapes: plain text adds a one-off win, adding
+    // steps turns it into a north star (mirrors the habits add composer).
+    var composer = $("ncomposer"), goalInput = $("ncomp-goal"),
+        stepsSection = $("ncomp-steps-section"), stepsHost = $("ncomp-steps"), message = $("ncomp-msg");
     function openComposer() {
         composer.classList.remove("is-hidden"); goalInput.value = "";
-        stepsHost.querySelectorAll(".nc-step").forEach(function (step, index) { if (index < 2) step.value = ""; });
+        stepsHost.innerHTML = ""; stepsSection.classList.add("is-hidden");
         message.classList.add("is-hidden"); goalInput.focus();
     }
     function closeComposer() { composer.classList.add("is-hidden"); }
-    if ($("add-goal-btn")) $("add-goal-btn").onclick = openComposer;
+    if ($("add-win-btn")) $("add-win-btn").onclick = openComposer;
     if ($("ncomp-cancel")) $("ncomp-cancel").onclick = closeComposer;
     if (composer) composer.addEventListener("click", function (e) { if (e.target === composer) closeComposer(); });
     if ($("ncomp-more")) $("ncomp-more").onclick = function () {
+        stepsSection.classList.remove("is-hidden");
         var input = document.createElement("input"); input.type = "text"; input.maxLength = 200;
-        input.className = "composer-input nc-step"; input.placeholder = "Next step (optional)"; input.autocomplete = "off";
+        input.className = "composer-input nc-step"; input.autocomplete = "off";
+        input.placeholder = stepsHost.children.length
+            ? "Next step (optional)"
+            : "First step, e.g. Update your resume";
         stepsHost.appendChild(input); input.focus();
     };
     if ($("ncomp-save")) $("ncomp-save").onclick = function () {
-        var goal = goalInput.value.trim();
+        var text = goalInput.value.trim();
         var stones = Array.prototype.slice.call(stepsHost.querySelectorAll(".nc-step")).map(function (step) { return step.value.trim(); }).filter(Boolean);
-        if (!goal) { message.textContent = "Give your north star a name."; message.classList.remove("is-hidden"); goalInput.focus(); return; }
-        if (!stones.length) { message.textContent = "Add at least one step."; message.classList.remove("is-hidden"); return; }
+        if (!text) { message.textContent = "Give your win a name."; message.classList.remove("is-hidden"); goalInput.focus(); return; }
         var save = $("ncomp-save"); save.disabled = true;
-        post("/daily/win/goal/add/", { goal: goal, stones: stones }, function (data) {
-            $("goals").appendChild(goalEl(data.goal));
-            save.disabled = false; closeComposer(); syncEmpty(); syncToday(data);
-        }, function () {
-            save.disabled = false; message.textContent = "Couldn't create that, try again."; message.classList.remove("is-hidden");
-        });
+        function fail() {
+            save.disabled = false; message.textContent = "Couldn't add that, try again."; message.classList.remove("is-hidden");
+        }
+        if (stones.length) {
+            post("/daily/win/goal/add/", { goal: text, stones: stones }, function (data) {
+                insertGoal(goalEl(data.goal));
+                save.disabled = false; closeComposer(); syncEmpty(); syncToday(data);
+            }, fail);
+        } else {
+            post("/daily/win/add/", { text: text }, function (data) {
+                if (data.added) $("wins-list").appendChild(singleEl(data.added));
+                save.disabled = false; closeComposer(); syncEmpty(); syncToday(data);
+            }, fail);
+        }
     };
+
+    {% if not wins_dialog %}
+    try { if (new URLSearchParams(location.search).get("add") === "1") openComposer(); } catch (e) {}
+    {% endif %}
 
     function showWinsEditor() {
         root.hidden = false;
@@ -541,10 +479,8 @@
             (function next(index) {
                 if (index >= checks.length) {
                     var content = archivedPanel.querySelector("[data-wins-archived-content]");
-                    var archivedEmpty = content && content.querySelector("[data-archived-empty]");
-                    var achievedEmpty = content && content.querySelector("[data-achieved-empty]");
-                    if (archivedEmpty) archivedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-archived-goal]")));
-                    if (achievedEmpty) achievedEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-achieved-goal]")));
+                    var historyEmpty = content && content.querySelector("[data-history-empty]");
+                    if (historyEmpty) historyEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-history-goal]")));
                     syncEmpty();
                     syncRestoreFoots();
                     if (moved.length === 1) editToast("Moved to Working Toward: " + moved[0], archivedPanel);
@@ -556,10 +492,10 @@
                 var goal = box.closest("[data-history-goal]");
                 var title = goal && goal.querySelector(".gtitle");
                 post(form.action, { id: box.value }, function (data) {
-                    moved.push(title ? title.textContent.trim() : "North Star");
+                    moved.push(title ? title.textContent.trim() : "Win");
                     if (goal) goal.remove();
                     if (data.goal && !root.querySelector('[data-goal-id="' + data.goal.id + '"]')) {
-                        $("goals").appendChild(goalEl(data.goal));
+                        insertGoal(goalEl(data.goal));
                     }
                     syncToday(data);
                     next(index + 1);
