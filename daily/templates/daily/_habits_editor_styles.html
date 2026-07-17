@@ -1,5 +1,12 @@
 <style>
     .habits-editor .habits-list-body { padding-bottom: 0; }
+    .habits-editor .win-ask {
+        display: block; width: max-content; max-width: 100%; background: none;
+        border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
+        font-size: .84rem; padding: 2px; cursor: pointer; text-align: left;
+    }
+    .habits-editor .win-ask span { color: var(--accent); white-space: nowrap; }
+    .habits-editor .win-ask:hover { color: var(--text); }
     .habits-editor [hidden] { display: none !important; }
     .habits-editor .empty { padding: 4px 0 20px; color: var(--text-dim); font-size: .86rem; line-height: 1.5; }
     /* Label <-> rename-input swap, driven by the shared accordion's

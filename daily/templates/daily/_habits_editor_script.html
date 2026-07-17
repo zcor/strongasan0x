@@ -631,6 +631,11 @@
             if (event.target.closest("[data-habits-close]") && window.__closeHabitsDialog) {
                 window.__closeHabitsDialog();
             }
+            if (event.target.closest("[data-habits-ask]")) {
+                if (window.__closeHabitsDialog) window.__closeHabitsDialog();
+                if (window.__askCoach) window.__askCoach("habit");
+                else if (window.__openCoach) window.__openCoach();
+            }
         });
     }
 

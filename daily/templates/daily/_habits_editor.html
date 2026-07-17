@@ -57,6 +57,12 @@ as the direct /daily/habits/ fallback when <dialog> is unavailable.
                 </div>
             </div>
         </div>
+
+        {% if habits_dialog %}
+            <button class="win-ask" type="button" data-habits-ask>Not sure what to add? <span>Jamie can help ›</span></button>
+        {% else %}
+            <a class="win-ask" href="/daily/checkin/?ask=habit">Not sure what to add? <span>Jamie can help ›</span></a>
+        {% endif %}
     </div>
     {{ habits|json_script:"habits-editor-data" }}
     <div class="edit-toast" data-habit-toast role="status" aria-live="polite"></div>

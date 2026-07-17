@@ -1911,6 +1911,18 @@ client-side from /daily/win/candidates/ each time it opens.
         if (send) send.disabled = true;
         loadChatHistory().then(function () { sendLoadedChat(text); });
     }
+    // "Jamie can help" entry points in the wins/habits editors: open the chat
+    // and send the ask right away so a suggestion comes straight back.
+    var ASK_PROMPTS = {
+        win: "I'm not sure what win to add. Can you suggest one for me?",
+        habit: "I'm not sure what habit to add. Can you suggest one for me?"
+    };
+    window.__askCoach = function (kind) {
+        var text = ASK_PROMPTS[kind];
+        if (!text) return;
+        openChat();
+        sendChat(text);
+    };
     if ($("coach-form")) $("coach-form").addEventListener("submit", function () { sendChat((tx.value || "").trim()); });
     if (send) send.onclick = function (e) { e.preventDefault(); sendChat((tx.value || "").trim()); };
     if (tx) { tx.addEventListener("input", function () { tx.style.height = "auto"; tx.style.height = Math.min(tx.scrollHeight, 120) + "px"; });
@@ -1938,17 +1950,11 @@ client-side from /daily/win/candidates/ each time it opens.
             });
         });
     };
-    // ?ask=win: arriving from the wins page's "Jamie can help" link. Open Jamie
-    // with a starter question primed (a mirror to help elicit a win, not an oracle).
+    // ?ask=win / ?ask=habit: arriving from a standalone editor page's "Jamie
+    // can help" link. Open Jamie and send the ask so a suggestion comes back.
     try {
-        if (new URLSearchParams(location.search).get("ask") === "win") {
-            openChat();
-            if (tx) {
-                tx.value = "I want to add a win but I'm not sure what. Can you help me think of one?";
-                tx.dispatchEvent(new Event("input"));
-                tx.focus();
-            }
-        }
+        var askParam = new URLSearchParams(location.search).get("ask");
+        if (askParam === "win" || askParam === "habit") window.__askCoach(askParam);
     } catch (e) {}
     // Close swap editor / row menu on outside tap.
     document.addEventListener("click", function (e) {

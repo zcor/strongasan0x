@@ -527,7 +527,8 @@
     var ask = root.querySelector("[data-wins-ask]");
     if (ask) ask.onclick = function () {
         if (window.__closeWinsDialog) window.__closeWinsDialog();
-        if (window.__openCoach) window.__openCoach();
+        if (window.__askCoach) window.__askCoach("win");
+        else if (window.__openCoach) window.__openCoach();
     };
     }
     window.__initWinsEditor = initWinsEditor;
