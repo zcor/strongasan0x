@@ -436,7 +436,7 @@ time it opens.
     .caption { padding: 6px 4px 0; color: var(--text-dim); font-size: .74rem; }
 
     /* Week strip */
-    .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 12px 2px 8px; }
+    .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 36px 2px 8px 2px; }
     .wday { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; text-decoration: none; position: relative; }
     .wday > svg { width: 30px; height: 30px; }
     .wtrack { stroke: rgba(255,255,255,.09); }
@@ -573,6 +573,10 @@ time it opens.
        crisply instead of bleeding into the card padding); the habit after an
        open drawer drops its top border to avoid doubling that line. */
     .rows .habit.open + .habit { border-top: 0; }
+    /* When the OPEN habit is the last one, the bar sits flush against the
+       card's bottom edge: swallow the card-body's 20px bottom padding and let
+       the card border replace the bar's own hairline. */
+    .rows .habit.open:not(:has(~ .habit)) .sub-edit-link { margin-bottom: -32px; border-bottom: 0; }
     {% endif %}
 
     /* Composer for adding a sub-item (opened from the "···" menu). */
