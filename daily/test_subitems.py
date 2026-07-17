@@ -206,6 +206,62 @@ class SubItemFlowTests(TestCase):
         self.assertEqual(response.json()["item"]["state"], "pending")
         self.assertEqual(self._parent_state(), "pending")
 
+    def test_edit_renames_small_steps_without_changing_keys_or_answers(self):
+        first = self._post(
+            "/daily/subitem/add/", {"parent_key": "q_str", "label": "Bench"}
+        ).json()["item"]["key"]
+        second = self._post(
+            "/daily/subitem/add/", {"parent_key": "q_str", "label": "Squat"}
+        ).json()["item"]["key"]
+        self._post("/daily/item/", {"key": first, "state": "done"})
+
+        response = self._post(
+            "/daily/item/edit/",
+            {
+                "key": "q_str",
+                "label": "Strength training 30 min",
+                "items": [{"key": first, "label": "Bench press"}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["item"]["items"]
+        self.assertEqual([item["label"] for item in items], ["Bench press", "Squat"])
+        self.assertEqual([item["key"] for item in items], [first, second])
+        ci = DailyCheckIn.objects.get(participant=self.p)
+        self.assertEqual(ci.answers.get(question_key=first).state, "done")
+
+    def test_edit_rejects_unknown_or_empty_step_renames(self):
+        first = self._post(
+            "/daily/subitem/add/", {"parent_key": "q_str", "label": "Bench"}
+        ).json()["item"]["key"]
+
+        unknown = self._post(
+            "/daily/item/edit/",
+            {
+                "key": "q_str",
+                "label": "Strength training 30 min",
+                "items": [{"key": "nope", "label": "X"}],
+            },
+        )
+        empty = self._post(
+            "/daily/item/edit/",
+            {
+                "key": "q_str",
+                "label": "Strength training 30 min",
+                "items": [{"key": first, "label": "  "}],
+            },
+        )
+
+        self.assertEqual(unknown.status_code, 400)
+        self.assertEqual(empty.status_code, 400)
+        parent = next(
+            question
+            for question in ChecklistVersion.objects.get(id=self.version.id).questions
+            if question["key"] == "q_str"
+        )
+        self.assertEqual([item["label"] for item in parent["items"]], ["Bench"])
+
     def test_direct_untap_clears_subitems(self):
         # Untapping the parent's check directly clears the whole habit for
         # today — a still-done sub must not re-derive it back to done.

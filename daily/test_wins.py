@@ -290,6 +290,44 @@ class WinsEndpointTests(TestCase):
         goal.refresh_from_db()
         self.assertEqual(goal.text, "Find a design job")
 
+    def test_open_stone_can_be_renamed(self):
+        goal = create_north_star(self.p, "Find a job", ["Update resume"])
+        stone = goal.stones.get()
+
+        renamed = self._post(
+            "/daily/win/stone/edit/", {"id": stone.id, "text": "Update the resume"}
+        )
+
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["stone"]["text"], "Update the resume")
+        stone.refresh_from_db()
+        self.assertEqual(stone.text, "Update the resume")
+
+        empty = self._post("/daily/win/stone/edit/", {"id": stone.id, "text": "  "})
+        self.assertEqual(empty.status_code, 400)
+        stone.refresh_from_db()
+        self.assertEqual(stone.text, "Update the resume")
+
+    def test_done_or_foreign_stone_cannot_be_renamed(self):
+        goal = create_north_star(self.p, "Find a job", ["Update resume"])
+        stone = goal.stones.get()
+        stone.status = WinItem.STATUS_DONE
+        stone.save(update_fields=["status"])
+        done = self._post("/daily/win/stone/edit/", {"id": stone.id, "text": "Changed"})
+        self.assertEqual(done.status_code, 404)
+
+        other = DailyParticipant.objects.create(
+            display_name="Other", kind=DailyParticipant.KIND_EXTERNAL, beta=True
+        )
+        their_goal = create_north_star(other, "Private goal", ["Private step"])
+        their_stone = their_goal.stones.get()
+        foreign = self._post(
+            "/daily/win/stone/edit/", {"id": their_stone.id, "text": "Changed"}
+        )
+        self.assertEqual(foreign.status_code, 404)
+        their_stone.refresh_from_db()
+        self.assertEqual(their_stone.text, "Private step")
+
     def test_cannot_rename_another_participants_north_star(self):
         other = DailyParticipant.objects.create(
             display_name="Other", kind=DailyParticipant.KIND_EXTERNAL, beta=True

@@ -31,6 +31,7 @@ urlpatterns = [
     path("win/goal/archive/", views.win_goal_archive, name="win_goal_archive"),
     path("win/goal/restore/", views.win_goal_restore, name="win_goal_restore"),
     path("win/stone/add/", views.win_stone_add, name="win_stone_add"),
+    path("win/stone/edit/", views.win_stone_edit, name="win_stone_edit"),
     path("win/remove/", views.win_remove, name="win_remove"),
     path("bonus/next/", views.next_bonus, name="next_bonus"),
     path("wrap/", views.wrap_day, name="wrap_day"),

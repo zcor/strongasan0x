@@ -1,5 +1,18 @@
 <style>
+    /* Match the wins editor's card padding so the full-bleed .elist-item rows
+       (margin: 0 -16px) and their hairlines/action strips reach the card edge. */
+    .habits-editor .card-body { padding: 18px 16px; }
     .habits-editor .habits-list-body { padding-bottom: 0; }
+    /* Single-habit mode ("Edit habit"): only the focused card shows; the list
+       chrome (subtitle, eyebrow, add foot, Jamie link) steps aside. */
+    .habits-editor.single-habit .wesub,
+    .habits-editor.single-habit .habits-list-body > .eyebrow,
+    .habits-editor.single-habit [data-habit-add-foot],
+    .habits-editor.single-habit .win-ask,
+    .habits-editor.single-habit .habit-editor-item:not(.single-focus) { display: none !important; }
+    /* The lone card needs no separators from neighbours it doesn't have:
+       no hairline border and no expanded inset shadow. */
+    .habits-editor.single-habit .habit-editor-item.single-focus { border-top: 0; box-shadow: none; }
     .habits-editor .win-ask {
         display: block; width: max-content; max-width: 100%; background: none;
         border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
@@ -49,7 +62,7 @@
         border-top: 1px solid var(--line-soft); color: var(--text);
     }
     .habits-editor .habit-detail-row:first-child { border-top: 0; }
-    .habits-editor .habit-detail-name { flex: 1; min-width: 0; font-size: .9rem; line-height: 1.35; }
+    .habits-editor .habit-detail-input { flex: 1; min-width: 0; }
     .habits-editor .habit-detail-delete {
         flex: none; min-width: 44px; min-height: 38px; padding: 0 10px; border: 1px solid var(--line);
         background: transparent; color: var(--text-faint);

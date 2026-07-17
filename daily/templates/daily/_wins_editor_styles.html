@@ -10,6 +10,15 @@
     .wins-editor .eye-actions .eyelink { margin-left: 0; }
 
     .wins-editor .card-body { padding: 18px 16px; }
+    /* Single-win mode ("Edit win"): only the focused card shows; the list
+       chrome (subtitle, eyebrow + Archived link, add foot, Jamie link) steps
+       aside, and the lone card drops its separators. */
+    .wins-editor.single-win .wesub,
+    .wins-editor.single-win #wins-card > .card-body > .eyebrow,
+    .wins-editor.single-win #wins-card > .card-foot,
+    .wins-editor.single-win .win-ask,
+    .wins-editor.single-win .elist-item:not(.single-focus) { display: none !important; }
+    .wins-editor.single-win .elist-item.single-focus { border-top: 0; box-shadow: none; }
     .wins-editor .gremove, .wins-editor .sremove { flex: none; background: none; border: 0; color: var(--text-faint); font-size: .82rem; cursor: pointer; padding: 4px 6px; line-height: 1; }
     .wins-editor .gremove { margin-left: 10px; }
     /* North Star and one-off rows build on the shared .elist-* components;
@@ -33,6 +42,7 @@
     .wins-editor .stone { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
     .wins-editor .stone .dot { display: none; }
     .wins-editor .stone .rlabel { flex: 1; min-width: 0; line-height: 1.35; }
+    .wins-editor .stone .stone-input { flex: 1; min-width: 0; }
     .wins-editor .stone .sremove {
         display: grid; place-items: center; flex: none; width: 44px; height: 44px;
         margin-left: 0; padding: 0; border: 1px solid var(--line);

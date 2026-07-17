@@ -1096,8 +1096,9 @@ def add_item(request):
 @require_daily_actor
 @require_http_methods(["POST"])
 def edit_item(request):
-    """Edit a core habit without changing its stable key, answer state, or
-    nested detail items. Body: key, label, and optional weekday ``days``."""
+    """Edit a core habit without changing its stable key or answer state.
+    Body: key, label, optional weekday ``days``, optional ``step_rule``, and
+    optional ``items`` [{key, label}] renaming existing detail steps."""
     participant = request.daily_participant
     if _is_backfill(request):
         return JsonResponse({"ok": False, "error": "no_edit_in_backfill"}, status=400)
@@ -1115,12 +1116,30 @@ def edit_item(request):
     raw_step_rule = body.get("step_rule") if "step_rule" in body else None
     if raw_step_rule is not None and not valid_habit_step_rule(raw_step_rule):
         return JsonResponse({"ok": False, "error": "bad_step_rule"}, status=400)
+    raw_items = body.get("items") if "items" in body else None
+    item_labels = {}
+    if raw_items is not None:
+        if not isinstance(raw_items, list):
+            return JsonResponse({"ok": False, "error": "bad_items"}, status=400)
+        for entry in raw_items:
+            if not isinstance(entry, dict):
+                return JsonResponse({"ok": False, "error": "bad_items"}, status=400)
+            sub_key = str(entry.get("key", "")).strip()
+            sub_label = str(entry.get("label", "")).strip()[:60]
+            if not sub_key or not sub_label:
+                return JsonResponse({"ok": False, "error": "bad_items"}, status=400)
+            item_labels[sub_key] = sub_label
 
     version = participant.get_or_create_current_checklist()
     with transaction.atomic():
         current = ChecklistVersion.objects.select_for_update().get(id=version.id)
         if not any(q["key"] == key for q in current.questions):
             return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+        if item_labels:
+            parent_q = next(q for q in current.questions if q["key"] == key)
+            sub_keys = {s["key"] for s in (parent_q.get("items") or [])}
+            if not set(item_labels) <= sub_keys:
+                return JsonResponse({"ok": False, "error": "bad_items"}, status=400)
         questions = []
         updated = None
         for question in current.questions:
@@ -1130,6 +1149,11 @@ def edit_item(request):
                     updated["days"] = sorted(raw_days)
                 if raw_step_rule is not None:
                     updated["step_rule"] = raw_step_rule
+                if item_labels:
+                    updated["items"] = [
+                        {**s, "label": item_labels.get(s["key"], s["label"])}
+                        for s in (updated.get("items") or [])
+                    ]
                 question = updated
             questions.append(question)
         current.questions = questions
@@ -1800,6 +1824,36 @@ def win_stone_add(request):
         payload["converted"] = True
         payload["goal"] = {"id": goal.id, "text": goal.text}
     return JsonResponse(payload)
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def win_stone_edit(request):
+    """Rename an open stepping stone under a north star. Beta-only.
+    Body: {id: int, text: str}."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    body, err = _json_body(request)
+    if err:
+        return err
+    text = str(body.get("text", "")).strip()
+    if not text or len(text) > WinItem._meta.get_field("text").max_length:
+        return JsonResponse({"ok": False, "error": "bad_text"}, status=400)
+    try:
+        stone = participant.wins.get(
+            id=body.get("id"), parent__isnull=False, status=WinItem.STATUS_OPEN
+        )
+    except (WinItem.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    stone.text = text
+    stone.save(update_fields=["text"])
+    today = _resolve_today(request)
+    return JsonResponse({
+        "ok": True,
+        "stone": _stone_json(stone, today),
+        **_wins_state_json(participant, today),
+    })
 
 
 @require_daily_actor

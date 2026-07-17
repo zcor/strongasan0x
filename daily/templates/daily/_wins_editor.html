@@ -47,11 +47,16 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                                     {% for s in g.stones %}
                                         <div class="stone{% if s.status != 'open' %} done{% endif %}" data-stone-id="{{ s.id }}" data-status="{{ s.status }}">
                                             <span class="dot" aria-hidden="true"></span>
-                                            <span class="rlabel">{{ s.text }}</span>
                                             {% if s.status == 'open' %}
+                                                <input class="composer-input stone-input" type="text" value="{{ s.text }}"
+                                                       data-saved-value="{{ s.text }}"
+                                                       maxlength="200" aria-label="Step name" autocomplete="off">
                                                 <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Remove step">✕</button>
-                                            {% elif s.status == 'done' %}
-                                                <button class="stone-undo" type="button" data-uncheck-step="{{ s.id }}" aria-label="Uncheck {{ s.text }}">Uncheck</button>
+                                            {% else %}
+                                                <span class="rlabel">{{ s.text }}</span>
+                                                {% if s.status == 'done' %}
+                                                    <button class="stone-undo" type="button" data-uncheck-step="{{ s.id }}" aria-label="Uncheck {{ s.text }}">Uncheck</button>
+                                                {% endif %}
                                             {% endif %}
                                         </div>
                                     {% endfor %}

@@ -72,10 +72,13 @@
         if (stone.done) {
             row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span>'
                 + (stone.status === "done" ? '<button class="stone-undo" type="button" data-uncheck-step="' + stone.id + '" aria-label="Uncheck step">Uncheck</button>' : '');
+            row.querySelector(".rlabel").textContent = stone.text;
         } else {
-            row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
+            row.innerHTML = '<span class="dot" aria-hidden="true"></span><input class="composer-input stone-input" type="text" maxlength="200" aria-label="Step name" autocomplete="off"><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
+            var input = row.querySelector(".stone-input");
+            input.value = stone.text;
+            input.dataset.savedValue = stone.text;
         }
-        row.querySelector(".rlabel").textContent = stone.text;
         return row;
     }
 
@@ -109,59 +112,96 @@
         return block;
     }
 
-    // Renames a north star or a one-off win; both live behind the same
-    // parentless /daily/win/goal/edit/ endpoint.
-    function saveGoalTitle(input, save) {
-        if (!input || !save || input.dataset.saving === "1") return;
-        var saved = input.dataset.savedValue || "";
-        var value = input.value.trim();
-        var item = input.closest(".elist-item");
+    // Saves a card's pending renames: the title (north stars and one-off wins
+    // share the parentless /daily/win/goal/edit/ endpoint) plus any edited
+    // open steps, one /daily/win/stone/edit/ request per changed step.
+    function saveGoalItem(item, save) {
+        if (!item || !save || save.dataset.saving === "1") return;
         var isGoal = item.classList.contains("goal");
-        if (!value) {
+        var titleInput = item.querySelector("[data-goal-title-input]");
+        var title = titleInput.value.trim();
+        if (!title) {
             editToast("A win needs a name.");
             return;
         }
-        if (value === saved) return;
-        input.dataset.saving = "1";
-        input.disabled = true;
-        save.disabled = true;
+        var stoneInputs = Array.prototype.slice.call(item.querySelectorAll('.stone[data-status="open"] .stone-input'));
+        var stoneEdits = [];
+        for (var i = 0; i < stoneInputs.length; i++) {
+            var text = stoneInputs[i].value.trim();
+            if (!text) {
+                editToast("A step needs a name.");
+                stoneInputs[i].focus();
+                return;
+            }
+            if (text !== stoneInputs[i].dataset.savedValue) {
+                stoneEdits.push({ input: stoneInputs[i], text: text });
+            }
+        }
+        var titleChanged = title !== (titleInput.dataset.savedValue || "");
+        if (!titleChanged && !stoneEdits.length) return;
+
+        var controls = [titleInput, save].concat(stoneInputs);
+        save.dataset.saving = "1";
+        controls.forEach(function (control) { control.disabled = true; });
         save.textContent = "Saving…";
-        post("/daily/win/goal/edit/", { id: item.dataset.goalId || item.dataset.stoneId, text: value }, function (data) {
-            var title = data.goal.text;
-            input.disabled = false;
-            save.disabled = false;
+        var failed = false;
+
+        function finish() {
+            delete save.dataset.saving;
+            controls.forEach(function (control) { control.disabled = false; });
             save.textContent = "Save";
-            delete input.dataset.saving;
-            input.value = title;
-            input.dataset.savedValue = title;
-            item.querySelector(".gtitle").textContent = title;
-            var toggle = item.querySelector("[data-toggle-goal]");
-            var remove = isGoal
-                ? item.querySelector("[data-archive-goal]")
-                : item.querySelector(".goal-actions [data-remove]");
-            if (toggle) toggle.setAttribute("aria-label", "Toggle " + title);
-            if (remove) remove.setAttribute("aria-label", "Delete " + title);
-            syncToday(data);
-            editToast("Win saved.");
-        }, function () {
-            input.disabled = false;
-            save.disabled = false;
-            save.textContent = "Save";
-            delete input.dataset.saving;
-            editToast("Couldn't save that right now.");
-        });
+            editToast(failed ? "Couldn't save that right now." : "Win saved.");
+        }
+
+        function saveStones(index) {
+            if (index >= stoneEdits.length) { finish(); return; }
+            var edit = stoneEdits[index];
+            var stoneId = edit.input.closest(".stone").dataset.stoneId;
+            post("/daily/win/stone/edit/", { id: stoneId, text: edit.text }, function (data) {
+                edit.input.value = data.stone.text;
+                edit.input.dataset.savedValue = data.stone.text;
+                syncToday(data);
+                saveStones(index + 1);
+            }, function () {
+                failed = true;
+                saveStones(index + 1);
+            });
+        }
+
+        function saveTitle(next) {
+            if (!titleChanged) { next(); return; }
+            post("/daily/win/goal/edit/", { id: item.dataset.goalId || item.dataset.stoneId, text: title }, function (data) {
+                var saved = data.goal.text;
+                titleInput.value = saved;
+                titleInput.dataset.savedValue = saved;
+                item.querySelector(".gtitle").textContent = saved;
+                var toggle = item.querySelector("[data-toggle-goal]");
+                var remove = isGoal
+                    ? item.querySelector("[data-archive-goal]")
+                    : item.querySelector(".goal-actions [data-remove]");
+                if (toggle) toggle.setAttribute("aria-label", "Toggle " + saved);
+                if (remove) remove.setAttribute("aria-label", "Delete " + saved);
+                syncToday(data);
+                next();
+            }, function () {
+                failed = true;
+                next();
+            });
+        }
+
+        saveTitle(function () { saveStones(0); });
     }
 
     root.addEventListener("click", function (e) {
         var save = e.target.closest("[data-save-goal]");
         if (!save || !root.contains(save)) return;
-        saveGoalTitle(save.closest(".elist-item").querySelector("[data-goal-title-input]"), save);
+        saveGoalItem(save.closest(".elist-item"), save);
     });
 
-    // Focusing the win name field dismisses an open step composer instead
-    // of stacking two editing surfaces.
+    // Focusing the win name or an existing step field dismisses an open step
+    // composer instead of stacking two editing surfaces.
     root.addEventListener("focusin", function (e) {
-        if (!e.target.matches("[data-goal-title-input]")) return;
+        if (!e.target.matches("[data-goal-title-input], .stone-input")) return;
         var item = e.target.closest(".elist-item");
         var composer = item && item.querySelector(".stone-composer");
         if (!composer || composer.querySelector("input:disabled")) return;
@@ -171,11 +211,11 @@
     });
 
     root.addEventListener("keydown", function (e) {
-        if (!e.target.matches("[data-goal-title-input]")) return;
+        if (!e.target.matches("[data-goal-title-input], .stone-input")) return;
         if (e.key === "Enter") {
             e.preventDefault();
-            var save = e.target.closest(".elist-item").querySelector("[data-save-goal]");
-            saveGoalTitle(e.target, save);
+            var item = e.target.closest(".elist-item");
+            saveGoalItem(item, item.querySelector("[data-save-goal]"));
         }
         else if (e.key === "Escape") {
             e.preventDefault();
@@ -188,9 +228,10 @@
         if (!row) return;
         var goal = row.closest(".goal");
         var label = row.querySelector(".rlabel");
+        var input = row.querySelector(".stone-input");
         row.replaceWith(stoneEl({
             id: row.dataset.stoneId,
-            text: label ? label.textContent : "",
+            text: input ? (input.dataset.savedValue || input.value) : (label ? label.textContent : ""),
             status: status || "done",
             done: true,
         }));
@@ -245,6 +286,10 @@
             syncEmpty(); syncToday(data);
             loadArchived(true);
             editToast("Moved to Archived: " + data.archived.title);
+            // The single-win view just archived its only card; back to Today.
+            if (goal && goal.classList.contains("single-focus") && window.__closeWinsDialog) {
+                window.__closeWinsDialog();
+            }
         }, function () {
             archive.disabled = false;
             editToast("Couldn't archive that right now.");
@@ -266,6 +311,11 @@
             }
             syncEmpty();
             syncToday(data);
+            // The single-win view just deleted its only card; back to Today.
+            var focused = remove.classList.contains("gremove") ? goal : row;
+            if (focused && focused.classList.contains("single-focus") && window.__closeWinsDialog) {
+                window.__closeWinsDialog();
+            }
         });
     });
 
@@ -343,6 +393,11 @@
                     var replacement = goalEl({ id: convertedGoal.id, text: convertedGoal.text, stones: added });
                     goal.remove();
                     insertGoal(replacement);
+                    // In single-win mode the card's identity changed with it.
+                    if (root.dataset.singleWin) {
+                        root.dataset.singleWin = '[data-goal-id="' + convertedGoal.id + '"]';
+                        replacement.classList.add("single-focus");
+                    }
                     if (window.elistSetExpanded) window.elistSetExpanded(replacement, true);
                     if (!allOk) editToast("Couldn't add every step right now.");
                     return;
@@ -430,6 +485,24 @@
     {% if not wins_dialog %}
     try { if (new URLSearchParams(location.search).get("add") === "1") openComposer(); } catch (e) {}
     {% endif %}
+
+    // Single-win mode: the editor shows just one card under an "Edit win"
+    // title (the dashboard's Today's-win Edit jump). Pass a selector like
+    // [data-goal-id="5"] or [data-stone-id="7"]; "" restores the full list.
+    function setSingleWin(selector) {
+        selector = selector || "";
+        var card = selector && root.querySelector("#wins-list .elist-item" + selector);
+        if (selector && !card) { setSingleWin(""); return; }
+        root.dataset.singleWin = selector;
+        root.classList.toggle("single-win", Boolean(selector));
+        var title = root.querySelector(".wetitle");
+        if (title) title.textContent = selector ? "Edit win" : "Your wins";
+        Array.prototype.forEach.call(root.querySelectorAll("#wins-list .elist-item"), function (item) {
+            item.classList.toggle("single-focus", item === card);
+        });
+        if (card && window.elistSetExpanded) window.elistSetExpanded(card, true);
+    }
+    root.__setSingleWin = setSingleWin;
 
     function showWinsEditor() {
         root.hidden = false;

@@ -54,16 +54,19 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
         {% if not backfill %}
         {# ===== Today's win (crown) — squared card, elevated on top ===== #}
         <div class="card win{% if not todays_win and not completed_todays_win %} is-hidden{% endif %}" id="win-crown"
-             {% if todays_win %}data-win-id="{{ todays_win.id }}"{% endif %}>
+             {% if todays_win %}data-win-id="{{ todays_win.id }}"{% endif %}{% if todays_win and todays_win.goal_id %} data-win-goal-id="{{ todays_win.goal_id }}"{% endif %}>
             <div class="card-body">
                 <div class="eyebrow">Today's win
                     <button class="wins-link" id="wins-dialog-open" type="button">Your wins ›</button>
                 </div>
                 <button class="row solo{% if completed_todays_win and not todays_win %} done{% endif %}" id="win-row" type="button">
                     <span class="check"></span>
-                    <span>
+                    <span class="win-main">
                         <span class="rlabel" id="win-title">{% if todays_win %}{{ todays_win.title }}{% else %}{{ completed_todays_win.title }}{% endif %}</span>
                         <span class="sub{% if todays_win %}{% if not todays_win.goal %} is-hidden{% endif %}{% elif not completed_todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{% if todays_win %}{{ todays_win.goal }}{% else %}{{ completed_todays_win.goal }}{% endif %}</span></span>
+                    </span>
+                    <span class="chev" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
                     </span>
                 </button>
                 <div class="win-again{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-again">Want another one?</div>
@@ -72,6 +75,7 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
             rows; not checking it is "not today". The footer only offers a
             swap. {% endcomment %}
             <div class="card-foot{% if not todays_win %} is-hidden{% endif %}" id="win-foot">
+                <button class="act" type="button" data-edit-win>Edit this win</button>
                 <button class="act" id="win-pick-another" type="button">Pick another one</button>
             </div>
             {% comment %} Post-completion prompt footer: every completed render
@@ -138,6 +142,9 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                                         </button>
                                     {% endfor %}
                                 </div>
+                                {% if not backfill %}
+                                    <button class="sub-edit-link" type="button" data-edit-habit>Edit this habit</button>
+                                {% endif %}
                             </div>
                         </div>
                     {% endfor %}
@@ -473,11 +480,14 @@ client-side from /daily/win/candidates/ each time it opens.
     /* Squared card / eyebrow / footer actions come from _climb_core.html */
     .eyebrow .cnt { margin-left: auto; letter-spacing: .06em; font-variant-numeric: tabular-nums; text-transform: none; }
 
-    .rows { display: flex; flex-direction: column; }
-    .habits-today-empty { padding: 4px 0; color: var(--text-dim); font-size: .86rem; }
+    /* The habit/bonus lists break out of the card body's 20px padding so the
+       hairlines between rows span the card edge to edge, like a card-foot's
+       divider; each row re-indents its own content. */
+    .rows { display: flex; flex-direction: column; margin: 0 -20px; }
+    .habits-today-empty { padding: 4px 20px; color: var(--text-dim); font-size: .86rem; }
     .rows .row + .row { border-top: 1px solid var(--line-soft); }
     .row {
-        display: flex; align-items: center; gap: 15px; width: 100%; padding: 14px 0;
+        display: flex; align-items: center; gap: 15px; width: 100%; padding: 14px 20px;
         background: transparent; border: 0; cursor: pointer; color: var(--text);
         font: inherit; text-align: left;
     }
@@ -514,16 +524,32 @@ client-side from /daily/win/candidates/ each time it opens.
     .habit .row .rlabel { flex: 1; min-width: 0; }
     .subtag { font-size: .72rem; color: var(--text-dim); font-variant-numeric: tabular-nums; flex: none; }
     .subtag:empty { display: none; }
-    .chev { display: none; color: var(--text-faint); flex: none; transition: transform .18s ease; }
-    .chev svg { width: 15px; height: 15px; display: block; }
+    /* Same chevron as the editors' .elist-toggle (18px), with a padded hit
+       area so a tap near it never lands on the row's check toggle. */
+    .chev { display: none; color: var(--text-faint); flex: none; padding: 12px 8px;
+        margin: -12px -8px; transition: transform .18s ease; }
+    .chev svg { width: 18px; height: 18px; display: block; }
     .habit.has-subs .chev { display: inline-flex; }
-    .habit.has-subs.open .chev { transform: rotate(90deg); }
+    {% if not backfill %}
+    /* Every row gets the chevron: it opens the drawer (steps, if any, plus the
+       Edit bar). In backfill the drawer would be empty for stepless habits, so
+       only .has-subs rows keep it there. */
+    .habit .chev, .win .chev { display: inline-flex; }
+    {% endif %}
+    .habit.open .chev, .win.open .chev { transform: rotate(90deg); }
+    .win .win-main { flex: 1; min-width: 0; }
+    /* The win's action row rests behind its chevron, like habit drawers; a
+       completed win swaps to its own footer, so the chevron retires with it. */
+    .win .row.done .chev { display: none; }
+    .win #win-foot { display: none; }
+    .win.open #win-foot { display: flex; animation: subslide .18s ease; }
     .more { margin-left: auto; display: inline-flex; align-items: center; color: var(--text-faint); flex: none; padding: 2px; }
     .more svg { width: 18px; height: 18px; display: block; }
     .more:hover { color: var(--accent); }
 
-    /* The drawer of sub-items, indented under the habit's label. */
-    .subwrap { display: none; padding: 2px 0 12px 41px; }
+    /* The drawer of sub-items, indented under the habit's label (61px = the
+       full-bleed row's 20px inset + the 41px label indent). */
+    .subwrap { display: none; padding: 2px 20px 12px 61px; }
     .habit.open .subwrap { display: block; animation: subslide .18s ease; }
     @keyframes subslide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
     .subrows { display: flex; flex-direction: column; }
@@ -538,6 +564,25 @@ client-side from /daily/win/candidates/ each time it opens.
     .subrow.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
     .subx { margin-left: auto; color: var(--text-faint); font-size: .9rem; line-height: 1; flex: none; padding: 4px 6px; }
     .subx:hover { color: #e0a672; }
+    /* Jump into Your habits with this habit's card pre-expanded. Styled like
+       the editors' Delete / Add a step / Save strip (.elist-actions): a
+       hairline-topped action bar spanning the card edge to edge, breaking out
+       of the drawer's 61px left / 20px right padding. */
+    .sub-edit-link {
+        display: flex; align-items: center; justify-content: center;
+        width: calc(100% + 81px); margin: 8px 0 -12px -61px; min-height: 52px;
+        padding: 12px 6px; border: 0; border-top: 1px solid var(--line-soft);
+        border-bottom: 1px solid var(--line-soft);
+        background: none; color: var(--text-dim); font: inherit; font-size: .8rem;
+        cursor: pointer;
+    }
+    .sub-edit-link:hover { background: rgba(255,255,255,.02); }
+    {% if not backfill %}
+    /* The bar carries its own bottom hairline (so the last habit's bar ends
+       crisply instead of bleeding into the card padding); the habit after an
+       open drawer drops its top border to avoid doubling that line. */
+    .rows .habit.open + .habit { border-top: 0; }
+    {% endif %}
 
     /* Composer for adding a sub-item (opened from the "···" menu). */
     .sub-composer { margin: 8px 0 2px; }
@@ -553,7 +598,7 @@ client-side from /daily/win/candidates/ each time it opens.
     .rowmenu .act.danger { color: var(--danger-muted); }
     /* Swap composer: a small card in the row's place (input body + divided
        footer), mirroring the Add-habit card. Footer reuses .card-foot / .act. */
-    .swap-composer { border: 1px solid var(--line); margin: 10px 0; }
+    .swap-composer { border: 1px solid var(--line); margin: 10px 20px; }
     .swap-composer .sc-body { padding: 14px 15px 12px; }
     .swap-composer .sc-body .eyebrow { margin-bottom: 10px; }
     .swap-composer .composer-input { width: 100%; }
@@ -805,6 +850,11 @@ client-side from /daily/win/candidates/ each time it opens.
             // parent (sub untaps never downgrade it, see set_item_state).
             var habit = row.closest(".habit");
             var hasSubs = habit && habit.classList.contains("has-subs");
+            // The chevron opens the drawer on every habit (in backfill only
+            // rows with steps show one; stepless drawers hold just Edit).
+            if (habit && e.target.closest(".chev") && (hasSubs || !BACKFILL)) {
+                e.stopPropagation(); toggleDrawer(habit); return;
+            }
             if (hasSubs && !e.target.closest(".check")) { e.stopPropagation(); toggleDrawer(habit); return; }
             if (row.classList.contains("locked")) return;
             var next = row.dataset.state === "done" ? "pending" : "done";
@@ -998,6 +1048,13 @@ client-side from /daily/win/candidates/ each time it opens.
         var subrows = document.createElement("div"); subrows.className = "subrows";
         (item.items || []).forEach(function (subitem) { subrows.appendChild(makeSubRow(subitem, item.key)); });
         wrap.appendChild(subrows);
+        if ($("habits-dialog-open")) {
+            var editLink = document.createElement("button");
+            editLink.type = "button"; editLink.className = "sub-edit-link";
+            editLink.setAttribute("data-edit-habit", "");
+            editLink.textContent = "Edit this habit";
+            wrap.appendChild(editLink);
+        }
         habit.appendChild(b); habit.appendChild(wrap);
         bindRow(b); updateSubtag(habit);
         return habit;
@@ -1006,6 +1063,15 @@ client-side from /daily/win/candidates/ each time it opens.
     // Bind sub-rows that rendered server-side, and paint each habit's count.
     document.querySelectorAll(".subrow[data-subcheck]").forEach(bindSubRow);
     document.querySelectorAll("#items .habit").forEach(updateSubtag);
+
+    // "Edit this habit ›" in an open drawer jumps into Your habits with this
+    // habit's card already expanded (delegated: drawers rebuild on sync).
+    if ($("items")) $("items").addEventListener("click", function (e) {
+        var link = e.target.closest("[data-edit-habit]");
+        if (!link) return;
+        var habit = link.closest(".habit");
+        if (habit) goToHabits(habit.dataset.hkey);
+    });
 
     // ---------- edit / swap composers ----------
     // Both use the same single-open-composer state, so opening one action
@@ -1214,8 +1280,11 @@ client-side from /daily/win/candidates/ each time it opens.
         // footer) so the card returns to its normal Pick another one footer.
         hide($("win-again")); showEl($("win-foot"));
         hide($("win-foot-again")); hide($("win-goal-foot"));
+        crown.classList.remove("open");
         if (win) {
             crown.dataset.winId = win.id;
+            if (win.goal_id) crown.dataset.winGoalId = win.goal_id;
+            else delete crown.dataset.winGoalId;
             showEl(crown);
             var r = $("win-row"); if (r) { r.disabled = false; r.classList.remove("done", "just"); }
             winTitle.textContent = win.title;
@@ -1228,7 +1297,9 @@ client-side from /daily/win/candidates/ each time it opens.
     function renderCompleted(win) {
         if (!crown || !win) return;
         completedWin = win;
+        crown.classList.remove("open");
         delete crown.dataset.winId;
+        delete crown.dataset.winGoalId;
         showEl(crown); hide(invite); hide(winSlim); hide($("win-foot"));
         // The done row stays tappable: tapping it again unchecks, like habits.
         var r = $("win-row"); if (r) { r.disabled = false; r.classList.add("done"); }
@@ -1279,6 +1350,11 @@ client-side from /daily/win/candidates/ each time it opens.
             else host.appendChild(replacement);
         }
         refreshProgress();
+        // In single-habit mode the deleted habit was the whole dialog; return
+        // to Today rather than leaving an empty editor.
+        if (result.action === "remove" && habitsEditorSingleKey && key === habitsEditorSingleKey) {
+            closeHabitsDialog();
+        }
     };
     window.__syncWinsEditorResult = function (data) {
         if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(data);
@@ -1424,6 +1500,7 @@ client-side from /daily/win/candidates/ each time it opens.
             winsLoaded = true;
             var editor = winsHost.querySelector("[data-wins-editor]");
             if (window.__initWinsEditor) window.__initWinsEditor(editor);
+            applyWinsEditorMode();
         }).catch(function () {
             winsRequestPending = false;
             winsLoading.setAttribute("aria-busy", "false");
@@ -1452,7 +1529,18 @@ client-side from /daily/win/candidates/ each time it opens.
             window.elistSetExpanded(item, false);
         });
     }
-    function goToWins() {
+    // Deep link from the Today's win card: the dialog opens in single-win
+    // mode ("Edit win" + just that card). "" is the full Your wins list. The
+    // desired mode is remembered until the editor fragment has loaded.
+    var winsEditorSingleSel = "";
+    function applyWinsEditorMode() {
+        var editor = winsHost && winsHost.querySelector("[data-wins-editor]");
+        if (!editor || !editor.__setSingleWin) return;
+        editor.__setSingleWin(winsEditorSingleSel);
+        if (winsDialog) winsDialog.scrollTop = 0;
+    }
+    function goToWins(focusSelector) {
+        var selector = typeof focusSelector === "string" ? focusSelector : "";
         if (!winsDialog || typeof winsDialog.showModal !== "function") {
             location.href = "/daily/wins/";
             return;
@@ -1460,13 +1548,25 @@ client-side from /daily/win/candidates/ each time it opens.
         collapseEditorRows(winsDialog);
         if (!winsDialog.open) winsDialog.showModal();
         document.body.classList.add("wins-dialog-open");
+        winsEditorSingleSel = selector;
         loadWinsEditor(false);
+        if (winsLoaded) applyWinsEditorMode();
+    }
+    // Coming back to Today, the dashboard rests: every habit drawer and the
+    // win card's action row fold shut. Runs on the dialogs' close event, which
+    // covers the Today button, Esc, and programmatic closes alike.
+    function collapseDashboardDrawers() {
+        document.querySelectorAll("#items .habit.open").forEach(function (habit) {
+            habit.classList.remove("open");
+        });
+        if (crown) crown.classList.remove("open");
     }
     window.__closeWinsDialog = closeWinsDialog;
     if (winsDialog) {
         winsDialog.addEventListener("close", function () {
             if (window.__showWinsEditor) window.__showWinsEditor();
             document.body.classList.remove("wins-dialog-open");
+            collapseDashboardDrawers();
         });
         winsDialog.addEventListener("cancel", function () { document.body.classList.remove("wins-dialog-open"); });
     }
@@ -1605,6 +1705,7 @@ client-side from /daily/win/candidates/ each time it opens.
             habitsLoaded = true;
             habitsRequestPending = false;
             if (window.__initHabitsEditor) window.__initHabitsEditor(habitsHost.querySelector("[data-habits-editor]"));
+            applyHabitsEditorMode();
         }).catch(function () {
             habitsRequestPending = false;
             habitsLoading.setAttribute("aria-busy", "false");
@@ -1616,20 +1717,36 @@ client-side from /daily/win/candidates/ each time it opens.
         if (habitsDialog && habitsDialog.open) habitsDialog.close();
         document.body.classList.remove("wins-dialog-open");
     }
-    function goToHabits() {
+    // Deep link from a habit's drawer: the dialog opens in single-habit mode
+    // ("Edit habit" + just that card). "" is the full Your habits list. The
+    // desired mode is remembered until the editor fragment has loaded.
+    var habitsEditorSingleKey = "";
+    function applyHabitsEditorMode() {
+        var editor = habitsHost && habitsHost.querySelector("[data-habits-editor]");
+        if (!editor || !editor.__setSingleHabit) return;
+        editor.__setSingleHabit(habitsEditorSingleKey);
+        if (habitsDialog) habitsDialog.scrollTop = 0;
+    }
+    function goToHabits(focusKey) {
+        var key = typeof focusKey === "string" ? focusKey : "";
         if (!habitsDialog || typeof habitsDialog.showModal !== "function") {
-            location.href = "/daily/habits/";
+            location.href = "/daily/habits/" + (key ? "?habit=" + encodeURIComponent(key) : "");
             return;
         }
         collapseEditorRows(habitsDialog);
         if (!habitsDialog.open) habitsDialog.showModal();
         document.body.classList.add("wins-dialog-open");
+        habitsEditorSingleKey = key;
         loadHabitsEditor(false);
+        if (habitsLoaded) applyHabitsEditorMode();
     }
     window.__closeHabitsDialog = closeHabitsDialog;
     window.__invalidateHabitsEditor = function () { habitsLoaded = false; };
     if (habitsDialog) {
-        habitsDialog.addEventListener("close", function () { document.body.classList.remove("wins-dialog-open"); });
+        habitsDialog.addEventListener("close", function () {
+            document.body.classList.remove("wins-dialog-open");
+            collapseDashboardDrawers();
+        });
         habitsDialog.addEventListener("cancel", function () { document.body.classList.remove("wins-dialog-open"); });
     }
     if ($("habits-dialog-open")) $("habits-dialog-open").onclick = goToHabits;
@@ -1640,9 +1757,20 @@ client-side from /daily/win/candidates/ each time it opens.
         });
     }
     if (crown) {
-        $("win-row").onclick = function () {
+        $("win-row").onclick = function (e) {
+            if (e.target.closest(".chev")) { crown.classList.toggle("open"); return; }
             if ($("win-row").classList.contains("done")) winUncheck();
             else winAction("did_it");
+        };
+        // "Edit this win" jumps into Your wins with the win's card (its north
+        // star, or the one-off itself) already expanded.
+        var winEdit = crown.querySelector("[data-edit-win]");
+        if (winEdit) winEdit.onclick = function () {
+            var goalId = crown.dataset.winGoalId || (completedWin && completedWin.goal_id) || "";
+            var stoneId = crown.dataset.winId || (completedWin && completedWin.id) || "";
+            goToWins(goalId
+                ? '[data-goal-id="' + goalId + '"]'
+                : (stoneId ? '[data-stone-id="' + stoneId + '"]' : ""));
         };
         if ($("win-pick-another")) $("win-pick-another").onclick = openWinPicker;
     }

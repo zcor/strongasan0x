@@ -231,6 +231,7 @@
             var wrap = document.createElement("section");
             wrap.className = "elist-item habit-editor-item collapsible collapsed";
             wrap.dataset.habitKey = item.key;
+            if (root.dataset.singleHabit === item.key) wrap.classList.add("single-focus");
 
             var heading = document.createElement("div");
             heading.className = "elist-heading";
@@ -275,9 +276,25 @@
                 item.items.forEach(function (detail) {
                     var row = document.createElement("div");
                     row.className = "habit-detail-row";
-                    var text = document.createElement("span");
-                    text.className = "habit-detail-name";
-                    text.textContent = detail.label;
+                    var text = document.createElement("input");
+                    text.type = "text";
+                    text.maxLength = 60;
+                    text.className = "composer-input habit-detail-input";
+                    text.value = detail.label;
+                    text.dataset.stepKey = detail.key;
+                    text.dataset.savedValue = detail.label;
+                    text.setAttribute("aria-label", "Step name");
+                    text.addEventListener("focus", function () { dismissComposer(); });
+                    text.addEventListener("keydown", function (event) {
+                        if (event.key === "Enter") {
+                            event.preventDefault();
+                            save.click();
+                        } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            text.value = text.dataset.savedValue;
+                            text.blur();
+                        }
+                    });
                     var remove = document.createElement("button");
                     remove.type = "button";
                     remove.className = "habit-detail-delete";
@@ -288,6 +305,7 @@
                         post("/daily/subitem/remove/", {parent_key: item.key, key: detail.key}, function (data) {
                             var replacement = habitElement(data.habit);
                             wrap.replaceWith(replacement);
+                            if (root.dataset.singleHabit) window.elistSetExpanded(replacement, true);
                             notifyDashboard("upsert", data.habit);
                             toast("Small step deleted.");
                         }, function () {
@@ -338,6 +356,10 @@
 
             function setBusy(busy, activeLabel) {
                 name.disabled = busy;
+                Array.prototype.forEach.call(
+                    wrap.querySelectorAll(".habit-detail-input, .habit-detail-delete"),
+                    function (control) { control.disabled = busy; }
+                );
                 schedule.setDisabled(busy);
                 if (stepRule) stepRule.setDisabled(busy);
                 removeHabit.disabled = busy;
@@ -362,9 +384,24 @@
                     message.hidden = false;
                     return;
                 }
+                var stepInputs = Array.prototype.slice.call(wrap.querySelectorAll(".habit-detail-input"));
+                var stepEdits = [];
+                for (var i = 0; i < stepInputs.length; i++) {
+                    var stepLabel = stepInputs[i].value.trim();
+                    if (!stepLabel) {
+                        message.textContent = "Name every step before saving.";
+                        message.hidden = false;
+                        stepInputs[i].focus();
+                        return;
+                    }
+                    if (stepLabel !== stepInputs[i].dataset.savedValue) {
+                        stepEdits.push({key: stepInputs[i].dataset.stepKey, label: stepLabel});
+                    }
+                }
                 setBusy(true, "save");
                 var editBody = {key: item.key, label: label, days: days};
                 if (stepRule) editBody.step_rule = stepRule.value();
+                if (stepEdits.length) editBody.items = stepEdits;
                 post("/daily/item/edit/", editBody, function (data) {
                     var replacement = habitElement(data.item);
                     wrap.replaceWith(replacement);
@@ -494,6 +531,7 @@
                     post("/daily/subitem/add/", {parent_key: item.key, labels: labels}, function (data) {
                         var replacement = habitElement(data.habit);
                         wrap.replaceWith(replacement);
+                        if (root.dataset.singleHabit) window.elistSetExpanded(replacement, true);
                         notifyDashboard("upsert", data.habit);
                         toast(labels.length + (labels.length === 1 ? " small step added." : " small steps added."));
                     }, function () {
@@ -512,6 +550,33 @@
 
         habits.forEach(function (habit) { list.appendChild(habitElement(habit)); });
         syncEmpty();
+
+        // Single-habit mode: the editor shows just one card under an "Edit
+        // habit" title (the dashboard's per-habit Edit jump). "" restores the
+        // full "Your habits" list. CSS keyed on .single-habit/.single-focus
+        // does the hiding; habitElement re-tags rebuilt cards.
+        function setSingleHabit(key) {
+            key = key || "";
+            var card = key && list.querySelector('.habit-editor-item[data-habit-key="' + key + '"]');
+            if (key && !card) { setSingleHabit(""); return; }
+            root.dataset.singleHabit = key;
+            root.classList.toggle("single-habit", Boolean(key));
+            var title = root.querySelector(".wetitle");
+            if (title) title.textContent = key ? "Edit habit" : "Your habits";
+            Array.prototype.forEach.call(list.querySelectorAll(".habit-editor-item"), function (item) {
+                item.classList.toggle("single-focus", Boolean(key) && item.dataset.habitKey === key);
+            });
+            if (card) window.elistSetExpanded(card, true);
+        }
+        root.__setSingleHabit = setSingleHabit;
+
+        // Direct-link fallback for the dashboard's "Edit this habit" jump:
+        // /daily/habits/?habit=<key> opens as that habit's own editor. Inside
+        // the Today dialog the page URL never carries the parameter.
+        try {
+            var focusKey = new URLSearchParams(location.search).get("habit");
+            if (focusKey) setSingleHabit(focusKey);
+        } catch (error) {}
 
         var addFoot = root.querySelector("[data-habit-add-foot]");
         var addComposer = root.querySelector("[data-habit-add-composer]");
