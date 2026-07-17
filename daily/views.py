@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef
+from django.db.models import Exists, F, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -1443,14 +1443,16 @@ def win_action(request):
 
     try:
         if action == "uncheck":
-            # Undo is available only for a checked step whose North Star is
-            # still in Working toward. Graduated habit steps are not undone.
-            win = participant.wins.select_related("parent").get(
-                id=win_id,
-                is_goal=False,
-                status=WinItem.STATUS_DONE,
-                parent__is_goal=True,
-                parent__status=WinItem.STATUS_OPEN,
+            # Undo is available for a checked one-off win, or a checked step
+            # whose North Star is still in Working toward. Graduated habit
+            # steps and steps under an achieved North Star are not undone.
+            win = (
+                participant.wins.select_related("parent")
+                .filter(
+                    Q(parent__isnull=True)
+                    | Q(parent__is_goal=True, parent__status=WinItem.STATUS_OPEN)
+                )
+                .get(id=win_id, is_goal=False, status=WinItem.STATUS_DONE)
             )
         else:
             # is_goal=False: only leaves (standalone wins / stepping stones)
@@ -1574,6 +1576,42 @@ def wins_edit(request):
     }
     template = "daily/_wins_editor.html" if wins_dialog else "daily/wins_edit.html"
     return render(request, template, context)
+
+
+@require_daily_actor
+@require_http_methods(["GET"])
+def win_candidates(request):
+    """Feed for the "Pick one" sheet: every open leaf that could become
+    Today's Win, without a trip through the full editor. North Star steps come
+    first (grouped under their goal, in editor order), then one-off wins."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    today = _resolve_today(request)
+    leaves = list(
+        participant.wins.filter(is_goal=False, status=WinItem.STATUS_OPEN)
+        .filter(
+            Q(parent__isnull=True)
+            | Q(parent__is_goal=True, parent__status=WinItem.STATUS_OPEN)
+        )
+        .select_related("parent")
+        .order_by("order", "created_at")
+    )
+    steps = [w for w in leaves if w.parent_id]
+    steps.sort(key=lambda w: (w.parent.created_at, w.order, w.created_at))
+    singles = [w for w in leaves if not w.parent_id]
+    return JsonResponse({
+        "ok": True,
+        "candidates": [
+            {
+                "id": w.id,
+                "text": w.text,
+                "goal": w.parent.text if w.parent_id else "",
+                "selected_today": w.surfaced_on == today,
+            }
+            for w in steps + singles
+        ],
+    })
 
 
 @require_daily_actor

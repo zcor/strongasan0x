@@ -93,7 +93,7 @@
             row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span>'
                 + (stone.status === "done" ? '<button class="stone-undo" type="button" data-uncheck-step="' + stone.id + '" aria-label="Uncheck step">Uncheck</button>' : '');
         } else {
-            row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span><button class="today-pick' + (stone.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + stone.id + '" aria-pressed="' + (stone.selected_today ? 'true' : 'false') + '">' + (stone.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
+            row.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="rlabel"></span><button class="sremove" type="button" data-remove="' + stone.id + '" aria-label="Remove step">✕</button>';
         }
         row.querySelector(".rlabel").textContent = stone.text;
         return row;
@@ -104,7 +104,7 @@
         row.className = "single";
         row.dataset.stoneId = single.id;
         row.dataset.status = single.status || "open";
-        row.innerHTML = '<button class="step-check" type="button" data-select-win="' + single.id + '" aria-pressed="false" aria-label="Select win"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="today-pick' + (single.selected_today ? ' selected' : '') + '" type="button" data-pick-today="' + single.id + '" aria-pressed="' + (single.selected_today ? 'true' : 'false') + '">' + (single.selected_today ? 'Today ✓' : 'Pick today') + '</button><button class="sremove" type="button" data-remove="' + single.id + '" aria-label="Delete win">✕</button>';
+        row.innerHTML = '<button class="step-check" type="button" data-select-win="' + single.id + '" aria-pressed="false" aria-label="Select win"><span class="check sm" aria-hidden="true"></span></button><span class="rlabel"></span><button class="sremove" type="button" data-remove="' + single.id + '" aria-label="Delete win">✕</button>';
         row.querySelector(".rlabel").textContent = single.text;
         return row;
     }
@@ -183,15 +183,6 @@
         }
     });
 
-    function setTodaySelection(id) {
-        root.querySelectorAll("[data-pick-today]").forEach(function (button) {
-            var selected = String(button.getAttribute("data-pick-today")) === String(id || "");
-            button.classList.toggle("selected", selected);
-            button.setAttribute("aria-pressed", selected ? "true" : "false");
-            button.textContent = selected ? "Today ✓" : "Pick today";
-        });
-    }
-
     function markStoneDone(row, status) {
         if (!row) return;
         var goal = row.closest(".goal");
@@ -228,24 +219,8 @@
             var reopenedRow = root.querySelector('[data-stone-id="' + data.reopened.id + '"]');
             markStoneOpen(reopenedRow, data.reopened);
         }
-        setTodaySelection(data.next && data.next.id);
         syncEmpty();
     };
-
-    root.addEventListener("click", function (e) {
-        var pick = e.target.closest("[data-pick-today]");
-        if (!pick || !root.contains(pick)) return;
-        pick.disabled = true;
-        post("/daily/win/select/", { id: pick.getAttribute("data-pick-today") }, function (data) {
-            pick.disabled = false;
-            setTodaySelection(data.selected && data.selected.id);
-            syncToday(data);
-            if (window.__closeWinsDialog) window.__closeWinsDialog();
-        }, function () {
-            pick.disabled = false;
-            editToast("Couldn't select that win right now.");
-        });
-    });
 
     root.addEventListener("click", function (e) {
         var undo = e.target.closest("[data-uncheck-step]");

@@ -19,6 +19,7 @@ urlpatterns = [
     path("win/add/", views.win_add, name="win_add"),
     path("win/", views.win_action, name="win_action"),
     path("win/select/", views.win_select, name="win_select"),
+    path("win/candidates/", views.win_candidates, name="win_candidates"),
     # Wins editor ("your list" door): north stars with stepping stones + one-offs.
     path("wins/", views.wins_edit, name="wins_edit"),
     # Finished north stars with their full step ladders (read-only).

@@ -366,6 +366,46 @@ class WinsEndpointTests(TestCase):
         blocked = self._post("/daily/win/goal/complete/", {"id": goal.id})
         self.assertEqual(blocked.status_code, 409)
 
+    def test_completed_todays_one_off_win_can_be_unchecked(self):
+        win = add_win(self.p, "Call the bank")
+        selected = self._post("/daily/win/select/", {"id": win.id})
+        self.assertEqual(selected.status_code, 200)
+        checked = self._post("/daily/win/", {"id": win.id, "action": "did_it"})
+        self.assertTrue(checked.json()["today_has_completed_win"])
+
+        unchecked = self._post("/daily/win/", {"id": win.id, "action": "uncheck"})
+        self.assertEqual(unchecked.status_code, 200)
+        body = unchecked.json()
+        self.assertEqual(body["reopened"]["status"], WinItem.STATUS_OPEN)
+        self.assertTrue(body["reopened"]["selected_today"])
+        self.assertFalse(body["today_has_completed_win"])
+        self.assertEqual(body["next"]["id"], win.id)
+
+    def test_candidates_lists_open_steps_then_singles_for_the_picker(self):
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        goal = create_north_star(self.p, "Launch shop", ["Register domain", "Build page"])
+        first, second = list(goal.stones.order_by("order", "created_at"))
+        single = add_win(self.p, "Call the dentist")
+        archived = create_north_star(self.p, "Old goal", ["Old step"])
+        archive_goal(archived)
+        complete_win(second)
+
+        r = self.c.get("/daily/win/candidates/")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        # Open North Star steps first (with their goal), then one-off wins.
+        # Done steps and steps of archived goals never appear.
+        self.assertEqual(
+            [(c["text"], c["goal"]) for c in body["candidates"]],
+            [("Register domain", "Launch shop"), ("Call the dentist", "")],
+        )
+
+        page = self.c.get("/daily/checkin/")
+        self.assertContains(page, 'id="win-picker-dialog"')
+        self.assertContains(page, "/daily/win/candidates/")
+
     def test_promote_endpoint_rejects_north_star_steps(self):
         goal = create_north_star(self.p, "Get fit", ["Walk 20 min"])
         stone = goal.stones.get()
@@ -378,7 +418,8 @@ class WinsEndpointTests(TestCase):
         r = self.c.get("/daily/wins/")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Learn guitar")
-        self.assertContains(r, "Pick today")
+        # Picking today's win lives in the Today card's picker, not the editor.
+        self.assertNotContains(r, "Pick today")
         self.assertNotContains(r, "data-complete-goal")
         self.assertContains(r, "data-goal-title-input")
         self.assertContains(r, "data-save-goal")
@@ -404,7 +445,7 @@ class WinsEndpointTests(TestCase):
 
         self.assertContains(response, "data-select-win")
         self.assertContains(response, 'id="promote-selected-btn"')
-        self.assertContains(response, ">Pick today</button>")
+        self.assertNotContains(response, "Pick today")
         self.assertContains(response, 'aria-label="Delete Call parents regarding flight info"')
         self.assertContains(response, ">Move to habit</button>")
         self.assertNotContains(response, "→ habit")
@@ -521,7 +562,7 @@ class WinsEndpointTests(TestCase):
         win.refresh_from_db()
         self.assertEqual(win.surfaced_on, timezone.localdate())
 
-    def test_completed_todays_win_remains_visible_with_success_copy(self):
+    def test_completed_todays_win_remains_visible_with_another_prompt(self):
         self.p.onboarded_at = timezone.now()
         self.p.save(update_fields=["onboarded_at"])
         win = add_win(self.p, "Send thank-you note")
@@ -532,9 +573,10 @@ class WinsEndpointTests(TestCase):
 
         r = self.c.get("/daily/checkin/")
         self.assertContains(r, "Send thank-you note")
-        self.assertContains(r, "Great job!")
         self.assertContains(r, "aria-label=\"completed today's win\"")
-        self.assertContains(r, 'class="win-success" id="win-success"')
+        # Every completed render offers the same prompt + footer.
+        self.assertContains(r, 'class="win-again" id="win-again">Want another one?')
+        self.assertContains(r, 'class="card-foot" id="win-foot-again"')
         self.assertContains(r, 'class="card-foot is-hidden" id="win-goal-foot"')
 
     def test_mark_complete_appears_on_todays_win_only_after_all_goal_steps(self):

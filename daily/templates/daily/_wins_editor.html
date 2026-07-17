@@ -49,7 +49,6 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                                             <span class="dot" aria-hidden="true"></span>
                                             <span class="rlabel">{{ s.text }}</span>
                                             {% if s.status == 'open' %}
-                                                <button class="today-pick{% if s.surfaced_on == today %} selected{% endif %}" type="button" data-pick-today="{{ s.id }}" aria-pressed="{% if s.surfaced_on == today %}true{% else %}false{% endif %}">{% if s.surfaced_on == today %}Today ✓{% else %}Pick today{% endif %}</button>
                                                 <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Remove step">✕</button>
                                             {% elif s.status == 'done' %}
                                                 <button class="stone-undo" type="button" data-uncheck-step="{{ s.id }}" aria-label="Uncheck {{ s.text }}">Uncheck</button>
@@ -81,7 +80,6 @@ the daily page and inside wins_edit.html as a direct-link fallback.
                         <div class="single" data-stone-id="{{ s.id }}" data-status="{{ s.status }}">
                             <button class="step-check" type="button" data-select-win="{{ s.id }}" aria-pressed="false" aria-label="Select {{ s.text }}"><span class="check sm" aria-hidden="true"></span></button>
                             <span class="rlabel">{{ s.text }}</span>
-                            <button class="today-pick{% if s.surfaced_on == today %} selected{% endif %}" type="button" data-pick-today="{{ s.id }}" aria-pressed="{% if s.surfaced_on == today %}true{% else %}false{% endif %}">{% if s.surfaced_on == today %}Today ✓{% else %}Pick today{% endif %}</button>
                             <button class="sremove" type="button" data-remove="{{ s.id }}" aria-label="Delete {{ s.text }}">✕</button>
                         </div>
                     {% endfor %}

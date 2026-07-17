@@ -27,8 +27,9 @@
     .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
     .wins-editor .sremove { margin-left: auto; }
 
-    /* One-off wins are stone-style rows: select circle, label, Pick today, ✕.
-       The shared "Move to habit" strip below acts on the checked rows. */
+    /* One-off wins are stone-style rows: select circle, label, ✕. The shared
+       "Move to habit" strip below acts on the checked rows. Picking today's
+       win lives in the Today card's picker, not here. */
     .wins-editor .single {
         display: flex; align-items: center; gap: 11px;
         min-height: 56px; padding: 6px 0;
@@ -63,13 +64,12 @@
         -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
         mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
     }
-    .wins-editor .today-pick, .wins-editor .stone-undo {
+    .wins-editor .stone-undo {
         flex: none; min-height: 44px; margin-left: 0; padding: 9px 11px;
         border: 1px solid var(--line); background: none;
         color: var(--text-dim); font: inherit; font-size: .7rem; cursor: pointer; white-space: nowrap;
     }
     .wins-editor .stone-undo:disabled { opacity: .5; cursor: default; }
-    .wins-editor .today-pick.selected { color: var(--done-bright); }
 
     .wins-editor #goals.has-goals { margin-bottom: -18px; }
     .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }

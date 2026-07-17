@@ -59,23 +59,25 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                 <div class="eyebrow">Today's win
                     <button class="wins-link" id="wins-dialog-open" type="button">Your wins ›</button>
                 </div>
-                <button class="row solo{% if completed_todays_win and not todays_win %} done{% endif %}" id="win-row" type="button"{% if completed_todays_win and not todays_win %} disabled{% endif %}>
+                <button class="row solo{% if completed_todays_win and not todays_win %} done{% endif %}" id="win-row" type="button">
                     <span class="check"></span>
                     <span>
                         <span class="rlabel" id="win-title">{% if todays_win %}{{ todays_win.title }}{% else %}{{ completed_todays_win.title }}{% endif %}</span>
                         <span class="sub{% if todays_win %}{% if not todays_win.goal %} is-hidden{% endif %}{% elif not completed_todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{% if todays_win %}{{ todays_win.goal }}{% else %}{{ completed_todays_win.goal }}{% endif %}</span></span>
                     </span>
                 </button>
-                <div class="win-again is-hidden" id="win-again">Want another one?</div>
-                <div class="win-success{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-success">Great job!</div>
+                <div class="win-again{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-again">Want another one?</div>
             </div>
+            {% comment %} The check circle IS the "did it" action, like habit
+            rows; not checking it is "not today". The footer only offers a
+            swap. {% endcomment %}
             <div class="card-foot{% if not todays_win %} is-hidden{% endif %}" id="win-foot">
-                <button class="act" id="win-nottoday" type="button">Not today</button>
-                <button class="act gold" id="win-didit" type="button">Did it</button>
+                <button class="act" id="win-pick-another" type="button">Pick another one</button>
             </div>
-            {% comment %} Post-completion prompt footer: shown after "Did it".
+            {% comment %} Post-completion prompt footer: every completed render
+            shows it (Not today quietly dismisses for the current view).
             Choosing another opens the explicit win picker. {% endcomment %}
-            <div class="card-foot is-hidden" id="win-foot-again">
+            <div class="card-foot{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-foot-again">
                 <button class="act" id="win-again-no" type="button">Not today</button>
                 <button class="act gold" id="win-again-yes" type="button">Pick one</button>
             </div>
@@ -295,6 +297,55 @@ after the first paint so backlog queries and markup do not block the dashboard.
     </div>
 </dialog>
 
+{% comment %}
+Focused "Pick one" chooser: a full-screen checklist of every open Working
+Toward step and one-off win, styled like Your wins. Rows are built
+client-side from /daily/win/candidates/ each time it opens.
+{% endcomment %}
+<dialog id="win-picker-dialog" class="wins-dialog" aria-labelledby="win-picker-title">
+    <div class="wins-dialog-shell">
+        <div class="wedit win-picker">
+            <header class="wehead">
+                <button class="weback" type="button" id="win-picker-back" aria-label="Back to today">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                    Today
+                </button>
+                <div class="wetitle" id="win-picker-title">Pick today's win</div>
+                <div class="wesub">Choose the one thing you want to move forward today.</div>
+            </header>
+            <div class="card is-hidden" id="win-picker-steps-card">
+                <div class="card-body">
+                    <div class="eyebrow">Working Toward</div>
+                    <div class="eskeleton" id="win-picker-steps-skel" aria-hidden="true">
+                        <div class="skeleton-line short"></div>
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line medium"></div>
+                    </div>
+                    <div id="win-picker-steps"></div>
+                </div>
+            </div>
+            <div class="card is-hidden" id="win-picker-singles-card">
+                <div class="card-body">
+                    <div class="eyebrow">One-off wins</div>
+                    <div class="eskeleton" id="win-picker-singles-skel" aria-hidden="true">
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line medium"></div>
+                    </div>
+                    <div id="win-picker-singles"></div>
+                </div>
+            </div>
+            <div class="card is-hidden" id="win-picker-empty-card">
+                <div class="card-body">
+                    <div class="empty">Nothing to pick right now. Add a win or a North Star step in Your wins.</div>
+                </div>
+                <div class="card-foot">
+                    <button class="act gold" id="win-picker-manage" type="button">Your wins</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</dialog>
+
 {# --- Welcome / how-it-works modal (auto-shows once for new users) --- #}
 <div id="intro-modal" class="intro-modal"
      data-intro-version="{{ intro_version }}"
@@ -448,12 +499,12 @@ after the first paint so backlog queries and markup do not block the dashboard.
         mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
     }
     .row.done .check { background: var(--done); border-color: transparent; color: var(--on-done); }
-    .win .row.done .check { background: var(--accent); color: var(--acc-ink); }
     .row.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
     @keyframes pop { 0%{transform:scale(.5)} 60%{transform:scale(1.18)} 100%{transform:scale(1)} }
     .rlabel { font-size: 1rem; font-weight: 400; line-height: 1.3; transition: color .16s; }
-    .win .rlabel { font-size: 1.3rem; font-weight: 300; letter-spacing: 0; }
-    .sub { display: block; font-size: .82rem; font-weight: 400; color: var(--text-dim); margin-top: 6px; }
+    /* Same type scale as the Working Toward rows (.elist-name / .elist-meta). */
+    .win .rlabel { font-size: 1rem; font-weight: 400; line-height: 1.25; }
+    .sub { display: block; font-size: .72rem; font-weight: 400; color: var(--text-dim); line-height: 1.2; margin-top: 4px; }
     .row.done .rlabel { color: var(--text-dim); text-decoration: line-through; }
     .swap { margin-left: auto; font-size: .64rem; font-weight: 600; letter-spacing: .13em; color: var(--text-dim); text-transform: uppercase; flex: none; padding: 4px 2px; }
     .swap:hover { color: var(--accent); }
@@ -515,8 +566,22 @@ after the first paint so backlog queries and markup do not block the dashboard.
     .invite { font-size: 1rem; color: var(--text-dim); line-height: 1.55; }
     /* Post-completion prompt: another win always goes through the picker. */
     .win-again { font-size: .98rem; color: var(--text-dim); margin-top: 16px; }
-    .win-success { font-size: .98rem; color: var(--done-bright); margin-top: 16px; }
     /* Collapsed win invite: a quiet one-line link below the habits. */
+    /* "Pick one" full-screen chooser: checklist rows of open wins, grouped
+       under their North Star; today's current pick shows a gold check. */
+    .win-picker .wp-goal { font-size: .72rem; color: var(--text-dim); margin: 14px 0 2px; }
+    .win-picker .wp-goal:first-child { margin-top: 0; }
+    .win-picker-row {
+        display: flex; align-items: center; gap: 15px; width: 100%; min-height: 56px;
+        padding: 6px 0; background: none; border: 0; color: var(--text);
+        font: inherit; font-size: .95rem; line-height: 1.35; text-align: left; cursor: pointer;
+    }
+    .win-picker-row + .win-picker-row { border-top: 1px solid var(--line-soft); }
+    .win-picker-row:disabled { opacity: .55; cursor: default; }
+    .win-picker-row.selected .check { border-color: transparent; background: var(--accent); color: var(--acc-ink); }
+    /* Tap feedback: the just-picked row fills green before the sheet closes. */
+    .win-picker-row.picked .check { border-color: transparent; background: var(--done); color: var(--on-done); }
+
     .win-slim {
         display: block; width: 100%; text-align: left; cursor: pointer;
         background: transparent; border: 0; padding: 4px 2px;
@@ -1152,8 +1217,8 @@ after the first paint so backlog queries and markup do not block the dashboard.
     function renderWin(win) {
         if (!crown) return;
         // Always clear the "want another?" prompt state (prompt line + swapped
-        // footer) so the card returns to its normal Not today | Did it footer.
-        hide($("win-again")); hide($("win-success")); showEl($("win-foot"));
+        // footer) so the card returns to its normal Pick another one footer.
+        hide($("win-again")); showEl($("win-foot"));
         hide($("win-foot-again")); hide($("win-goal-foot"));
         if (win) {
             crown.dataset.winId = win.id;
@@ -1166,35 +1231,28 @@ after the first paint so backlog queries and markup do not block the dashboard.
             paintRest();
         }
     }
-    function renderCompleted(win, askAnother) {
+    function renderCompleted(win) {
         if (!crown || !win) return;
         completedWin = win;
         delete crown.dataset.winId;
         showEl(crown); hide(invite); hide(winSlim); hide($("win-foot"));
-        var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done"); }
+        // The done row stays tappable: tapping it again unchecks, like habits.
+        var r = $("win-row"); if (r) { r.disabled = false; r.classList.add("done"); }
         winTitle.textContent = win.title;
         if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
+        // Every completed render offers the same choice: Want another one?
+        // with Not today | Pick one. Completing a North Star's final step adds
+        // its Mark complete footer alongside, never instead.
+        showEl($("win-again")); showEl($("win-foot-again"));
         var canCompleteGoal = Boolean(win.goal_id && win.goal_can_complete);
         var goalButton = $("win-goal-complete");
         if (goalButton && canCompleteGoal) goalButton.dataset.goalId = win.goal_id;
-        if (canCompleteGoal) {
-            // Completing the final step adds the North Star action; it must not
-            // replace the existing Not today | Pick one choice.
-            hide($("win-again")); showEl($("win-success"));
-            if (askAnother) showEl($("win-foot-again"));
-            else hide($("win-foot-again"));
-            showEl($("win-goal-foot"));
-        } else if (askAnother) {
-            hide($("win-goal-foot"));
-            showEl($("win-again")); hide($("win-success")); showEl($("win-foot-again"));
-        } else {
-            hide($("win-goal-foot"));
-            hide($("win-again")); showEl($("win-success")); hide($("win-foot-again"));
-        }
+        if (canCompleteGoal) showEl($("win-goal-foot"));
+        else hide($("win-goal-foot"));
     }
     function renderWinState(data) {
         if (data.next) renderWin(data.next);
-        else if (data.completed_today) renderCompleted(data.completed_today, false);
+        else if (data.completed_today) renderCompleted(data.completed_today);
         else renderWin(null);
     }
     // Drop a gold star into today's ring only after Today's Win is checked.
@@ -1241,23 +1299,88 @@ after the first paint so backlog queries and markup do not block the dashboard.
             syncTodayStar(data.today_has_completed_win);
         }
     };
+    // Rapid check/uncheck taps: each action takes a sequence number and every
+    // async continuation (reveal timer, response handler, rollback) bails if a
+    // newer action has taken over — otherwise a slow response from tap #1
+    // repaints over tap #3's optimistic state. The posts themselves are
+    // chained so the server applies the taps in order even when their
+    // connections would race.
+    var winSeq = 0;
+    var winChain = Promise.resolve();
+    function winPost(url, body, onOk, onErr) {
+        winChain = winChain.then(function () {
+            return new Promise(function (settled) {
+                post(url, body,
+                    function (d) { onOk(d); settled(); },
+                    function (res) { onErr(res); settled(); });
+            });
+        });
+    }
     function winAction(action) {
         var id = crown && crown.dataset.winId; if (!id) return;
-        post("/daily/win/", { id: id, action: action }, function (d) {
-            if (action === "did_it") {
-                var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done", "just"); }
-                if (d.featured_done) starToday();
+        var seq = ++winSeq;
+        if (action === "did_it") {
+            // Optimistic, like habit rows: the green check, pop, and week-strip
+            // star paint on the tap; the server round trip runs behind them.
+            // (did_it is only accepted for today's selection, so a success is
+            // always featured_done — starring now is safe.)
+            var r = $("win-row"); if (r) { r.disabled = true; r.classList.add("done", "just"); }
+            starToday();
+            var local = {
+                id: Number(id), title: winTitle.textContent,
+                goal: winGoal.classList.contains("is-hidden") ? "" : winGoalText.textContent,
+                goal_id: null, goal_can_complete: false
+            };
+            // Keep the crossed-off win visible for a beat, then land on the
+            // Want another one? prompt. If the server hasn't answered by then,
+            // reveal with what we know and upgrade when it does — the response
+            // may add the Mark complete footer for a finished North Star.
+            var serverData = null, revealed = false;
+            var reveal = setTimeout(function () {
+                revealed = true;
+                if (seq !== winSeq) return;
+                renderCompleted((serverData && serverData.completed_today) || local);
+            }, 500);
+            winPost("/daily/win/", { id: id, action: action }, function (d) {
+                serverData = d;
+                if (seq !== winSeq) return;
                 if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(d);
-                // Keep the crossed-off win visible. The user can stop here and
-                // land on Great job, or explicitly open the chooser for another.
-                setTimeout(function () { renderCompleted(d.completed_today, true); }, 500);
-            } else { renderWinState(d); }
+                if (revealed) renderCompleted(d.completed_today);
+            }, function (res) {
+                if (seq !== winSeq) return;
+                if (res && res.d && res.d.error === "not_selected") {
+                    // Stale card: the local day rolled past midnight or the
+                    // selection changed on another device. Reload to resync.
+                    window.location.reload();
+                    return;
+                }
+                // Network/other failure: roll the optimistic completion back.
+                clearTimeout(reveal);
+                renderWin(local);
+                syncTodayStar(false);
+            });
+            return;
+        }
+    }
+    function winUncheck() {
+        var prior = completedWin;
+        if (!prior || !prior.id) return;
+        var seq = ++winSeq;
+        // Optimistic: restore the active card now, reconcile on the response.
+        renderWin(prior);
+        syncTodayStar(false);
+        winPost("/daily/win/", { id: prior.id, action: "uncheck" }, function (d) {
+            if (seq !== winSeq) return;
+            if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(d);
+            renderWinState(d);
+            syncTodayStar(d.today_has_completed_win);
         }, function (res) {
-            if (res && res.d && res.d.error === "not_selected") {
-                // Stale card: the local day rolled past midnight or the
-                // selection changed on another device. Reload to resync.
-                window.location.reload();
-            }
+            if (seq !== winSeq) return;
+            // Stale card (day rollover, or the win changed elsewhere).
+            if (res && res.d && res.d.error === "not_found") { window.location.reload(); return; }
+            // Network/other failure: put the completed state back.
+            renderCompleted(prior);
+            syncTodayStar(true);
         });
     }
     // "Your wins" is a full-screen dialog on this page. Its heavier editor
@@ -1338,6 +1461,87 @@ after the first paint so backlog queries and markup do not block the dashboard.
     }
     if ($("wins-dialog-open")) $("wins-dialog-open").onclick = goToWins;
     if ($("wins-invite-link")) $("wins-invite-link").onclick = goToWins;
+
+    // ----- "Pick one": full-screen chooser of open wins -----
+    // A read-only checklist fetched fresh on every open, so picking the next
+    // win never needs a trip through the full editor.
+    var pickerDialog = $("win-picker-dialog");
+    function closeWinPicker() {
+        if (pickerDialog && pickerDialog.open) pickerDialog.close();
+        document.body.classList.remove("wins-dialog-open");
+    }
+    function pickerRow(c) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "win-picker-row" + (c.selected_today ? " selected" : "");
+        var chk = document.createElement("span"); chk.className = "check sm";
+        var t = document.createElement("span"); t.textContent = c.text;
+        b.appendChild(chk); b.appendChild(t);
+        b.onclick = function () {
+            if (b.disabled) return;
+            var seq = ++winSeq;
+            b.disabled = true;
+            // Optimistic: fill the check now, show the pick on the Today card
+            // after a short beat, and let the server confirm behind it.
+            b.classList.add("picked");
+            var chosen = { id: c.id, title: c.text, goal: c.goal || "" };
+            setTimeout(function () {
+                if (seq === winSeq) renderWin(chosen);
+                closeWinPicker();
+            }, 200);
+            winPost("/daily/win/select/", { id: c.id }, function (d) {
+                if (seq !== winSeq) return;
+                if (window.__syncWinsEditorRows) window.__syncWinsEditorRows(d);
+                renderWinState(d);
+                syncTodayStar(d.today_has_completed_win);
+            }, function () {
+                // The pick is already painted; a failure means the card is
+                // lying. Reload to resync (stale item, day rollover, network).
+                if (seq !== winSeq) return;
+                window.location.reload();
+            });
+        };
+        return b;
+    }
+    function openWinPicker() {
+        if (!pickerDialog || typeof pickerDialog.showModal !== "function") { goToWins(); return; }
+        var stepsHost = $("win-picker-steps"), singlesHost = $("win-picker-singles");
+        stepsHost.innerHTML = ""; singlesHost.innerHTML = "";
+        // Both sections open as skeletons; the fetch decides what stays.
+        hide($("win-picker-empty-card"));
+        showEl($("win-picker-steps-card")); showEl($("win-picker-singles-card"));
+        showEl($("win-picker-steps-skel")); showEl($("win-picker-singles-skel"));
+        if (!pickerDialog.open) pickerDialog.showModal();
+        document.body.classList.add("wins-dialog-open");
+        fetch("/daily/win/candidates/" + qs, { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) throw 0;
+                hide($("win-picker-steps-skel")); hide($("win-picker-singles-skel"));
+                var steps = d.candidates.filter(function (c) { return c.goal; });
+                var singles = d.candidates.filter(function (c) { return !c.goal; });
+                var lastGoal = null;
+                steps.forEach(function (c) {
+                    if (c.goal !== lastGoal) {
+                        var g = document.createElement("div");
+                        g.className = "wp-goal"; g.textContent = c.goal;
+                        stepsHost.appendChild(g); lastGoal = c.goal;
+                    }
+                    stepsHost.appendChild(pickerRow(c));
+                });
+                singles.forEach(function (c) { singlesHost.appendChild(pickerRow(c)); });
+                if (!steps.length) hide($("win-picker-steps-card"));
+                if (!singles.length) hide($("win-picker-singles-card"));
+                if (!d.candidates.length) showEl($("win-picker-empty-card"));
+            })
+            .catch(function () { closeWinPicker(); goToWins(); });
+    }
+    if (pickerDialog) {
+        pickerDialog.addEventListener("close", function () { document.body.classList.remove("wins-dialog-open"); });
+        pickerDialog.addEventListener("cancel", function () { document.body.classList.remove("wins-dialog-open"); });
+    }
+    if ($("win-picker-back")) $("win-picker-back").onclick = closeWinPicker;
+    if ($("win-picker-manage")) $("win-picker-manage").onclick = function () { closeWinPicker(); goToWins(); };
     if (winsLoading) {
         winsLoading.addEventListener("click", function (event) {
             if (event.target.closest("[data-wins-loading-close]")) closeWinsDialog();
@@ -1424,14 +1628,18 @@ after the first paint so backlog queries and markup do not block the dashboard.
         });
     }
     if (crown) {
-        $("win-row").onclick = function () { winAction("did_it"); };
-        $("win-didit").onclick = function () { winAction("did_it"); };
-        $("win-nottoday").onclick = function () { winAction("not_today"); };
+        $("win-row").onclick = function () {
+            if ($("win-row").classList.contains("done")) winUncheck();
+            else winAction("did_it");
+        };
+        if ($("win-pick-another")) $("win-pick-another").onclick = openWinPicker;
     }
     // After checking a win, Not today keeps the completed row and shows the
     // lasting success state. Picking another always goes through the chooser.
-    if ($("win-again-yes")) $("win-again-yes").onclick = goToWins;
-    if ($("win-again-no")) $("win-again-no").onclick = function () { renderCompleted(completedWin, false); };
+    if ($("win-again-yes")) $("win-again-yes").onclick = openWinPicker;
+    // "Not today" quietly dismisses the prompt for the current view; the next
+    // completed render (reload, sync) shows it again.
+    if ($("win-again-no")) $("win-again-no").onclick = function () { hide($("win-again")); hide($("win-foot-again")); };
     if ($("win-goal-complete")) $("win-goal-complete").onclick = function () {
         var button = $("win-goal-complete");
         var goalId = button.dataset.goalId;
