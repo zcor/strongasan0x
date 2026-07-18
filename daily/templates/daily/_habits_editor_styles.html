@@ -13,13 +13,6 @@
     /* The lone card needs no separators from neighbours it doesn't have:
        no hairline border and no expanded inset shadow. */
     .habits-editor.single-habit .habit-editor-item.single-focus { border-top: 0; box-shadow: none; }
-    .habits-editor .win-ask {
-        display: block; width: max-content; max-width: 100%; background: none;
-        border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
-        font-size: .84rem; padding: 2px; cursor: pointer; text-align: left;
-    }
-    .habits-editor .win-ask span { color: var(--accent); white-space: nowrap; }
-    .habits-editor .win-ask:hover { color: var(--text); }
     .habits-editor [hidden] { display: none !important; }
     .habits-editor .empty { padding: 4px 0 20px; color: var(--text-dim); font-size: .86rem; line-height: 1.5; }
     /* Label <-> rename-input swap, driven by the shared accordion's
@@ -38,14 +31,14 @@
         color: var(--text-dim); font: inherit; font-size: .82rem; cursor: pointer;
     }
     .habits-editor .schedule-mode + .schedule-mode { border-left: 1px solid var(--line); }
-    .habits-editor .schedule-mode[aria-pressed="true"] { background: rgba(255,217,122,.1); color: var(--accent); }
+    .habits-editor .schedule-mode[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent); }
     .habits-editor .step-rule-modes { display: grid; grid-template-columns: repeat(2, 1fr); border: 1px solid var(--line); }
     .habits-editor .step-rule-mode {
         min-height: 44px; padding: 10px; border: 0; background: transparent;
         color: var(--text-dim); font: inherit; font-size: .82rem; cursor: pointer;
     }
     .habits-editor .step-rule-mode + .step-rule-mode { border-left: 1px solid var(--line); }
-    .habits-editor .step-rule-mode[aria-pressed="true"] { background: rgba(255,217,122,.1); color: var(--accent); }
+    .habits-editor .step-rule-mode[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent); }
     .habits-editor .step-rule-mode:disabled { opacity: .5; cursor: default; }
     .habits-editor .weekday-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 8px; }
     .habits-editor .weekday {
@@ -54,7 +47,7 @@
         cursor: pointer;
     }
     .habits-editor .weekday[aria-pressed="true"] {
-        border-color: var(--accent); background: rgba(255,217,122,.1); color: var(--accent);
+        border-color: var(--accent); background: var(--accent-tint); color: var(--accent);
     }
     .habits-editor .habit-details { margin-top: 0; }
     .habits-editor .habit-detail-row {
@@ -64,7 +57,7 @@
     .habits-editor .habit-detail-row:first-child { border-top: 0; }
     .habits-editor .habit-detail-input { flex: 1; min-width: 0; }
     .habits-editor .habit-detail-delete {
-        flex: none; min-width: 44px; min-height: 38px; padding: 0 10px; border: 1px solid var(--line);
+        flex: none; min-width: 44px; min-height: 38px; padding: 0 10px; border: 0;
         background: transparent; color: var(--text-faint);
         font: inherit; font-size: .82rem; line-height: 1; cursor: pointer;
     }
@@ -85,4 +78,21 @@
     }
     .habits-editor .habit-add-name-row [data-habit-add-auto]:disabled { opacity: .5; cursor: default; }
     .habits-editor .habit-add-steps { margin-top: 16px; }
+    /* Move picker: the "Move into" destination list inside the .esheet. */
+    .habits-editor .habit-move-hint { margin: 6px 0 4px; color: var(--text-dim); font-size: .82rem; line-height: 1.45; }
+    .habits-editor .habit-move-list { margin-top: 8px; }
+    .habits-editor .habit-move-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        width: 100%; min-height: 56px; padding: 12px 4px; border: 0;
+        border-top: 1px solid var(--line-soft); background: none; color: var(--text);
+        font: inherit; text-align: left; cursor: pointer;
+    }
+    .habits-editor .habit-move-row:first-child { border-top: 0; }
+    .habits-editor .habit-move-row:not(:disabled):hover { background: rgba(255,255,255,.02); }
+    .habits-editor .habit-move-row:disabled { cursor: default; }
+    .habits-editor .habit-move-row.is-moving { opacity: .5; }
+    .habits-editor .habit-move-name { min-width: 0; font-size: 1rem; line-height: 1.25; }
+    .habits-editor .habit-move-meta { flex: none; color: var(--text-dim); font-size: .74rem; }
+    /* "Add a habit" is a standalone CTA below the card — see shared .cta-foot
+       in _editor_list_styles.html. */
 </style>

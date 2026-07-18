@@ -26,9 +26,6 @@ as the direct /daily/habits/ fallback when <dialog> is unavailable.
                 <div data-habit-list data-elist-accordion></div>
                 <div class="empty" data-habits-empty>No habits yet. Add something small you want to repeat.</div>
             </div>
-            <div class="card-foot" data-habit-add-foot>
-                <button class="act gold" type="button" data-habit-add-open>Add a habit</button>
-            </div>
             <div class="habit-add-composer esheet" data-habit-add-composer hidden>
                 <div class="habit-add-card esheet-card">
                     <div class="card-body">
@@ -54,6 +51,25 @@ as the direct /daily/habits/ fallback when <dialog> is unavailable.
                         <button class="act" type="button" data-habit-add-step>Add a step</button>
                         <button class="act gold" type="button" data-habit-add-save>Add</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cta-foot" data-habit-add-foot>
+            <button class="act gold brass" type="button" data-habit-add-open>Add a habit</button>
+        </div>
+
+        <div class="habit-move-sheet esheet" data-habit-move-sheet hidden>
+            <div class="habit-move-card esheet-card">
+                <div class="card-body">
+                    <div class="eyebrow gold" data-habit-move-title>Move into</div>
+                    <div class="habit-move-hint">It becomes a small step and follows that habit's days.</div>
+                    <div class="habit-move-list" data-habit-move-list></div>
+                    <div class="empty" data-habit-move-empty hidden>Add another habit first, then you can move this one into it.</div>
+                    <div class="habit-editor-message" data-habit-move-message hidden></div>
+                </div>
+                <div class="card-foot">
+                    <button class="act" type="button" data-habit-move-cancel>Cancel</button>
                 </div>
             </div>
         </div>

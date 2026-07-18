@@ -11,6 +11,7 @@ urlpatterns = [
     path("item/add/", views.add_item, name="add_item"),
     path("item/edit/", views.edit_item, name="edit_item"),
     path("item/remove/", views.remove_item, name="remove_item"),
+    path("item/move/", views.move_item, name="move_item"),
     path("habits/", views.habits_edit, name="habits_edit"),
     # Nested detail checklists: add/remove a sub-item under a core habit.
     path("subitem/add/", views.add_subitem, name="add_subitem"),

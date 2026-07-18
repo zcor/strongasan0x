@@ -1,11 +1,4 @@
 <style>
-    .wins-editor .win-ask {
-        display: block; width: max-content; max-width: 100%; background: none;
-        border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
-        font-size: .84rem; padding: 2px; cursor: pointer; text-align: left;
-    }
-    .wins-editor .win-ask span { color: var(--accent); white-space: nowrap; }
-    .wins-editor .win-ask:hover { color: var(--text); }
     .wins-editor .eye-actions { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
     .wins-editor .eye-actions .eyelink { margin-left: 0; }
 
@@ -15,7 +8,7 @@
        aside, and the lone card drops its separators. */
     .wins-editor.single-win .wesub,
     .wins-editor.single-win #wins-card > .card-body > .eyebrow,
-    .wins-editor.single-win #wins-card > .card-foot,
+    .wins-editor.single-win .cta-foot,
     .wins-editor.single-win .win-ask,
     .wins-editor.single-win .elist-item:not(.single-focus) { display: none !important; }
     .wins-editor.single-win .elist-item.single-focus { border-top: 0; box-shadow: none; }
@@ -127,4 +120,7 @@
     .wins-archived .goal-select:checked::after { opacity: 1; }
     .wins-archived .goal .stones.elist-body { padding-top: 0; }
     .wins-archived-view[hidden] { display: none; }
+
+    /* "Add a win" and "Unarchive" are standalone CTAs below their cards — see
+       shared .cta-foot / .act.brass in _editor_list_styles.html. */
 </style>

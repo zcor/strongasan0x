@@ -32,7 +32,7 @@
         color: var(--text); font-size: 1rem; font-weight: 400; font-family: var(--font-body);
         transition: border-color .16s, color .16s, transform .08s;
     }
-    .ob-btn:hover { border-color: rgba(255,217,122,.5); }
+    .ob-btn:hover { border-color: var(--accent-ring); }
     .ob-btn:active { transform: scale(0.985); }
     .ob-btn.primary { background: transparent; border-color: var(--accent); color: var(--accent); font-weight: 500; text-align: center; }
     .ob-btn.sel { border-color: var(--accent); }
@@ -48,7 +48,7 @@
         font-family: var(--font-body); margin-bottom: 12px;
     }
     .ob-input::placeholder { color: var(--text-dim); }
-    .ob-input:focus { outline: none; border-color: rgba(255,217,122,.5); }
+    .ob-input:focus { outline: none; border-color: var(--accent-ring); }
 
     /* Suggestion card (Branch A) */
     .ob-suggest {

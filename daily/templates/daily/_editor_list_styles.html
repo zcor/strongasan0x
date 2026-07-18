@@ -22,7 +22,8 @@ defaults (.goalhead, .gtitle, .stones, ...).
     .elist-item:first-child { border-top: 0; }
     .elist-item + .elist-item { margin-top: 0; padding-top: 0; }
     .elist-item.expanded {
-        background: rgba(0,0,0,.18);
+        background: rgba(0,0,0,.28);
+        padding-top: 6px;
         box-shadow: inset 0 1px 0 var(--line-soft), inset 0 -1px 0 var(--line-soft);
     }
     /* A collapsed row shows only its heading. The wins rows keep their details
@@ -59,6 +60,27 @@ defaults (.goalhead, .gtitle, .stones, ...).
     .elist-actions .primary { color: var(--accent); }
     .elist-actions button:disabled { opacity: .48; cursor: default; }
     .elist-actions button:not(:disabled):hover { background: rgba(255,255,255,.02); }
+
+    /* Standalone CTA below a card (Add a habit / Add a win / Unarchive): a
+       bordered full-width button, set off from the card by a small gap. Add
+       .brass for the soft accent wash; it only lights up when enabled, so a
+       disabled Unarchive stays plain until a win is checked. */
+    .cta-foot { display: flex; margin-top: 7px; }
+    .cta-foot .act { flex: 1; min-height: 52px; border: 1px solid var(--line); }
+    .cta-foot .act.brass:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        font-weight: 600; border-radius: 0;
+    }
+    .cta-foot .act.brass:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+    /* "Not sure what to add? Jamie can help ›" quiet link under both editors. */
+    .win-ask {
+        display: block; width: max-content; max-width: 100%; background: none;
+        border: 0; color: var(--text-dim); text-decoration: none; font: inherit;
+        font-size: .84rem; padding: 2px; cursor: pointer; text-align: left;
+    }
+    .win-ask span { color: var(--accent); white-space: nowrap; }
+    .win-ask:hover { color: var(--text); }
 
     .esheet {
         position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end;

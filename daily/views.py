@@ -72,6 +72,12 @@ logger = logging.getLogger(__name__)
 # item left to go, so it never competes with an unfinished list.
 BONUS_REVEAL_AT = 2
 
+# How many days back a user may EDIT (backfill) via the week strip. Kept to a
+# single day on purpose: it's for logging yesterday's items you forgot to mark
+# (last night's evening habits), not reconstructing history. OLDER days remain
+# fully viewable (see _is_view_only) — they just can't be edited.
+BACKFILL_WINDOW_DAYS = 1
+
 
 def _real_today(request) -> date:
     """The current LOCAL date for THIS request's participant (their timezone),
@@ -86,14 +92,16 @@ def _real_today(request) -> date:
 
 def _resolve_today(request) -> date:
     real_today = _real_today(request)
-    # Prod-safe backfill: ?day=YYYY-MM-DD views/edits a PAST day (max 7
-    # back, never future). Lets users log evening items (screens-off,
-    # magnesium) the next morning via the week strip.
+    # ?day=YYYY-MM-DD opens a PAST day. ANY past day may be VIEWED (never the
+    # future); whether it can be EDITED is a separate question answered by
+    # _is_view_only (only today + the last BACKFILL_WINDOW_DAYS days are
+    # editable). This lets users scroll back through their whole history while
+    # backfilling stays limited to the very recent past.
     day_raw = request.GET.get("day")
     if day_raw:
         try:
             d = datetime.strptime(day_raw, "%Y-%m-%d").date()
-            if real_today - timedelta(days=7) <= d <= real_today:
+            if d <= real_today:
                 return d
         except ValueError:
             pass
@@ -112,6 +120,15 @@ def _resolve_today(request) -> date:
 def _is_backfill(request) -> bool:
     """True when viewing a past day via ?day= (no coaching/bonus there)."""
     return _resolve_today(request) < _real_today(request) and bool(request.GET.get("day"))
+
+
+def _is_view_only(request) -> bool:
+    """A past day OLDER than the edit window: viewable but read-only. Editing
+    (habit taps, the win toggle, comment, metrics) is limited to today and the
+    last BACKFILL_WINDOW_DAYS days; everything older can only be looked at."""
+    if not request.GET.get("day"):
+        return False
+    return _resolve_today(request) < _real_today(request) - timedelta(days=BACKFILL_WINDOW_DAYS)
 
 
 def _is_beta(request, participant) -> bool:
@@ -385,9 +402,12 @@ def _render_checkin(request, from_token=""):
         if is_beta:
             # Beta: the one-card onboarding (fork + focus question), NOT the
             # legacy 3-question survey. Current path is untouched below.
+            beta_theme = _resolve_theme(request)
             return render(request, "daily/onboarding_beta.html", {
                 "participant": participant,
-                "theme": _resolve_theme(request),
+                "theme": beta_theme,
+                # Chalk & Steel palette by default (colors only, see base.html).
+                "beta_steel": not beta_theme,
                 "self_token": str(_active_token(participant) or ""),
                 "beta_toggle": settings.DEBUG,
             })
@@ -588,6 +608,9 @@ def _render_checkin(request, from_token=""):
                 else CHECKLIST_SIZE
             )
             done = 0
+        # Every day is tappable: today links back to the plain page, past days
+        # open for viewing (and editing if inside the backfill window).
+        href = "/daily/checkin/" if d == real_today else f"/daily/checkin/?day={d.isoformat()}"
         week.append({
             "label": d.strftime("%a")[0],
             "done": done,
@@ -596,15 +619,34 @@ def _render_checkin(request, from_token=""):
             "is_today": d == today,
             # A selected Today's Win was checked off on this day.
             "todays_win_done": d in win_days,
-            # Tap a past day to backfill it; today links back to the plain page.
-            "href": "/daily/checkin/" if d == real_today else f"/daily/checkin/?day={d.isoformat()}",
+            "href": href,
         })
+
+    # Day-stepper nav, shown IN PLACE of the week strip while viewing a past
+    # day via ?day= (see template `backfill`). Prev walks freely back through
+    # history (every past day is viewable); next walks forward, landing on the
+    # plain page (circles) once it reaches today.
+    nav_prev_day = today - timedelta(days=1)
+    nav_prev_href = f"/daily/checkin/?day={nav_prev_day.isoformat()}"
+    nav_next_day = today + timedelta(days=1)
+    nav_next_href = (
+        "/daily/checkin/" if nav_next_day >= real_today
+        else f"/daily/checkin/?day={nav_next_day.isoformat()}"
+    )
 
     active_token = _active_token(participant)
     context = {
         "participant": participant,
         "today": today,
+        # The true current date (today's date), independent of any past day
+        # being viewed — the header greeting always anchors to it.
+        "real_today": real_today,
         "backfill": backfill,
+        # A past day older than the edit window: shown, but every mutation
+        # affordance is inert (the template/JS key off this).
+        "view_only": backfill and today < real_today - timedelta(days=BACKFILL_WINDOW_DAYS),
+        "nav_prev_href": nav_prev_href,
+        "nav_next_href": nav_next_href,
         "first_visit": first_visit and not backfill,
         "intro_replayable": intro_replayable,
         "intro_version": 1,  # bump to re-show the intro to everyone once
@@ -656,11 +698,23 @@ def _render_checkin(request, from_token=""):
     if is_beta:
         # The combined win + habit screen. Add the wins-facet context; the habit
         # core context above is shared with the frozen path.
-        todays_win = dashboard_wins["selected"] if dashboard_wins and not backfill else None
-        completed_todays_win = (
-            dashboard_wins["completed"] if dashboard_wins and not backfill else None
-        )
+        # On a past day (backfill) the win that was SURFACED that day is still
+        # loaded so it can be checked/unchecked, like a habit — but only that
+        # win. There's no picking a different one and no backlog editing on a
+        # past day (auto_select stays off above, and the template hides the
+        # picker/editor affordances). The completed win loads the same way so an
+        # already-done day shows checked and can be undone.
+        todays_win = dashboard_wins["selected"] if dashboard_wins else None
+        completed_todays_win = dashboard_wins["completed"] if dashboard_wins else None
         context["is_beta"] = True
+        # Beta wears the Chalk & Steel palette by default (colors only, see
+        # base.html); an explicit ?theme=... still wins.
+        context["beta_steel"] = not context["theme"]
+        # Health focus makes Jamie a coach ("Coach Jamie"); life/unset keep the
+        # plain first name, matching her support-only role there.
+        context["coach_name"] = (
+            "Coach Jamie" if participant.focus == DailyParticipant.FOCUS_HEALTH else "Jamie"
+        )
         context["todays_win"] = _win_json(todays_win)
         context["completed_todays_win"] = _win_json(completed_todays_win)
         context["ai_mutations_enabled"] = participant.ai_mutations_enabled
@@ -727,6 +781,8 @@ def _is_baseline_questions(qs):
 def set_item_state(request):
     """Tap/skip an item. Body (form or JSON): key, state."""
     participant = request.daily_participant
+    if _is_view_only(request):
+        return JsonResponse({"ok": False, "error": "read_only_day"}, status=400)
     today = _resolve_today(request)
     beta_mode = _is_beta(request, participant)
 
@@ -1347,6 +1403,77 @@ def remove_subitem(request):
     })
 
 
+@require_daily_actor
+@require_http_methods(["POST"])
+def move_item(request):
+    """Move a standalone habit under another habit, making it a small step.
+
+    Body: ``key`` (the single habit to move) and ``dest_key`` (the habit it
+    moves into). The moved habit keeps its stable key — so today's answer and
+    any historical rows follow it — but drops its own weekday schedule and
+    step rule, since a small step inherits the destination's schedule. Only a
+    habit with NO steps of its own can move (a group can't nest under another);
+    the destination re-derives its done state from its steps afterward.
+    """
+    participant = request.daily_participant
+    today = _resolve_today(request)
+    if _is_backfill(request):
+        return JsonResponse({"ok": False, "error": "no_edit_in_backfill"}, status=400)
+
+    body, err = _json_body(request)
+    if err:
+        return err
+    key = str(body.get("key", "")).strip()
+    dest_key = str(body.get("dest_key", "")).strip()
+    if not key or not dest_key or key == dest_key:
+        return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+
+    version = participant.get_or_create_current_checklist()
+    check_in = _get_or_create_today(participant, today, version)
+
+    with transaction.atomic():
+        current = ChecklistVersion.objects.select_for_update().get(id=version.id)
+        source = next((q for q in current.questions if q["key"] == key), None)
+        dest = next((q for q in current.questions if q["key"] == dest_key), None)
+        if source is None or dest is None:
+            return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+        if source.get("items"):
+            return JsonResponse({"ok": False, "error": "has_steps"}, status=409)
+        if len(dest.get("items") or []) >= MAX_CHECKLIST_SIZE:
+            return JsonResponse({"ok": False, "error": "dest_full"}, status=409)
+
+        moved_step = {"key": source["key"], "label": source["label"]}
+        questions = []
+        for question in current.questions:
+            if question["key"] == key:
+                continue  # lift the source habit out of the top level
+            if question["key"] == dest_key:
+                question = {**question, "items": list(question.get("items") or []) + [moved_step]}
+            questions.append(question)
+        current.questions = questions
+        current.save(update_fields=["questions"])
+
+        states = check_in.answers_by_key()
+        dest = next(q for q in questions if q["key"] == dest_key)
+        _derive_parent(check_in, dest, states)
+
+    refresh_streak_cache(
+        participant,
+        today=_real_today(request),
+        changed_check_in=check_in,
+        done_count=sum(
+            1 for answer_state in states.values()
+            if answer_state == DailyCheckInAnswer.STATE_DONE
+        ),
+    )
+    return JsonResponse({
+        "ok": True,
+        "moved_key": key,
+        "dest_key": dest_key,
+        "habit": _habit_json(dest, today, states),
+    })
+
+
 # ===== Wins backlog (beta) ================================================
 # The positive face of a put-off thing. A pile that is never rendered all at
 # once or counted; the user selects a single "today's win." Every endpoint
@@ -1457,6 +1584,8 @@ def win_action(request):
     participant = request.daily_participant
     if not _is_beta(request, participant):
         return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    if _is_view_only(request):
+        return JsonResponse({"ok": False, "error": "read_only_day"}, status=400)
     today = _resolve_today(request)
 
     body, err = _json_body(request)
@@ -2128,6 +2257,8 @@ def next_bonus(request):
 @require_http_methods(["POST"])
 def save_comment(request):
     participant = request.daily_participant
+    if _is_view_only(request):
+        return JsonResponse({"ok": False, "error": "read_only_day"}, status=400)
     today = _resolve_today(request)
     comment = request.POST.get("comment", "")
     if request.content_type == "application/json":
@@ -2804,6 +2935,8 @@ def save_metric(request):
     """Upsert one metric reading. Body (JSON): key, slot, value (or "" to clear)."""
     from .models import DailyMetric, DailyMetricReading
     participant = request.daily_participant
+    if _is_view_only(request):
+        return JsonResponse({"ok": False, "error": "read_only_day"}, status=400)
     today = _resolve_today(request)
     try:
         body = json.loads(request.body)
