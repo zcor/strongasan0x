@@ -56,6 +56,12 @@ def _get_or_create_warrior_participant(mapping: TelegramUserMapping) -> DailyPar
         defaults={
             "display_name": display_name,
             "kind": DailyParticipant.KIND_WARRIOR,
+            # Roll Call warriors arrive from the legacy health app with rich
+            # context and skip onboarding, so initialize their beta coaching
+            # mode explicitly rather than leaving them support-only by default.
+            "beta": True,
+            "ai_mutations_enabled": True,
+            "focus": DailyParticipant.FOCUS_HEALTH,
         },
     )
     if not created and participant.display_name != display_name and mapping.linked_name:

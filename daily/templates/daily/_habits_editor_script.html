@@ -218,6 +218,79 @@
             return message;
         }
 
+        // ----- Move a single habit into another (it becomes a small step) ----
+        // Only a habit with no steps of its own can move; the picker lists
+        // every other habit as a tappable destination (its own key + label +
+        // step count carried on the card via __habitItem).
+        var moveSheet = root.querySelector("[data-habit-move-sheet]");
+        var moveList = root.querySelector("[data-habit-move-list]");
+        var moveEmpty = root.querySelector("[data-habit-move-empty]");
+        var moveTitle = root.querySelector("[data-habit-move-title]");
+        var moveMessage = root.querySelector("[data-habit-move-message]");
+        var moveCancel = root.querySelector("[data-habit-move-cancel]");
+
+        function closeMoveSheet() {
+            moveSheet.hidden = true;
+            moveList.innerHTML = "";
+            moveMessage.hidden = true;
+        }
+
+        function performMove(sourceKey, dest, row) {
+            Array.prototype.forEach.call(moveList.querySelectorAll("button"), function (b) { b.disabled = true; });
+            row.classList.add("is-moving");
+            moveMessage.hidden = true;
+            post("/daily/item/move/", {key: sourceKey, dest_key: dest.key}, function (data) {
+                var sourceCard = list.querySelector('.habit-editor-item[data-habit-key="' + sourceKey + '"]');
+                if (sourceCard) sourceCard.remove();
+                var destCard = list.querySelector('.habit-editor-item[data-habit-key="' + dest.key + '"]');
+                if (destCard) destCard.replaceWith(habitElement(data.habit));
+                notifyDashboard("remove", null, sourceKey);
+                notifyDashboard("upsert", data.habit);
+                closeMoveSheet();
+                syncEmpty();
+                toast('Moved into "' + dest.label + '".');
+            }, function () {
+                Array.prototype.forEach.call(moveList.querySelectorAll("button"), function (b) { b.disabled = false; });
+                row.classList.remove("is-moving");
+                moveMessage.textContent = "Couldn't move that habit. Try again.";
+                moveMessage.hidden = false;
+            });
+        }
+
+        function openMoveSheet(sourceKey, sourceLabel) {
+            moveList.innerHTML = "";
+            moveMessage.hidden = true;
+            moveTitle.textContent = 'Move "' + sourceLabel + '" into';
+            var destinations = Array.prototype.slice.call(list.querySelectorAll(".habit-editor-item"))
+                .filter(function (card) { return card.dataset.habitKey !== sourceKey && card.__habitItem; })
+                .map(function (card) { return card.__habitItem; });
+            moveEmpty.hidden = destinations.length !== 0;
+            destinations.forEach(function (dest) {
+                var count = (dest.items || []).length;
+                var row = document.createElement("button");
+                row.type = "button";
+                row.className = "habit-move-row";
+                var name = document.createElement("span");
+                name.className = "habit-move-name";
+                name.textContent = dest.label;
+                var meta = document.createElement("span");
+                meta.className = "habit-move-meta";
+                meta.textContent = count
+                    ? count + (count === 1 ? " step" : " steps")
+                    : "No steps yet";
+                row.appendChild(name);
+                row.appendChild(meta);
+                row.addEventListener("click", function () { performMove(sourceKey, dest, row); });
+                moveList.appendChild(row);
+            });
+            moveSheet.hidden = false;
+        }
+
+        if (moveCancel) moveCancel.addEventListener("click", closeMoveSheet);
+        if (moveSheet) moveSheet.addEventListener("click", function (event) {
+            if (event.target === moveSheet) closeMoveSheet();
+        });
+
         function collapseHabitCards(except) {
             Array.prototype.forEach.call(list.querySelectorAll(".habit-editor-item.expanded"), function (habit) {
                 if (habit !== except) window.elistSetExpanded(habit, false);
@@ -231,6 +304,8 @@
             var wrap = document.createElement("section");
             wrap.className = "elist-item habit-editor-item collapsible collapsed";
             wrap.dataset.habitKey = item.key;
+            // The move picker reads destinations off the live cards.
+            wrap.__habitItem = item;
             if (root.dataset.singleHabit === item.key) wrap.classList.add("single-focus");
 
             var heading = document.createElement("div");
@@ -342,10 +417,48 @@
             save.type = "button";
             save.className = "primary";
             save.textContent = "Save";
+            // A habit with no steps of its own can be moved into another habit.
+            // Its third action slot shows "Move" until an edit makes it dirty,
+            // then flips to "Save"; a group habit always shows "Save".
+            var isSingle = !item.items.length;
+            var move = null;
+            if (isSingle) {
+                move = document.createElement("button");
+                move.type = "button";
+                move.className = "primary";
+                move.textContent = "Move";
+            }
             actions.appendChild(removeHabit);
             actions.appendChild(addDetail);
+            if (move) actions.appendChild(move);
             actions.appendChild(save);
             wrap.appendChild(actions);
+
+            function isDirty() {
+                if (!isSingle) return true;
+                if (name.value.trim() !== item.label) return true;
+                var days = schedule.days().slice().sort(function (a, b) { return a - b; });
+                var saved = item.days.slice();
+                if (days.length !== saved.length) return true;
+                for (var i = 0; i < days.length; i++) {
+                    if (days[i] !== saved[i]) return true;
+                }
+                return false;
+            }
+            function refreshActionMode() {
+                if (!move) return;
+                var dirty = isDirty();
+                move.hidden = dirty;
+                save.hidden = !dirty;
+            }
+            if (move) {
+                save.hidden = true;
+                name.addEventListener("input", refreshActionMode);
+                schedule.element.addEventListener("click", refreshActionMode);
+                move.addEventListener("click", function () {
+                    openMoveSheet(item.key, item.label);
+                });
+            }
 
             // Expansion itself is the shared elist accordion (chevron + heading
             // taps, one open at a time); this hook only keeps the toggle's
@@ -364,6 +477,7 @@
                 if (stepRule) stepRule.setDisabled(busy);
                 removeHabit.disabled = busy;
                 addDetail.disabled = busy;
+                if (move) move.disabled = busy;
                 save.disabled = busy;
                 save.textContent = busy && activeLabel === "save" ? "Saving…" : "Save";
                 removeHabit.textContent = busy && activeLabel === "delete" ? "Deleting…" : "Delete";

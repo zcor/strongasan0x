@@ -11,22 +11,54 @@ gold/green palette, the week strip carrying progress (no top ring). See
 daily/CLIMB_REFRAME_PLAN.md section 2c.
 {% endcomment %}
 
-<div class="climb">
+<div class="climb{% if view_only %} view-only{% endif %}">
 
-    {# --- Greeting: "Hi, [name]." in the gold gradient, date beneath --- #}
+    {% comment %} Navigation loading veil. Tapping a week-strip circle or a
+    day-stepper arrow is a full-page navigation with a server round-trip, so we
+    flash a spinner the instant it's tapped: without it the tap looks like it
+    did nothing until the next page paints. {% endcomment %}
+    <div class="nav-loading" id="nav-loading" aria-hidden="true">
+        <div class="nav-spinner" role="status" aria-label="Loading"></div>
+    </div>
+    <script>
+    (function () {
+        var veil = document.getElementById("nav-loading");
+        if (!veil) return;
+        // Delegate on document so it works no matter when the strip/stepper
+        // render. Only plain left-clicks on a day-navigation link count; let
+        // new-tab / modified clicks through untouched.
+        document.addEventListener("click", function (e) {
+            if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            var a = e.target.closest(".weekstrip a.wday[href], .daynav a[href]");
+            if (!a || a.getAttribute("target") === "_blank") return;
+            veil.classList.add("on");
+        });
+        // Back/forward can restore this page (bfcache) with the veil still on;
+        // clear it so the user isn't stuck staring at the spinner.
+        window.addEventListener("pageshow", function () { veil.classList.remove("on"); });
+    })();
+    </script>
+
+    {% comment %} Greeting: "Hi, [name]." in the gold gradient, date beneath.
+    The date always shows the REAL today, even while viewing a past day (that
+    day's date lives in the stepper/banner instead). {% endcomment %}
     <header class="appbar">
         <div class="brand">Hi, {{ participant.display_name }}!</div>
-        <div class="datestr">{{ today|date:"D, M j" }}</div>
+        <div class="datestr">{{ real_today|date:"D, M j" }}</div>
     </header>
 
     {% comment %} Week strip: 7 ring-circles, last 7 days. Arcs painted by JS
-    from done/total (today's fills live as items are checked). {% endcomment %}
-    <div class="weekstrip" aria-label="Last 7 days, tap a day to view or fill it in">
+    from done/total (today's fills live as items are checked). On a past day
+    (backfill) the strip is replaced by the day-stepper below. {% endcomment %}
+    {% if not backfill %}
+    <div class="weekstrip" aria-label="Last 7 days; tap a day to view or fill it in">
         {% if streak >= 2 %}
             <div class="wstreak" id="streak-chip" aria-label="{{ streak }} day streak">
                 <span class="wstreak-flame">🔥</span><span class="wstreak-num">{{ streak }}</span>
             </div>
         {% endif %}
+        {% comment %} Every day is tappable to open it — recent days for filling
+        in, older days read-only. {% endcomment %}
         {% for d in week %}
             <a class="wday{% if d.is_today %} today{% endif %}" href="{{ d.href }}"
                data-done="{{ d.done }}" data-total="{{ d.total }}"{% if d.is_today %} data-today="1"{% endif %}>
@@ -41,23 +73,63 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
             </a>
         {% endfor %}
     </div>
+    {% else %}
+    {% comment %} Day-stepper: replaces the strip while viewing a past day.
+    ‹ prev · [selected date, centered] · calendar (jump home) · next ›. The
+    date is centered by the 1fr/auto/1fr grid; the calendar hides on today
+    (never reached here, since the stepper is past-day only). {% endcomment %}
+    <nav class="daynav" aria-label="Day navigation">
+        <div class="daynav-side start">
+            {% if nav_prev_href %}
+            <a class="daynav-btn" href="{{ nav_prev_href }}" aria-label="Previous day">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            </a>
+            {% else %}
+            <span class="daynav-btn is-disabled" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></span>
+            {% endif %}
+        </div>
+        <div class="daynav-date">{{ today|date:"D, M j" }}</div>
+        <div class="daynav-side end">
+            <a class="daynav-btn" href="/daily/checkin/" aria-label="Back to today">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            </a>
+            {% if nav_next_href %}
+            <a class="daynav-btn" href="{{ nav_next_href }}" aria-label="Next day">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </a>
+            {% else %}
+            <span class="daynav-btn is-disabled" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+            {% endif %}
+        </div>
+    </nav>
+    {% endif %}
 
     {% if backfill %}
         <div class="backfill-banner">
-            Filling in <strong>{{ today|date:"l" }}</strong>: tap anything you did that day.
-            <a href="/daily/checkin/">Back to today</a>
+            <div class="bf-status">
+                {% if view_only %}
+                    Viewing <strong>{{ today|date:"l" }}</strong>: this day is read-only.
+                {% else %}
+                    <strong>{{ today|date:"l" }}</strong>: check off anything you did but missed.
+                {% endif %}
+            </div>
+            <div class="bf-home">Tap <svg class="bf-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> to return to today.</div>
         </div>
     {% endif %}
 
     <div class="scroll">
 
-        {% if not backfill %}
-        {# ===== Today's win (crown) — squared card, elevated on top ===== #}
+        {% comment %} On a past day the win surfaced that day can be
+        checked/unchecked (like a habit), but nothing else: the picker, editor
+        door, "edit this win", and goal-complete are all hidden in backfill, so
+        the only action is toggling that one win. {% endcomment %}
+        {% if not backfill or todays_win or completed_todays_win %}
+        {# ===== Wins (crown) — the win selected for today, elevated on top ===== #}
         <div class="card win{% if not todays_win and not completed_todays_win %} is-hidden{% endif %}" id="win-crown"
              {% if todays_win %}data-win-id="{{ todays_win.id }}"{% endif %}{% if todays_win and todays_win.goal_id %} data-win-goal-id="{{ todays_win.goal_id }}"{% endif %}>
             <div class="card-body">
-                <div class="eyebrow">Today's win
-                    <button class="wins-link" id="wins-dialog-open" type="button">Your wins ›</button>
+                <div class="eyebrow">Wins
+                    {% if not backfill %}<button class="wins-link" id="wins-dialog-open" type="button">Your wins ›</button>{% endif %}
                 </div>
                 <button class="row solo{% if completed_todays_win and not todays_win %} done{% endif %}" id="win-row" type="button">
                     <span class="check"></span>
@@ -65,35 +137,35 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                         <span class="rlabel" id="win-title">{% if todays_win %}{{ todays_win.title }}{% else %}{{ completed_todays_win.title }}{% endif %}</span>
                         <span class="sub{% if todays_win %}{% if not todays_win.goal %} is-hidden{% endif %}{% elif not completed_todays_win.goal %} is-hidden{% endif %}" id="win-goal">part of: <span id="win-goal-text">{% if todays_win %}{{ todays_win.goal }}{% else %}{{ completed_todays_win.goal }}{% endif %}</span></span>
                     </span>
-                    <span class="chev" aria-hidden="true">
+                    {% if not backfill %}<span class="chev" aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-                    </span>
+                    </span>{% endif %}
                 </button>
-                <div class="win-again{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-again">Want another one?</div>
+                <div class="win-again{% if backfill or todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-again">Want another one?</div>
             </div>
             {% comment %} The check circle IS the "did it" action, like habit
             rows; not checking it is "not today". The footer only offers a
             swap. {% endcomment %}
-            <div class="card-foot{% if not todays_win %} is-hidden{% endif %}" id="win-foot">
+            <div class="card-foot{% if backfill or not todays_win %} is-hidden{% endif %}" id="win-foot">
                 <button class="act" type="button" data-edit-win>Edit this win</button>
                 <button class="act" id="win-pick-another" type="button">Pick another one</button>
             </div>
             {% comment %} Post-completion prompt footer: every completed render
             shows it (Not today quietly dismisses for the current view).
             Choosing another opens the explicit win picker. {% endcomment %}
-            <div class="card-foot{% if todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-foot-again">
+            <div class="card-foot{% if backfill or todays_win or not completed_todays_win %} is-hidden{% endif %}" id="win-foot-again">
                 <button class="act" id="win-again-no" type="button">Not today</button>
                 <button class="act gold" id="win-again-yes" type="button">Pick one</button>
             </div>
-            <div class="card-foot{% if todays_win or not completed_todays_win.goal_can_complete %} is-hidden{% endif %}" id="win-goal-foot">
+            <div class="card-foot{% if backfill or todays_win or not completed_todays_win.goal_can_complete %} is-hidden{% endif %}" id="win-goal-foot">
                 <button class="act" id="win-goal-complete" type="button"{% if completed_todays_win.goal_id %} data-goal-id="{{ completed_todays_win.goal_id }}"{% endif %}>Mark complete</button>
             </div>
         </div>
 
         {# Slim invitation (the Wins list has no open leaf yet). #}
-        <div class="card{% if todays_win or completed_todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
+        <div class="card{% if backfill or todays_win or completed_todays_win or not core_items %} is-hidden{% endif %}" id="win-invite">
             <div class="card-body">
-                <div class="eyebrow">Today's win
+                <div class="eyebrow">Wins
                     <button class="wins-link" id="wins-invite-link" type="button">Your wins ›</button>
                 </div>
                 <div class="invite">
@@ -152,6 +224,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                 </div>
             </div>
         </div>
+        {% comment %} TEMPORARY: reset-to-baseline. Rendered for grandfathered
+        users whenever the list has drifted from baseline; the "reset" option
+        just shows/hides it (so the toggle can reveal it live, no reload). {% endcomment %}
+        {% if legacy_health_config and not is_baseline %}
+        <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="reset-baseline{% if not legacy_health_config.reset %} is-hidden{% endif %}" id="reset-baseline-form">
+            {% csrf_token %}
+            <button type="submit">Reset to original 3 questions</button>
+        </form>
+        {% endif %}
         {% endif %}
 
         {% comment %} Slim win link: collapsed state of the invite (after "Not
@@ -280,11 +361,13 @@ after the first paint so backlog queries and markup do not block the dashboard.
                     Today
                 </button>
                 <div class="wetitle" id="habits-dialog-title">Your habits</div>
-                <div class="wesub">Loading your weekly habits…</div>
+                {% comment %} Static copy renders for real right away; only the
+                habit list itself gets skeleton stand-ins. {% endcomment %}
+                <div class="wesub">Choose the days each habit should appear on Today.</div>
             </header>
             <div class="card" aria-label="Loading your habits">
                 <div class="card-body">
-                    <div class="skeleton-line short"></div>
+                    <div class="eyebrow">Weekly habits</div>
                     <div class="skeleton-line"></div>
                     <div class="skeleton-line medium"></div>
                     <div class="eskeleton-error" data-habits-load-error hidden>
@@ -299,9 +382,10 @@ after the first paint so backlog queries and markup do not block the dashboard.
 </dialog>
 
 {% comment %}
-Focused "Pick one" chooser: a full-screen checklist of every open Working
-Toward step and one-off win, styled like Your wins. Rows are built
-client-side from /daily/win/candidates/ each time it opens.
+Focused "Pick one" chooser: a full-screen checklist of every open win
+(north-star steps grouped under their goal, then one-offs), styled like
+Your wins. Rows are built client-side from /daily/win/candidates/ each
+time it opens.
 {% endcomment %}
 <dialog id="win-picker-dialog" class="wins-dialog" aria-labelledby="win-picker-title">
     <div class="wins-dialog-shell">
@@ -314,25 +398,15 @@ client-side from /daily/win/candidates/ each time it opens.
                 <div class="wetitle" id="win-picker-title">Pick today's win</div>
                 <div class="wesub">Choose the one thing you want to move forward today.</div>
             </header>
-            <div class="card is-hidden" id="win-picker-steps-card">
+            <div class="card is-hidden" id="win-picker-list-card">
                 <div class="card-body">
-                    <div class="eyebrow">Working Toward</div>
-                    <div class="eskeleton" id="win-picker-steps-skel" aria-hidden="true">
+                    <div class="eyebrow">Wins</div>
+                    <div class="eskeleton" id="win-picker-list-skel" aria-hidden="true">
                         <div class="skeleton-line short"></div>
                         <div class="skeleton-line"></div>
                         <div class="skeleton-line medium"></div>
                     </div>
-                    <div id="win-picker-steps"></div>
-                </div>
-            </div>
-            <div class="card is-hidden" id="win-picker-singles-card">
-                <div class="card-body">
-                    <div class="eyebrow">One-off wins</div>
-                    <div class="eskeleton" id="win-picker-singles-skel" aria-hidden="true">
-                        <div class="skeleton-line"></div>
-                        <div class="skeleton-line medium"></div>
-                    </div>
-                    <div id="win-picker-singles"></div>
+                    <div id="win-picker-list"></div>
                 </div>
             </div>
             <div class="card is-hidden" id="win-picker-empty-card">
@@ -363,14 +437,40 @@ client-side from /daily/win/candidates/ each time it opens.
     </div>
 </div>
 
+{% comment %} TEMPORARY: grandfathered health options. The gear in the appbar
+opens this sheet; native beta users have no config (see legacy_health_config).
+Remove alongside the field when the grandfather window closes. {% endcomment %}
+{% if legacy_health_config %}
+<div id="cfg-scrim" class="cfg-scrim"></div>
+<div id="cfg-sheet" class="cfg-sheet" role="dialog" aria-modal="true" aria-label="Health settings" aria-hidden="true">
+    <div class="cfg-head">
+        <span class="cfg-title">Health settings</span>
+        <button type="button" class="cfg-close" id="cfg-close" aria-label="Close">✕</button>
+    </div>
+    <p class="cfg-note">Extras carried over from the classic app. Turn off any you don't want.</p>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Auto-load next bonus</span><span class="cfg-sub">Pull a fresh bonus in as soon as your habits are done.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="auto_bonus"{% if legacy_health_config.auto_bonus %} checked{% endif %}>
+    </label>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Show Jamie's note on open</span><span class="cfg-sub">Pop her daily note the moment you open the app.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="coach_note"{% if legacy_health_config.coach_note %} checked{% endif %}>
+    </label>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Show "Reset to original 3"</span><span class="cfg-sub">Reveal a button to reset your habits to the starting three.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="reset"{% if legacy_health_config.reset %} checked{% endif %}>
+    </label>
+</div>
+{% endif %}
+
 {# --- One-time next-day report. This is intentionally separate from chat. --- #}
 <div id="morning-report-modal" class="morning-report-modal" hidden>
     <section class="morning-report-card" role="dialog" aria-modal="true" aria-labelledby="morning-report-title">
         <div class="morning-report-identity">
-            <img src="{% static 'daily/images/jamie-avatar.jpg' %}" width="42" height="42" alt="" aria-hidden="true">
+            <img src="{% static 'daily/images/jamie-avatar-v2.jpg' %}" width="42" height="42" alt="" aria-hidden="true">
             <div>
                 <div class="morning-report-kicker">Your daily report</div>
-                <div class="morning-report-title" id="morning-report-title">Jamie</div>
+                <div class="morning-report-title" id="morning-report-title">{{ coach_name }}</div>
             </div>
         </div>
         <div class="morning-report-text" data-morning-report-text></div>
@@ -379,7 +479,7 @@ client-side from /daily/win/candidates/ each time it opens.
 </div>
 
 {# --- Jamie: chat FAB + bottom-sheet panel --- #}
-<button type="button" id="coach-fab" class="fab fab-chat{% if chat_unread %} has-unread{% endif %}" aria-label="Chat with Jamie">
+<button type="button" id="coach-fab" class="fab fab-chat{% if chat_unread %} has-unread{% endif %}" aria-label="Chat with {{ coach_name }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-6.5L7.5 19.5V16H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Z"/></svg>
     <span class="fab-dot"></span>
 </button>
@@ -387,9 +487,9 @@ client-side from /daily/win/candidates/ each time it opens.
 <div id="coach-panel" class="coach-panel" aria-hidden="true">
     <div class="coach-head">
         <div class="coach-identity">
-            <img class="coach-avatar" src="{% static 'daily/images/jamie-avatar.jpg' %}"
+            <img class="coach-avatar" src="{% static 'daily/images/jamie-avatar-v2.jpg' %}"
                  width="40" height="40" alt="" aria-hidden="true">
-            <span class="coach-title">Jamie</span>
+            <span class="coach-title">{{ coach_name }}</span>
         </div>
         <button type="button" class="coach-close" id="coach-close" aria-label="Close">✕</button>
     </div>
@@ -408,7 +508,7 @@ client-side from /daily/win/candidates/ each time it opens.
     </div>
     {% endif %}
     <form class="coach-input" id="coach-form" onsubmit="return false;">
-        <textarea id="coach-text" rows="1" placeholder="Message Jamie…"></textarea>
+        <textarea id="coach-text" rows="1" placeholder="Message {{ coach_name }}…"></textarea>
         <button type="submit" class="coach-send" id="coach-send" aria-label="Send">↑</button>
     </form>
 </div>
@@ -422,16 +522,6 @@ client-side from /daily/win/candidates/ each time it opens.
 {% include "daily/_habits_editor_styles.html" %}
 {% endif %}
 <style>
-    /* Local tokens layered on base.html's palette (--accent gold, --done green).
-       Defined on :root so elements OUTSIDE .climb (the FABs, chat panel, which
-       render at the page root) also resolve them — otherwise var(--acc-ink) is
-       undefined there and the chat icon falls back to near-white on gold. */
-    :root {
-        --line: rgba(255,255,255,.13);
-        --line-soft: rgba(255,255,255,.09);
-        --fill: rgba(255,255,255,.02);
-        --acc-ink: #2a2208;
-    }
     .climb { margin: 0; }
 
     /* Header */
@@ -445,7 +535,7 @@ client-side from /daily/win/candidates/ each time it opens.
     .caption { padding: 6px 4px 0; color: var(--text-dim); font-size: .74rem; }
 
     /* Week strip */
-    .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 12px 2px 8px; }
+    .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 36px 2px 8px 2px; }
     .wday { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; text-decoration: none; position: relative; }
     .wday > svg { width: 30px; height: 30px; }
     .wtrack { stroke: rgba(255,255,255,.09); }
@@ -453,6 +543,8 @@ client-side from /daily/win/candidates/ each time it opens.
     .warc.full { stroke: var(--done-bright); }
     .wlabel { font-size: .68rem; font-weight: 500; color: var(--text-dim); }
     .wday.today .wlabel { color: var(--text); font-weight: 700; }
+    /* Read-only past day: the surface is for looking, not tapping. */
+    .view-only .row, .view-only #win-row, .view-only .subrow { cursor: default; }
     /* Streak pill: a self-contained warm signal that leads the strip. Kept
        orange (not --accent) so the flame reads the same across all themes. */
     .wstreak {
@@ -474,6 +566,101 @@ client-side from /daily/win/candidates/ each time it opens.
     .wstar svg { width: 13px; height: 13px; color: var(--accent); filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
     .wstar.just svg { animation: starpop .5s cubic-bezier(.34,1.56,.64,1); }
     @keyframes starpop { 0%{transform:scale(0) rotate(-40deg); opacity:0} 60%{transform:scale(1.25) rotate(6deg)} 100%{transform:scale(1) rotate(0); opacity:1} }
+    /* Confetti burst when every core habit for the day is done. */
+    .confetti-piece {
+        position: fixed; width: 9px; height: 9px; opacity: 0;
+        pointer-events: none; border-radius: 2px; z-index: 200;
+        animation: confetti-fly 1s cubic-bezier(.16,.84,.34,1) forwards;
+    }
+    @keyframes confetti-fly {
+        0%   { opacity: 0; transform: translate(0,0) scale(.4); }
+        10%  { opacity: 1; }
+        100% { opacity: 0; transform: var(--end-transform) scale(1); }
+    }
+    /* TEMPORARY: grandfathered health-options sheet + reset control. The gear
+       button itself lives in base.html's #dashboard-controls (styled there to
+       match the install/notification icons), last in that right-aligned row. */
+    .cfg-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 90; }
+    .cfg-scrim.show { opacity: 1; pointer-events: auto; }
+    /* Mobile: full-width bottom sheet that slides up. Desktop (>=520px): a
+       centered modal dialog that fades/scales in. */
+    .cfg-sheet {
+        position: fixed; left: 0; right: 0; bottom: 0; transform: translateY(100%);
+        width: 100%; background: var(--bg-solid);
+        border: 1px solid var(--line); border-bottom: 0; border-radius: 0;
+        padding: 6px 20px 24px; z-index: 91; transition: transform .24s cubic-bezier(.16,.84,.34,1);
+    }
+    .cfg-sheet.show { transform: translateY(0); }
+    @media (min-width: 520px) {
+        .cfg-sheet {
+            left: 50%; right: auto; bottom: auto; top: 50%; width: 100%; max-width: 440px;
+            border: 1px solid var(--line); border-radius: 0;
+            transform: translate(-50%, -50%) scale(.96); opacity: 0; visibility: hidden;
+            transition: opacity .18s ease, transform .18s ease, visibility .18s;
+        }
+        .cfg-sheet.show { transform: translate(-50%, -50%) scale(1); opacity: 1; visibility: visible; }
+    }
+    .cfg-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; }
+    .cfg-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+    .cfg-close { background: transparent; border: 0; color: var(--text-dim); font-size: 1.1rem; line-height: 1; padding: 6px; cursor: pointer; }
+    .cfg-note { margin: 0 0 8px; color: var(--text-dim); font-size: .8rem; }
+    .cfg-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-soft); cursor: pointer; }
+    .cfg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .cfg-label { font-size: .94rem; color: var(--text); }
+    .cfg-sub { font-size: .76rem; color: var(--text-dim); line-height: 1.25; }
+    /* Custom checkbox: a thin checkmark (stroke 2 vs the app's chunkier 3.4). */
+    /* Match the Habits checkmark exactly (.check / .row.done .check). */
+    .cfg-toggle {
+        appearance: none; -webkit-appearance: none; flex: none;
+        width: 26px; height: 26px; border-radius: 50%; color: transparent;
+        border: 2px solid rgba(255,255,255,.22); background: transparent;
+        display: grid; place-items: center; cursor: pointer; transition: all .16s ease;
+    }
+    .cfg-toggle::after {
+        content: ""; width: 13px; height: 11px; background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+    }
+    .cfg-toggle:checked { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+    .reset-baseline { margin: 14px 4px 0; text-align: center; }
+    .reset-baseline button { background: none; border: 0; color: var(--text-dim); text-decoration: underline; font: inherit; font-size: .8rem; padding: 4px 8px; cursor: pointer; }
+    .reset-baseline button:hover { color: var(--text); }
+
+    /* Day-stepper (replaces the week strip on a past day). 1fr/auto/1fr keeps
+       the selected date optically centered while the side controls hug the
+       edges. Height matches the strip so the header doesn't jump between days. */
+    .daynav { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 36px 2px 8px 2px; }
+    .daynav-side { display: flex; align-items: center; gap: 4px; }
+    .daynav-side.start { justify-content: flex-start; }
+    .daynav-side.end { justify-content: flex-end; }
+    .daynav-date { text-align: center; white-space: nowrap; color: var(--text); font-size: .92rem; font-weight: 600; }
+    .daynav-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 34px; height: 34px; border-radius: 999px;
+        color: var(--text-dim); text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .daynav-btn:active { background: var(--line-soft); color: var(--text); }
+    .daynav-btn svg { width: 20px; height: 20px; }
+    .daynav-btn.is-disabled { opacity: .28; pointer-events: none; }
+
+    /* Navigation loading veil: a dim scrim + spinner shown the moment a day
+       circle / stepper arrow is tapped, until the next page paints. */
+    .nav-loading {
+        position: fixed; inset: 0; z-index: 200;
+        display: none; align-items: center; justify-content: center;
+        background: rgba(8, 10, 14, .5);
+        -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    }
+    .nav-loading.on { display: flex; }
+    .nav-spinner {
+        width: 34px; height: 34px; border-radius: 50%;
+        border: 3px solid var(--panel-border);
+        border-top-color: var(--accent);
+        animation: nav-spin .7s linear infinite;
+    }
+    @keyframes nav-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .nav-spinner { animation-duration: 1.8s; } }
 
     .scroll { display: flex; flex-direction: column; gap: 14px; padding: 8px 0 32px; }
 
@@ -543,16 +730,47 @@ client-side from /daily/win/candidates/ each time it opens.
     .win .row.done .chev { display: none; }
     .win #win-foot { display: none; }
     .win.open #win-foot { display: flex; animation: subslide .18s ease; }
+    /* Open "tab": a slightly darker inside marks the open row (with the rotated
+       chevron), matching the editors' expanded rows. */
+    .rows .habit.open { background: rgba(0,0,0,.28); }
+    /* When the first/only tab is open, cap it with a top border. Other habits
+       already get one from the .habit + .habit separator; the first habit and
+       the lone win row don't, so add it only in the open state. */
+    .rows .habit:first-child.open { border-top: 1px solid var(--line-soft); }
+    /* The win's open tab must behave like a habit's, NOT darken the whole card:
+       the fill + top border belong to the win ROW, broken full-bleed out of the
+       card-body's 20px padding so the border reaches the card's side edges. The
+       "Wins" eyebrow above stays on the plain card background; the footer drawer
+       continues the fill, and dropping the body's bottom padding closes the gap
+       between row and footer. */
+    .win.open #win-row {
+        /* Full-bleed to both card edges. The row is a <button>, so width:auto is
+           shrink-to-fit (not fill) and width:100% only spans the card-body's
+           padded box; calc(100% + 40px) with the -20px margins spans the full
+           card width, the same reach the habit rows get from their .rows box. */
+        width: calc(100% + 40px); margin: 0 -20px; padding: 12px 20px;
+        background: rgba(0,0,0,.28);
+        border-top: 1px solid var(--line-soft);
+    }
+    .win.open .card-body { padding-bottom: 0; }
+    .win.open #win-foot { background: rgba(0,0,0,.28); }
+    /* Drop the card-body's bottom padding (like the Your-habits editor) so a
+       last open row's darker fill closes flush at the card edge instead of
+       leaving a grey strip below it. The habit row's own padding keeps the
+       closed list from touching the border. */
+    #habits-card .card-body { padding-bottom: 0; }
     .more { margin-left: auto; display: inline-flex; align-items: center; color: var(--text-faint); flex: none; padding: 2px; }
     .more svg { width: 18px; height: 18px; display: block; }
     .more:hover { color: var(--accent); }
 
-    /* The drawer of sub-items, indented under the habit's label (61px = the
-       full-bleed row's 20px inset + the 41px label indent). */
-    .subwrap { display: none; padding: 2px 20px 12px 61px; }
+    /* The drawer of sub-items. .subwrap is full-bleed (edge to edge of the card
+       via .rows); the label indent lives on .subrows, so the action bar and
+       composer below can span the full width with no negative-margin breakout.
+       61px indent = the row's 20px inset + its 41px label indent. */
+    .subwrap { display: none; }
     .habit.open .subwrap { display: block; animation: subslide .18s ease; }
     @keyframes subslide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-    .subrows { display: flex; flex-direction: column; }
+    .subrows { display: flex; flex-direction: column; padding: 2px 20px 8px 61px; }
     .subrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 0;
         background: transparent; border: 0; cursor: pointer; color: var(--text); font: inherit; text-align: left; }
     .subrow + .subrow { border-top: 1px solid var(--line-soft); }
@@ -564,28 +782,23 @@ client-side from /daily/win/candidates/ each time it opens.
     .subrow.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
     .subx { margin-left: auto; color: var(--text-faint); font-size: .9rem; line-height: 1; flex: none; padding: 4px 6px; }
     .subx:hover { color: #e0a672; }
-    /* Jump into Your habits with this habit's card pre-expanded. Styled like
-       the editors' Delete / Add a step / Save strip (.elist-actions): a
-       hairline-topped action bar spanning the card edge to edge, breaking out
-       of the drawer's 61px left / 20px right padding. */
+    /* Jump into Your habits with this habit's card pre-expanded. A full-width
+       action bar at the bottom of the drawer, like the editors' Delete / Add a
+       step / Save strip. It spans the card because .subwrap is full-bleed, so
+       it just needs width:100% — no negative-margin breakout. Only a top
+       hairline; the next habit's own top border closes the drawer below it. */
     .sub-edit-link {
         display: flex; align-items: center; justify-content: center;
-        width: calc(100% + 81px); margin: 8px 0 -12px -61px; min-height: 52px;
+        width: 100%; min-height: 52px;
         padding: 12px 6px; border: 0; border-top: 1px solid var(--line-soft);
-        border-bottom: 1px solid var(--line-soft);
         background: none; color: var(--text-dim); font: inherit; font-size: .8rem;
         cursor: pointer;
     }
     .sub-edit-link:hover { background: rgba(255,255,255,.02); }
-    {% if not backfill %}
-    /* The bar carries its own bottom hairline (so the last habit's bar ends
-       crisply instead of bleeding into the card padding); the habit after an
-       open drawer drops its top border to avoid doubling that line. */
-    .rows .habit.open + .habit { border-top: 0; }
-    {% endif %}
 
-    /* Composer for adding a sub-item (opened from the "···" menu). */
-    .sub-composer { margin: 8px 0 2px; }
+    /* Composer for adding a sub-item (opened from the "···" menu): indented to
+       line up with the sub-rows. */
+    .sub-composer { padding: 8px 20px 8px 61px; }
     .sub-composer .composer-input { width: 100%; }
     .sub-foot { display: flex; margin-top: 8px; border: 1px solid var(--line); }
     .sub-foot .act { padding: 11px 10px; font-size: .82rem; }
@@ -610,6 +823,10 @@ client-side from /daily/win/candidates/ each time it opens.
        under their North Star; today's current pick shows a gold check. */
     .win-picker .wp-goal { font-size: .72rem; color: var(--text-dim); margin: 14px 0 2px; }
     .win-picker .wp-goal:first-child { margin-top: 0; }
+    /* One-offs share the list with north-star steps; the group gap keeps a
+       one-off from reading as a step of the goal above it. */
+    .win-picker .wp-singles { margin-top: 14px; }
+    .win-picker .wp-singles:first-child { margin-top: 0; }
     .win-picker-row {
         display: flex; align-items: center; gap: 15px; width: 100%; min-height: 56px;
         padding: 6px 0; background: none; border: 0; color: var(--text);
@@ -652,9 +869,15 @@ client-side from /daily/win/candidates/ each time it opens.
     .metric-unit { font-size: .78rem; color: var(--text-dim); }
 
     .backfill-banner {
-        border: 1px solid var(--line); padding: 12px 14px; font-size: .9rem; color: var(--text-dim); margin: 8px 0 0;
+        background: var(--panel); border: 1px solid var(--line);
+        padding: 12px 14px; font-size: .9rem; color: var(--text-dim); margin: 8px 0 0;
     }
-    .backfill-banner a { color: var(--accent); }
+    .backfill-banner .bf-status strong { color: var(--text); font-weight: 600; }
+    .backfill-banner .bf-home {
+        display: flex; align-items: center; gap: 5px;
+        margin-top: 5px; font-size: .82rem; color: var(--text-dim);
+    }
+    .backfill-banner .bf-cal { width: 15px; height: 15px; flex: none; }
     .climb-foot { margin-top: 22px; text-align: center; color: var(--text-dim); font-size: .78rem; }
     .climb-foot span { color: var(--text-dim); }
     .climb-foot a { color: var(--text-dim); margin: 0 4px; }
@@ -685,7 +908,7 @@ client-side from /daily/win/candidates/ each time it opens.
     .intro-modal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; }
     .intro-modal.show { display: flex; }
     .intro-card {
-        border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,217,122,.05), rgba(255,255,255,.01)), var(--bg-solid);
+        border: 1px solid var(--line); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), rgba(255,255,255,.01)), var(--bg-solid);
         max-width: 24rem; width: 100%; padding: 46px 34px 40px; text-align: center;
     }
     .intro-hi { font-size: 1rem; font-weight: 400; letter-spacing: .01em; color: var(--accent); margin-bottom: 16px; }
@@ -752,7 +975,7 @@ client-side from /daily/win/candidates/ each time it opens.
     .coach-panel.open { transform: translateY(0); }
     .coach-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
     .coach-identity { display: flex; align-items: center; gap: 11px; }
-    .coach-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,217,122,.28); box-shadow: 0 0 0 2px rgba(255,217,122,.08); }
+    .coach-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
     .coach-title { font-weight: 500; }
     .coach-close { background: none; border: 0; color: var(--text-dim); font-size: 1rem; cursor: pointer; }
     .coach-log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 160px; }
@@ -771,7 +994,7 @@ client-side from /daily/win/candidates/ each time it opens.
     .chip.on { border-color: var(--accent); color: var(--accent); }
     .coach-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); }
     .coach-input textarea { flex: 1; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: .95rem; padding: 10px 12px; resize: none; max-height: 120px; }
-    .coach-input textarea:focus { outline: none; border-color: rgba(255,217,122,.5); }
+    .coach-input textarea:focus { outline: none; border-color: var(--accent-ring); }
     .coach-send { flex: none; width: 40px; height: 40px; border: 0; background: var(--accent-grad); color: var(--acc-ink); font-size: 1.1rem; cursor: pointer; }
     .coach-send:disabled { opacity: .5; }
 
@@ -783,7 +1006,13 @@ client-side from /daily/win/candidates/ each time it opens.
     "use strict";
     var qs = {% if backfill %}"?day={{ today|date:'Y-m-d' }}"{% elif debug_as_of %}"?as_of={{ debug_as_of }}"{% else %}""{% endif %};
     var BACKFILL = {% if backfill %}true{% else %}false{% endif %};
+    // A past day older than the edit window: viewable, but every tap/toggle is
+    // inert (habit checks, the win row) — the day is history, not editable.
+    var VIEW_ONLY = {% if view_only %}true{% else %}false{% endif %};
     var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    // TEMPORARY: grandfathered legacy health options, or null for native beta
+    // users. Gates the config gear + the three restored behaviors.
+    var LEGACY_CFG = {{ legacy_health_config_json|safe }};
     var WC = 81.68;  // 2πr for the week strip's r=13 rings
     var $ = function (id) { return document.getElementById(id); };
 
@@ -833,6 +1062,43 @@ client-side from /daily/win/candidates/ each time it opens.
         try { if (window.__setBadge) window.__setBadge(Math.max(0, total - done)); } catch (e) {}
     }
 
+    // ---------- confetti (fires once when the day's core habits are all done) ----------
+    var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "var(--accent-2)", "#87ceeb", "#ffffff"];
+    var celebrated = false;
+    function fireConfetti(originEl) {
+        originEl = originEl || todayEl || document.querySelector('#items .row.done');
+        var cx, cy;
+        if (originEl) {
+            var rect = originEl.getBoundingClientRect();
+            cx = rect.left + rect.width / 2; cy = rect.top + rect.height / 2;
+        } else { cx = window.innerWidth / 2; cy = window.innerHeight / 3; }
+        for (var i = 0; i < 22; i++) {
+            var p = document.createElement("span");
+            p.className = "confetti-piece";
+            p.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+            p.style.left = cx + "px"; p.style.top = cy + "px";
+            var angle = (Math.PI * 2 * i / 22) + (Math.random() * 0.3);
+            var dist = 90 + Math.random() * 80;
+            var dx = Math.cos(angle) * dist, dy = Math.sin(angle) * dist - 20;
+            p.style.setProperty("--end-transform", "translate(" + dx + "px, " + dy + "px) rotate(" + (Math.random() * 360) + "deg)");
+            document.body.appendChild(p);
+            setTimeout((function (piece) {
+                return function () { if (piece.parentNode) piece.parentNode.removeChild(piece); };
+            })(p), 1100);
+        }
+    }
+    // Celebrate on the interaction that crosses the finish line; re-arm on untick.
+    // Never called on initial paint, so a page that loads complete stays quiet.
+    function maybeCelebrate(originEl) {
+        var rows = coreRows(), total = rows.length;
+        var done = rows.filter(function (r) { return r.classList.contains("done"); }).length;
+        if (total > 0 && done >= total) {
+            if (!celebrated) { celebrated = true; fireConfetti(originEl); }
+        } else {
+            celebrated = false;
+        }
+    }
+
     // ---------- check rows (core + bonus) ----------
     function setState(row, state) {
         row.dataset.state = state;
@@ -841,6 +1107,15 @@ client-side from /daily/win/candidates/ each time it opens.
     }
     function bindRow(row) {
         row.addEventListener("click", function (e) {
+            // Read-only past day: allow only expanding a habit's drawer to view
+            // its steps; no checking, skipping, swapping, or menus.
+            if (VIEW_ONLY) {
+                var vh = row.closest(".habit");
+                if (vh && vh.classList.contains("has-subs") && !e.target.closest(".check")) {
+                    e.stopPropagation(); toggleDrawer(vh);
+                }
+                return;
+            }
             // "···" overflow menu (core habits) and the legacy "swap" text (bonus rows).
             if (e.target.closest(".more")) { e.stopPropagation(); toggleRowMenu(row); return; }
             if (e.target.closest(".swap")) { e.stopPropagation(); openSwap(row); return; }
@@ -870,6 +1145,8 @@ client-side from /daily/win/candidates/ each time it opens.
             setState(row, next);
             if (next === "done") { row.classList.remove("just"); void row.offsetWidth; row.classList.add("just"); }
             refreshProgress();
+            // Only core rows count toward completion; a bonus tap must never fire it.
+            if (coreRows().indexOf(row) !== -1) maybeCelebrate(row);
             post("/daily/item/", { key: row.dataset.key, state: next }, function (d) {
                 if (d.new_bonus) addBonusRow(d.new_bonus);
                 if (d.bonus_revealed) { var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden"); }
@@ -892,8 +1169,33 @@ client-side from /daily/win/candidates/ each time it opens.
         host.appendChild(rowHtml(item, false));
         var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden");
     }
+    // Add a habit to the list BEFORE the "No habits scheduled today" sentinel,
+    // so habits stay contiguous — appending after it would leave the new row
+    // without the .habit + .habit top-border separator.
+    function addHabitEl(el) {
+        var host = $("items"); if (!host) return;
+        host.insertBefore(el, host.querySelector(".habits-today-empty"));
+    }
     document.querySelectorAll('.row[data-check]').forEach(bindRow);
     refreshProgress();
+
+    // TEMPORARY: auto-fetch the next bonus on load (grandfathered auto_bonus).
+    // The server guards generation (needs core swept, no open bonus, tags it
+    // health); we skip the call unless it could plausibly return one.
+    if (LEGACY_CFG && LEGACY_CFG.auto_bonus && !BACKFILL) {
+        var acDone = coreRows().filter(function (r) { return r.classList.contains("done"); }).length;
+        var acOpen = Array.prototype.slice.call(document.querySelectorAll('#bonus-items .row'))
+            .filter(function (r) { return r.dataset.state !== "done" && r.dataset.state !== "skip"; }).length;
+        if (acDone >= {{ bonus_reveal_at }} && acOpen === 0) {
+            var acSp = $("bonus-spinner"), acBc = $("bonus-card");
+            if (acBc) acBc.classList.remove("is-hidden");
+            if (acSp) acSp.classList.remove("is-hidden");
+            post("/daily/bonus/next/", {}, function (d) {
+                if (acSp) acSp.classList.add("is-hidden");
+                if (d.new_bonus) addBonusRow(d.new_bonus);
+            }, function () { if (acSp) acSp.classList.add("is-hidden"); });
+        }
+    }
 
     // ---------- nested detail checklists (sub-items) ----------
     // A core habit can carry a drawer of sub-items (e.g. exercises under
@@ -907,6 +1209,14 @@ client-side from /daily/win/candidates/ each time it opens.
     }
     function toggleDrawer(habit, force) {
         var open = (force === undefined) ? !habit.classList.contains("open") : force;
+        if (open) {
+            // Only one row open per view: collapse any other open habit and the
+            // win crown before opening this one.
+            document.querySelectorAll("#items .habit.open").forEach(function (h) {
+                if (h !== habit) h.classList.remove("open");
+            });
+            if (crown && crown !== habit) crown.classList.remove("open");
+        }
         habit.classList.toggle("open", open);
     }
     // Reflect a server-derived parent update ({key,state}) onto its row.
@@ -915,9 +1225,12 @@ client-side from /daily/win/candidates/ each time it opens.
         var row = document.querySelector('#items .row[data-key="' + update.key + '"]');
         if (row) setState(row, update.state);
         refreshProgress();
+        // Completing a habit via its last sub-step can finish the day too.
+        maybeCelebrate(row);
     }
     function bindSubRow(sub) {
         sub.addEventListener("click", function (e) {
+            if (VIEW_ONLY) return;   // read-only past day: steps aren't tappable
             if (e.target.closest(".subx")) { e.stopPropagation(); removeSub(sub); return; }
             var next = sub.dataset.state === "done" ? "pending" : "done";
             sub.dataset.state = next;
@@ -1220,7 +1533,7 @@ client-side from /daily/win/candidates/ each time it opens.
         if (mode === "custom" && !label) { addInput.focus(); return; }
         setAddLoading(true, mode);
         post("/daily/item/add/", mode === "custom" ? { mode: "custom", label: label } : { mode: "auto" }, function (d) {
-            if (d.item) { $("items").appendChild(coreHabitEl(d.item)); closeAdd(); refreshProgress(); }
+            if (d.item) { addHabitEl(coreHabitEl(d.item)); closeAdd(); refreshProgress(); }
             else setAddLoading(false);
         }, function (res) {
             setAddLoading(false);
@@ -1268,17 +1581,28 @@ client-side from /daily/win/candidates/ each time it opens.
         if (seen) { hide(lo); showEl(sh); }
         else { showEl(lo); hide(sh); try { localStorage.setItem(WIN_EXPLAINED, "1"); } catch (e) {} }
     }
-    // Paint the resting no-win state (invite card vs slim link).
+    // Paint the resting no-win state (invite card vs slim link). In backfill
+    // there's no invite (you can't pick a win for a past day) — just clear the
+    // crown.
     function paintRest() {
         hide(crown);
+        if (BACKFILL) { hide(invite); hide(winSlim); return; }
         if (winCollapsed()) { hide(invite); showEl(winSlim); }
         else { showEl(invite); hide(winSlim); paintInviteCopy(); }
     }
     function renderWin(win) {
         if (!crown) return;
+        // Preserve a manual expand when the SAME win is re-rendered — e.g. the
+        // server reconciling an optimistic uncheck arrives after the user has
+        // tapped the chevron open; without this that late render would snap the
+        // crown shut. Switching to a DIFFERENT win still collapses (fresh card).
+        var keepOpen = win && crown.classList.contains("open")
+            && String(crown.dataset.winId) === String(win.id);
         // Always clear the "want another?" prompt state (prompt line + swapped
         // footer) so the card returns to its normal Pick another one footer.
-        hide($("win-again")); showEl($("win-foot"));
+        // Backfill keeps the pick/edit footer hidden — toggling is the only action.
+        hide($("win-again"));
+        if (BACKFILL) hide($("win-foot")); else showEl($("win-foot"));
         hide($("win-foot-again")); hide($("win-goal-foot"));
         crown.classList.remove("open");
         if (win) {
@@ -1290,6 +1614,7 @@ client-side from /daily/win/candidates/ each time it opens.
             winTitle.textContent = win.title;
             if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
             hide(invite); hide(winSlim);
+            if (keepOpen) crown.classList.add("open");
         } else {
             paintRest();
         }
@@ -1307,7 +1632,12 @@ client-side from /daily/win/candidates/ each time it opens.
         if (win.goal) { winGoalText.textContent = win.goal; showEl(winGoal); } else { hide(winGoal); }
         // Every completed render offers the same choice: Want another one?
         // with Not today | Pick one. Completing a North Star's final step adds
-        // its Mark complete footer alongside, never instead.
+        // its Mark complete footer alongside, never instead. In backfill none
+        // of these show — the only action on a past day is unchecking the row.
+        if (BACKFILL) {
+            hide($("win-again")); hide($("win-foot-again")); hide($("win-goal-foot"));
+            return;
+        }
         showEl($("win-again")); showEl($("win-foot-again"));
         var canCompleteGoal = Boolean(win.goal_id && win.goal_can_complete);
         var goalButton = $("win-goal-complete");
@@ -1347,7 +1677,7 @@ client-side from /daily/win/candidates/ each time it opens.
         } else if (result.item) {
             var replacement = coreHabitEl(result.item);
             if (current) current.replaceWith(replacement);
-            else host.appendChild(replacement);
+            else addHabitEl(replacement);
         }
         refreshProgress();
         // In single-habit mode the deleted habit was the whole dialog; return
@@ -1361,7 +1691,7 @@ client-side from /daily/win/candidates/ each time it opens.
         else if (winsRequestPending) winsRefreshQueued = true;
         if (Object.prototype.hasOwnProperty.call(data, "next")) renderWinState(data);
         if (data.item && !document.querySelector('#items [data-key="' + data.item.key + '"]')) {
-            $("items").appendChild(coreHabitEl(data.item));
+            addHabitEl(coreHabitEl(data.item));
             refreshProgress(); syncAddCap();
             if (window.__invalidateHabitsEditor) window.__invalidateHabitsEditor();
         }
@@ -1616,19 +1946,21 @@ client-side from /daily/win/candidates/ each time it opens.
     }
     function openWinPicker() {
         if (!pickerDialog || typeof pickerDialog.showModal !== "function") { goToWins(); return; }
-        var stepsHost = $("win-picker-steps"), singlesHost = $("win-picker-singles");
-        stepsHost.innerHTML = ""; singlesHost.innerHTML = "";
-        // Both sections open as skeletons; the fetch decides what stays.
+        var listHost = $("win-picker-list");
+        listHost.innerHTML = "";
+        // The list opens as a skeleton; the fetch decides what stays.
         hide($("win-picker-empty-card"));
-        showEl($("win-picker-steps-card")); showEl($("win-picker-singles-card"));
-        showEl($("win-picker-steps-skel")); showEl($("win-picker-singles-skel"));
+        showEl($("win-picker-list-card"));
+        showEl($("win-picker-list-skel"));
         if (!pickerDialog.open) pickerDialog.showModal();
         document.body.classList.add("wins-dialog-open");
         fetch("/daily/win/candidates/" + qs, { credentials: "same-origin" })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d.ok) throw 0;
-                hide($("win-picker-steps-skel")); hide($("win-picker-singles-skel"));
+                hide($("win-picker-list-skel"));
+                // North-star steps grouped under their goal first, then
+                // one-off wins, matching the order in Your wins.
                 var steps = d.candidates.filter(function (c) { return c.goal; });
                 var singles = d.candidates.filter(function (c) { return !c.goal; });
                 var lastGoal = null;
@@ -1636,14 +1968,17 @@ client-side from /daily/win/candidates/ each time it opens.
                     if (c.goal !== lastGoal) {
                         var g = document.createElement("div");
                         g.className = "wp-goal"; g.textContent = c.goal;
-                        stepsHost.appendChild(g); lastGoal = c.goal;
+                        listHost.appendChild(g); lastGoal = c.goal;
                     }
-                    stepsHost.appendChild(pickerRow(c));
+                    listHost.appendChild(pickerRow(c));
                 });
-                singles.forEach(function (c) { singlesHost.appendChild(pickerRow(c)); });
-                if (!steps.length) hide($("win-picker-steps-card"));
-                if (!singles.length) hide($("win-picker-singles-card"));
-                if (!d.candidates.length) showEl($("win-picker-empty-card"));
+                if (singles.length) {
+                    var sg = document.createElement("div");
+                    sg.className = "wp-singles";
+                    singles.forEach(function (c) { sg.appendChild(pickerRow(c)); });
+                    listHost.appendChild(sg);
+                }
+                if (!d.candidates.length) { hide($("win-picker-list-card")); showEl($("win-picker-empty-card")); }
             })
             .catch(function () { closeWinPicker(); goToWins(); });
     }
@@ -1665,9 +2000,9 @@ client-side from /daily/win/candidates/ each time it opens.
         else requestAnimationFrame(function () { setTimeout(warmWins, 0); });
     }
 
-    // Habit management is fetched only when requested. The dashboard already
-    // has today's scheduled rows; loading the full weekly editor before the
-    // user opens it would add markup and work to the initial render for no gain.
+    // Habit management is prefetched on idle after first paint (same as the
+    // wins editor below), so opening Your habits is instant; the skeleton
+    // remains as the slow-network / failed-fetch fallback.
     var habitsDialog = $("habits-dialog");
     var habitsLoading = document.querySelector("[data-habits-loading]");
     var habitsHost = document.querySelector("[data-habits-host]");
@@ -1741,6 +2076,11 @@ client-side from /daily/win/candidates/ each time it opens.
         if (habitsLoaded) applyHabitsEditorMode();
     }
     window.__closeHabitsDialog = closeHabitsDialog;
+    if (habitsHost) {
+        var warmHabits = function () { loadHabitsEditor(false); };
+        if ("requestIdleCallback" in window) requestIdleCallback(warmHabits, { timeout: 1200 });
+        else requestAnimationFrame(function () { setTimeout(warmHabits, 0); });
+    }
     window.__invalidateHabitsEditor = function () { habitsLoaded = false; };
     if (habitsDialog) {
         habitsDialog.addEventListener("close", function () {
@@ -1756,23 +2096,36 @@ client-side from /daily/win/candidates/ each time it opens.
             if (event.target.closest("[data-habits-load-retry]")) loadHabitsEditor(false);
         });
     }
-    if (crown) {
+    // The check row toggles the win on today or an editable backfill day (that
+    // one win is all you can touch on a past day, like a habit). A read-only
+    // past day shows it but doesn't bind the toggle. Picking a different win
+    // and editing the backlog stay today-only.
+    if (crown && !VIEW_ONLY) {
         $("win-row").onclick = function (e) {
-            if (e.target.closest(".chev")) { crown.classList.toggle("open"); return; }
+            if (e.target.closest(".chev")) {
+                // Opening the crown collapses any open habit drawer (one open per view).
+                if (!crown.classList.contains("open")) {
+                    document.querySelectorAll("#items .habit.open").forEach(function (h) { h.classList.remove("open"); });
+                }
+                crown.classList.toggle("open");
+                return;
+            }
             if ($("win-row").classList.contains("done")) winUncheck();
             else winAction("did_it");
         };
-        // "Edit this win" jumps into Your wins with the win's card (its north
-        // star, or the one-off itself) already expanded.
-        var winEdit = crown.querySelector("[data-edit-win]");
-        if (winEdit) winEdit.onclick = function () {
-            var goalId = crown.dataset.winGoalId || (completedWin && completedWin.goal_id) || "";
-            var stoneId = crown.dataset.winId || (completedWin && completedWin.id) || "";
-            goToWins(goalId
-                ? '[data-goal-id="' + goalId + '"]'
-                : (stoneId ? '[data-stone-id="' + stoneId + '"]' : ""));
-        };
-        if ($("win-pick-another")) $("win-pick-another").onclick = openWinPicker;
+        if (!BACKFILL) {
+            // "Edit this win" jumps into Your wins with the win's card (its north
+            // star, or the one-off itself) already expanded.
+            var winEdit = crown.querySelector("[data-edit-win]");
+            if (winEdit) winEdit.onclick = function () {
+                var goalId = crown.dataset.winGoalId || (completedWin && completedWin.goal_id) || "";
+                var stoneId = crown.dataset.winId || (completedWin && completedWin.id) || "";
+                goToWins(goalId
+                    ? '[data-goal-id="' + goalId + '"]'
+                    : (stoneId ? '[data-stone-id="' + stoneId + '"]' : ""));
+            };
+            if ($("win-pick-another")) $("win-pick-another").onclick = openWinPicker;
+        }
     }
     // After checking a win, Not today keeps the completed row and shows the
     // lasting success state. Picking another always goes through the chooser.
@@ -1894,7 +2247,10 @@ client-side from /daily/win/candidates/ each time it opens.
         }
         reveal();
     }
-    if (morningReportModal && !BACKFILL) {
+    // A grandfathered user can suppress the on-open note (coach_note); native
+    // beta users (LEGACY_CFG null) keep the default auto-show.
+    var SHOW_COACH_NOTE = !LEGACY_CFG || LEGACY_CFG.coach_note;
+    if (morningReportModal && !BACKFILL && SHOW_COACH_NOTE) {
         var reportOk = morningReportModal.querySelector("[data-morning-report-ok]");
         if (reportOk) reportOk.addEventListener("click", closeMorningReport);
         morningReportModal.addEventListener("click", function (event) {
@@ -1909,6 +2265,34 @@ client-side from /daily/win/candidates/ each time it opens.
             if (data && data.ok && data.report) showMorningReport(data.report);
         }).catch(function () { /* A report is supportive, never page-blocking. */ });
     }
+
+    // ---------- TEMPORARY: grandfathered health options gear ----------
+    (function () {
+        var gear = $("cfg-gear"), sheet = $("cfg-sheet"), scrim = $("cfg-scrim"), closeBtn = $("cfg-close");
+        if (!gear || !sheet || !scrim) return;
+        function openSheet() { scrim.classList.add("show"); sheet.classList.add("show"); sheet.setAttribute("aria-hidden", "false"); }
+        function shutSheet() { scrim.classList.remove("show"); sheet.classList.remove("show"); sheet.setAttribute("aria-hidden", "true"); }
+        gear.addEventListener("click", openSheet);
+        if (closeBtn) closeBtn.addEventListener("click", shutSheet);
+        scrim.addEventListener("click", shutSheet);
+        // The reset control lives in the DOM when the list has drifted; the
+        // "reset" switch just shows/hides it.
+        function syncReset() {
+            var form = $("reset-baseline-form");
+            if (form) form.classList.toggle("is-hidden", !(LEGACY_CFG && LEGACY_CFG.reset));
+        }
+        Array.prototype.forEach.call(sheet.querySelectorAll(".cfg-toggle"), function (t) {
+            t.addEventListener("change", function () {
+                var key = t.dataset.cfg, val = t.checked;
+                t.disabled = true;
+                post("/daily/health-config/", { key: key, value: val }, function (d) {
+                    t.disabled = false;
+                    if (d.config) LEGACY_CFG = d.config;
+                    if (key === "reset") syncReset();
+                }, function () { t.disabled = false; t.checked = !val; });  // revert on failure
+            });
+        });
+    })();
 
     var fab = $("coach-fab"), panel = $("coach-panel"), scrim = $("coach-scrim"),
         log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false,

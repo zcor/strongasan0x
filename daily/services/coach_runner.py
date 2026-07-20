@@ -25,6 +25,7 @@ from .ai_coach import (
     generate_cheerleader_report,
     generate_suggestion,
 )
+from .checklist import tag_untagged_bonus_items
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,12 @@ def run_coach(check_in_id: int, refinement: str = "") -> bool:
     if result is None:
         return False
     suggestion_text, proposed_questions, proposed_bonus, model_name, cost_usd = result
+
+    # Frozen users may be switched to beta before this queued suggestion is
+    # applied. Persist the legacy health bonus with the explicit tag now so
+    # beta's strict filter can keep it without weakening that filter.
+    if not participant.beta:
+        proposed_bonus = tag_untagged_bonus_items(proposed_bonus)
 
     rationale = f"refinement: {refinement}" if refinement else ""
     if plan_items:

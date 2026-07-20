@@ -624,8 +624,8 @@
                     if (historyEmpty) historyEmpty.classList.toggle("is-hidden", Boolean(content.querySelector("[data-history-goal]")));
                     syncEmpty();
                     syncRestoreFoots();
-                    if (moved.length === 1) editToast("Moved to Working Toward: " + moved[0], archivedPanel);
-                    else if (moved.length) editToast("Moved " + moved.length + " to Working Toward.", archivedPanel);
+                    if (moved.length === 1) editToast("Unarchived: " + moved[0], archivedPanel);
+                    else if (moved.length) editToast("Unarchived " + moved.length + ".", archivedPanel);
                     else editToast("Couldn't move those right now.", archivedPanel);
                     return;
                 }
@@ -657,8 +657,8 @@
             foot.classList.toggle("is-hidden", !form.querySelector("[data-history-goal]"));
             button.disabled = checked === 0;
             button.textContent = checked > 1
-                ? "Move " + checked + " to Working Toward"
-                : "Move to Working Toward";
+                ? "Unarchive " + checked
+                : "Unarchive";
         });
     }
     window.__showWinsEditor = showWinsEditor;

@@ -1231,6 +1231,10 @@ _CHAT_RIGHT_NOW_BETA = """- What they CAN do right now, themselves — point the
     many items (up to 20 — e.g. one per gym station plus a walk).
   * "swap" on any item replaces it instantly — again either their own wording
     or an auto-suggestion.
+  * Wins are a separate user-owned list. To add or change one, they tap
+    "Add a win" in the Wins card (or open "Your wins"). You cannot create,
+    edit, select, complete, or queue a Win from chat or overnight, so never
+    promise that a Win will appear later.
   So if they want a new or different item, the honest answer is usually "tap
   '+ Add item' (or 'swap') and choose 'Write my own' — it's on your list right
   now," NOT "I'll add it tomorrow." Only fall back to the overnight framing for

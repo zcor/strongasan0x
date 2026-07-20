@@ -63,6 +63,29 @@ class HabitManagementTests(TestCase):
             DailyCheckInAnswer.STATE_PENDING,
         )
 
+    def test_view_only_day_rejects_habit_tap(self):
+        # A habit tap on a day older than the 1-day edit window is refused, and
+        # nothing is written.
+        old = (timezone.localdate() - timedelta(days=3)).isoformat()
+        r = self._post("/daily/item/", {"key": "q_water", "state": "done"}, query="?day=%s" % old)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["error"], "read_only_day")
+        self.assertFalse(
+            DailyCheckInAnswer.objects.filter(question_key="q_water", state="done").exists()
+        )
+
+    def test_yesterday_habit_tap_allowed(self):
+        # Yesterday is inside the 1-day edit window: the tap goes through.
+        yesterday = timezone.localdate() - timedelta(days=1)
+        r = self._post("/daily/item/", {"key": "q_water", "state": "done"},
+                       query="?day=%s" % yesterday.isoformat())
+        self.assertEqual(r.status_code, 200)
+        check_in = DailyCheckIn.objects.get(participant=self.p, date=yesterday)
+        self.assertEqual(
+            DailyCheckInAnswer.objects.get(check_in=check_in, question_key="q_water").state,
+            "done",
+        )
+
     def test_edit_preserves_key_state_and_nested_items(self):
         self._post("/daily/item/", {"key": "u_strength", "state": "done"})
 

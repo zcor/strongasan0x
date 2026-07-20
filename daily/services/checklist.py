@@ -87,6 +87,24 @@ def health_bonus_items(items) -> list[dict]:
     ]
 
 
+def tag_untagged_bonus_items(items):
+    """Tag legacy bonus output before persisting it.
+
+    The frozen generator historically omitted category metadata even though
+    its bonus lane was health/wellbeing. Existing rows are covered by data
+    migrations; this closes the gap for suggestions generated after those
+    migrations but before a participant is switched to beta.
+    """
+    if items is None:
+        return None
+    return [
+        {**item, "category": HEALTH_BONUS_CATEGORY}
+        if isinstance(item, dict) and "category" not in item
+        else item
+        for item in items
+    ]
+
+
 def dismiss_pending_mutations(participant: DailyParticipant) -> int:
     """Retire queued list rewrites when a participant enters support-only mode.
 
@@ -149,9 +167,14 @@ def apply_pending_mutations(participant: DailyParticipant, as_of: date_cls) -> i
             suggestion.save(update_fields=["status", "responded_at"])
             continue
 
-        proposed_bonus = suggestion.proposed_bonus or None
         if participant.beta:
-            proposed_bonus = health_bonus_items(proposed_bonus) or None
+            proposed_bonus = health_bonus_items(
+                suggestion.proposed_bonus
+            ) or None
+        else:
+            proposed_bonus = tag_untagged_bonus_items(
+                suggestion.proposed_bonus or None
+            )
 
         if (
             current

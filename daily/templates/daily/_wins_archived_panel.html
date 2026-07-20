@@ -25,8 +25,9 @@ keeps the no-JS page working; the dialog intercepts it.
             <div class="wesub">Your completed wins and the ones you removed from active work.</div>
         </header>
 
-        <form class="card" method="post" action="/daily/win/goal/restore/" data-restore-list>
+        <form method="post" action="/daily/win/goal/restore/" data-restore-list>
             {% csrf_token %}
+            <div class="card">
             <div class="card-body">
                 <div class="eyebrow">Wins</div>
                 {% for g in achieved %}
@@ -90,8 +91,9 @@ keeps the no-JS page working; the dialog intercepts it.
                 {% endfor %}
                 <div class="empty{% if achieved or archived %} is-hidden{% endif %}" data-history-empty>Nothing here yet. Completed wins and ones you remove land here.</div>
             </div>
-            <div class="card-foot{% if not achieved and not archived %} is-hidden{% endif %}" data-restore-foot>
-                <button class="act gold" type="submit">Move to Working Toward</button>
+            </div>
+            <div class="cta-foot{% if not achieved and not archived %} is-hidden{% endif %}" data-restore-foot>
+                <button class="act gold brass" type="submit">Unarchive</button>
             </div>
         </form>
     </div>

@@ -2,6 +2,7 @@
 
 import json
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ from daily.models import (
 )
 from daily.services.ai_coach import _parse_response, generate_one_bonus
 from daily.services.checklist import apply_pending_mutations
+from daily.services.coach_runner import run_coach
 
 
 def _participant(*, beta):
@@ -205,6 +207,65 @@ class BonusGenerationTests(TestCase):
 
 
 class BonusMutationTests(TestCase):
+    @patch("daily.services.coach_runner.refresh_coach_profile")
+    @patch("daily.services.coach_runner.generate_suggestion")
+    def test_legacy_runner_tags_queued_bonus_for_future_beta_cutover(
+        self, generate_suggestion, _refresh_profile,
+    ):
+        participant = _participant(beta=False)
+        version = _version(participant, bonus_questions=[])
+        check_in = DailyCheckIn.objects.create(
+            participant=participant,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=version,
+        )
+        generate_suggestion.return_value = (
+            "A note",
+            list(version.questions),
+            [{"key": "bonus_water", "label": "Drank another glass of water"}],
+            "test-model",
+            Decimal("0.000001"),
+        )
+
+        self.assertTrue(run_coach(check_in.id))
+
+        suggestion = CoachSuggestion.objects.get(check_in=check_in)
+        self.assertEqual(suggestion.proposed_bonus, [
+            {
+                "key": "bonus_water",
+                "label": "Drank another glass of water",
+                "category": "health",
+            }
+        ])
+
+    def test_legacy_apply_tags_bonus_for_future_beta_cutover(self):
+        participant = _participant(beta=False)
+        version = _version(participant, bonus_questions=[])
+        check_in = DailyCheckIn.objects.create(
+            participant=participant,
+            date=timezone.localdate() - timedelta(days=1),
+            checklist_version=version,
+        )
+        CoachSuggestion.objects.create(
+            check_in=check_in,
+            suggestion_text="A note",
+            proposed_questions=list(version.questions),
+            proposed_bonus=[
+                {"key": "bonus_water", "label": "Drank another glass of water"},
+            ],
+            status=CoachSuggestion.STATUS_PENDING,
+        )
+
+        self.assertEqual(apply_pending_mutations(participant, timezone.localdate()), 1)
+        current = participant.checklist_versions.get(is_current=True)
+        self.assertEqual(current.bonus_questions, [
+            {
+                "key": "bonus_water",
+                "label": "Drank another glass of water",
+                "category": "health",
+            }
+        ])
+
     def test_beta_apply_discards_queued_non_health_bonus(self):
         participant = _participant(beta=True)
         participant.ai_mutations_enabled = True
@@ -247,6 +308,25 @@ class BonusMutationTests(TestCase):
 
 
 class CustomBonusReplacementTests(TestCase):
+    def test_legacy_live_bonus_is_tagged_for_future_beta_cutover(self):
+        from daily.views import _swap_or_append
+
+        participant = _participant(beta=False)
+        version = _version(participant, bonus_questions=[])
+        item = {"key": "bonus_water", "label": "Drank another glass of water"}
+
+        saved = _swap_or_append(version, item, is_core=False)
+
+        self.assertEqual(saved["category"], "health")
+        version.refresh_from_db()
+        self.assertEqual(version.bonus_questions, [
+            {
+                "key": "bonus_water",
+                "label": "Drank another glass of water",
+                "category": "health",
+            }
+        ])
+
     def test_custom_bonus_replacement_is_health_tagged(self):
         """A user-authored bonus swap must carry category=health or the beta
         filter hides it and its taps 400."""

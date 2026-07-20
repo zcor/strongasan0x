@@ -577,7 +577,7 @@ class WinsEndpointTests(TestCase):
         self.assertNotContains(page, '<div class="eyebrow">Archived</div>', html=True)
         self.assertContains(page, "Plan a trip")
         self.assertContains(page, "Pick dates")
-        self.assertContains(page, "Move to Working Toward")
+        self.assertContains(page, ">Unarchive</button>")
 
         fragment = self.c.get("/daily/wins/archived/?fragment=1")
         self.assertEqual(fragment.status_code, 200)
@@ -606,7 +606,7 @@ class WinsEndpointTests(TestCase):
 
         page = self.c.get("/daily/wins/archived/")
         self.assertContains(page, 'class="goal-select"', count=2)
-        self.assertContains(page, "Move to Working Toward", count=1)
+        self.assertContains(page, ">Unarchive</button>", count=1)
 
         r = self.c.post("/daily/win/goal/restore/", {"id": [first.id, second.id]})
         self.assertEqual(r.status_code, 302)
@@ -727,7 +727,7 @@ class WinsEndpointTests(TestCase):
         self.assertContains(history, '<div class="eyebrow">Wins</div>', html=True, count=1)
         self.assertContains(history, "Run a 5k")
         self.assertContains(history, "Buy shoes")
-        self.assertContains(history, "Move to Working Toward")
+        self.assertContains(history, ">Unarchive</button>")
         self.assertContains(history, f'data-achieved-goal="{goal.id}"')
         self.assertContains(history, ">Achieved ")
         self.assertNotContains(history, 'data-archived-goal="')
@@ -780,7 +780,229 @@ class WinsEndpointTests(TestCase):
         self.assertContains(r, '<div class="eyebrow">Wins</div>', html=True)
         self.assertContains(r, 'data-wins-loading-close')
         self.assertNotContains(r, "{# The full wins editor")
-        self.assertContains(r, "/static/daily/images/jamie-avatar.jpg")
+        self.assertContains(r, "/static/daily/images/jamie-avatar-v2.jpg")
         self.assertContains(r, "Add to Home Screen")
         self.assertContains(r, "Turn on notifications")
         self.assertNotContains(r, "notification-nudge-bell")
+
+    def test_backfill_completed_win_shows_checked_without_pick_affordances(self):
+        # On a past day, that day's completed win shows (checked, so it can be
+        # unchecked) but you can't pick a different win or edit the backlog: the
+        # "Your wins" door, swap/again footers, and "want another?" prompt are
+        # all hidden — only the row toggle is available.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        past = timezone.localdate() - timedelta(days=1)   # editable backfill day
+        win = add_win(self.p, "Wrote three pages")
+        select_todays_win(self.p, win, past)
+        complete_win(win, featured_on=past)
+
+        r = self.c.get("/daily/checkin/?day=%s" % past.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Wrote three pages")            # the completed win
+        self.assertContains(r, "var BACKFILL = true;")         # backfill mode
+        self.assertContains(r, '<div class="card win" id="win-crown"')      # crown shown
+        self.assertNotContains(r, 'id="wins-dialog-open"')     # no "Your wins" door
+        self.assertContains(r, '<div class="card-foot is-hidden" id="win-foot">')       # no edit/pick
+        self.assertContains(r, '<div class="card-foot is-hidden" id="win-foot-again">')
+        self.assertContains(r, '<div class="win-again is-hidden" id="win-again">')
+
+    def test_backfill_surfaced_win_shows_checkable_crown(self):
+        # A win surfaced (selected) on a past day but NOT completed shows its
+        # crown so it can be checked off — not only completed wins appear.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        past = timezone.localdate() - timedelta(days=1)
+        win = add_win(self.p, "Call the dentist")
+        select_todays_win(self.p, win, past)   # surfaced that day, still open
+
+        r = self.c.get("/daily/checkin/?day=%s" % past.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, '<div class="card win" id="win-crown"')
+        self.assertContains(r, "Call the dentist")
+        # Still no picking a different win / editing the backlog on a past day.
+        self.assertNotContains(r, 'id="wins-dialog-open"')
+        self.assertContains(r, '<div class="card-foot is-hidden" id="win-foot">')
+
+    def test_backfill_check_off_surfaced_win(self):
+        # POST did_it with ?day= completes the surfaced win FOR that past day.
+        past = timezone.localdate() - timedelta(days=1)
+        win = add_win(self.p, "Wrote a page")
+        select_todays_win(self.p, win, past)
+
+        r = self._post("/daily/win/?day=%s" % past.isoformat(),
+                       {"id": win.id, "action": "did_it"})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["ok"])
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_DONE)
+        self.assertEqual(win.surfaced_on, past)   # starred on the past day
+
+    def test_backfill_uncheck_completed_win(self):
+        # POST uncheck with ?day= reopens a win completed on that past day.
+        past = timezone.localdate() - timedelta(days=1)
+        win = add_win(self.p, "Meal prep")
+        select_todays_win(self.p, win, past)
+        complete_win(win, featured_on=past)
+
+        r = self._post("/daily/win/?day=%s" % past.isoformat(),
+                       {"id": win.id, "action": "uncheck"})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["ok"])
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_OPEN)
+
+    def test_backfill_without_surfaced_win_hides_win_section(self):
+        # A past day with no win surfaced or completed that day renders NO win
+        # crown or invite — there's nothing to toggle and you can't pick one.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        past = timezone.localdate() - timedelta(days=2)
+        add_win(self.p, "An open win never surfaced on that day")
+
+        r = self.c.get("/daily/checkin/?day=%s" % past.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'id="win-crown"')
+        self.assertNotContains(r, 'id="win-invite"')
+
+    def test_view_only_day_shows_win_without_toggle(self):
+        # A win completed on a day older than the edit window still shows, but
+        # the page is flagged read-only so the row toggle isn't wired up.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        old = timezone.localdate() - timedelta(days=3)
+        win = add_win(self.p, "Ran a mile")
+        select_todays_win(self.p, win, old)
+        complete_win(win, featured_on=old)
+
+        r = self.c.get("/daily/checkin/?day=%s" % old.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, '<div class="card win" id="win-crown"')
+        self.assertContains(r, "Ran a mile")
+        self.assertContains(r, "var VIEW_ONLY = true;")
+
+    def test_view_only_day_rejects_win_toggle(self):
+        # The server refuses win mutations on a read-only day, even if posted
+        # directly.
+        old = timezone.localdate() - timedelta(days=3)
+        win = add_win(self.p, "Old win")
+        select_todays_win(self.p, win, old)
+
+        r = self._post("/daily/win/?day=%s" % old.isoformat(),
+                       {"id": win.id, "action": "did_it"})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["error"], "read_only_day")
+        win.refresh_from_db()
+        self.assertEqual(win.status, WinItem.STATUS_OPEN)   # unchanged
+
+    def test_backfill_replaces_weekstrip_with_day_stepper(self):
+        # A past day hides the circle strip and shows the ‹ date · cal › stepper
+        # with the selected date centered and working prev/next/home links.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        today = timezone.localdate()
+        past = today - timedelta(days=1)   # within the 2-day fill window
+
+        r = self.c.get("/daily/checkin/?day=%s" % past.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'class="weekstrip"')          # circles hidden
+        self.assertContains(r, 'class="daynav"')                # stepper shown
+        self.assertContains(r, '<div class="daynav-date">')     # centered date cell
+        # ‹ prev → day-2 (still inside the window).
+        self.assertContains(r, 'href="/daily/checkin/?day=%s"' % (past - timedelta(days=1)).isoformat())
+        # Calendar icon jumps home; › next steps forward onto today (plain page).
+        self.assertContains(r, 'href="/daily/checkin/" aria-label="Back to today"')
+        self.assertContains(r, 'href="/daily/checkin/" aria-label="Next day"')
+
+    def test_day_stepper_prev_walks_back_through_history(self):
+        # Viewing is unbounded: even several days back, prev keeps going (older
+        # days are viewable, just read-only) — nothing is disabled.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        old = timezone.localdate() - timedelta(days=5)
+
+        r = self.c.get("/daily/checkin/?day=%s" % old.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'class="daynav"')
+        self.assertNotContains(r, 'class="daynav-btn is-disabled"')   # prev keeps going
+        self.assertContains(r, 'href="/daily/checkin/?day=%s"' % (old - timedelta(days=1)).isoformat())
+
+    def test_day_stepper_next_into_today_lands_on_plain_page(self):
+        # Stepping forward from yesterday points next at the plain page, which
+        # renders the circles again (not the stepper).
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        yesterday = timezone.localdate() - timedelta(days=1)
+
+        r = self.c.get("/daily/checkin/?day=%s" % yesterday.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'href="/daily/checkin/" aria-label="Next day"')
+
+    def test_day_beyond_edit_window_is_view_only(self):
+        # A day older than the edit window is still VIEWABLE (stepper shown), but
+        # marked read-only — not bounced to today.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        old = timezone.localdate() - timedelta(days=3)
+
+        r = self.c.get("/daily/checkin/?day=%s" % old.isoformat())
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'class="daynav"')            # stepper (a past day)
+        self.assertNotContains(r, 'class="weekstrip"')
+        self.assertContains(r, "var VIEW_ONLY = true;")
+        self.assertContains(r, 'class="climb view-only"')
+        self.assertContains(r, "this day is read-only")
+
+    def test_weekstrip_all_days_viewable(self):
+        # Every circle in the week strip is now a link — recent days to fill in,
+        # older days to view. Nothing is locked.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        today = timezone.localdate()
+
+        r = self.c.get("/daily/checkin/")
+        self.assertEqual(r.status_code, 200)
+        for n in range(1, 7):
+            self.assertContains(r, 'href="/daily/checkin/?day=%s"' % (today - timedelta(days=n)).isoformat())
+        self.assertNotContains(r, 'wday locked')
+        self.assertNotContains(r, 'aria-disabled="true"')
+
+    def test_today_shows_weekstrip_not_stepper(self):
+        # Regression: today keeps the circle strip; no day-stepper.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+
+        r = self.c.get("/daily/checkin/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'class="weekstrip"')
+        self.assertNotContains(r, 'class="daynav"')
+
+    def test_today_keeps_interactive_win_crown(self):
+        # Regression: the change is scoped to backfill. Today's page keeps the
+        # full interactive crown and the "Your wins" door.
+        self.p.onboarded_at = timezone.now()
+        self.p.save(update_fields=["onboarded_at"])
+        win = add_win(self.p, "Ship the thing")
+        select_todays_win(self.p, win, timezone.localdate())
+
+        r = self.c.get("/daily/checkin/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Ship the thing")
+        self.assertContains(r, 'id="wins-dialog-open"')        # door present today
+        self.assertContains(r, "var BACKFILL = false;")
+        # Section header is "Wins" (parallel to "Habits"), not "Today's win".
+        self.assertContains(r, '<div class="eyebrow">Wins')
+        self.assertNotContains(r, ">Today's win")
+
+    def test_coach_name_reflects_focus(self):
+        self.p.onboarded_at = timezone.now()
+        # Health focus → she's a coach; the chat title reads "Coach Jamie".
+        self.p.focus = DailyParticipant.FOCUS_HEALTH
+        self.p.save(update_fields=["onboarded_at", "focus"])
+        r = self.c.get("/daily/checkin/")
+        self.assertContains(r, '<span class="coach-title">Coach Jamie</span>', html=True)
+        # Life focus → support-only, so the plain first name.
+        self.p.focus = DailyParticipant.FOCUS_LIFE
+        self.p.save(update_fields=["focus"])
+        r = self.c.get("/daily/checkin/")
+        self.assertContains(r, '<span class="coach-title">Jamie</span>', html=True)

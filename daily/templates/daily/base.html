@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="theme-color" content="{% if beta_steel %}#1A1715{% else %}#1a1a2e{% endif %}">
     <title>{% block title %}Daily Check-In{% endblock %}</title>
 
     {# --- PWA: installable home-screen app --- #}
@@ -25,6 +25,7 @@
         :root {
             --bg: linear-gradient(160deg, #1a1a2e 0%, #16213e 100%);
             --bg-solid: #1a1a2e;
+            --bg-end: #16213e;          /* the gradient's final color */
             --panel: rgba(255, 255, 255, 0.05);
             --panel-border: rgba(255, 255, 255, 0.1);
             --text: #e8eaed;
@@ -34,6 +35,13 @@
             --accent-2: #f5b942;
             --accent-grad: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
             --on-accent: #1a1a2e;
+            /* Accent-derived surfaces. Defined once here and inherited by every
+               theme: because they mix from var(--accent), they follow whichever
+               accent is in scope (gold default, brass Steel, emerald Gauge)
+               instead of hardcoding gold. --accent-tint = pressed/active fill,
+               --accent-ring = focus/hover border. */
+            --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+            --accent-ring: color-mix(in srgb, var(--accent) 50%, transparent);
             --done: #78c878;            /* green */
             --done-bright: #8fe08f;
             --done-bg: rgba(120, 200, 120, 0.18);
@@ -48,6 +56,7 @@
         [data-theme="gauge"] {
             --bg: radial-gradient(120% 80% at 50% 0%, #161B22 0%, #0E1116 70%);
             --bg-solid: #0E1116;
+            --bg-end: #0E1116;
             --panel: #161B22;
             --panel-border: #2A323D;
             --text: #E8EDF2;
@@ -71,6 +80,7 @@
         [data-theme="steel"] {
             --bg: linear-gradient(170deg, #1A1715 0%, #221E1A 100%);
             --bg-solid: #1A1715;
+            --bg-end: #221E1A;
             --panel: rgba(242, 239, 233, 0.05);
             --panel-border: rgba(242, 239, 233, 0.12);
             --text: #F2EFE9;
@@ -90,18 +100,52 @@
             --font-display: 'Oswald', 'Inter', sans-serif;
             --radius: 10px;
         }
+        {% if beta_steel %}
+        /* Beta (Climb) identity: the Chalk & Steel COLORS only. Applied at the
+           default (no data-theme) level so it swaps the palette without the
+           rest of the steel theme — --radius and the display/data fonts are
+           deliberately NOT redefined here, so the beta keeps its squared cards
+           and system type. Overridden if a theme is picked explicitly. */
+        :root {
+            /* Dark leather texture behind the app; a gentle top-to-bottom
+               darkening keeps text legible, like the old gradient did. */
+            --bg:
+                linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.05) 28%, rgba(0,0,0,.36)),
+                url("{% static 'daily/images/bg-texture.jpg' %}") center / cover no-repeat,
+                #1A1715;
+            --bg-solid: #1A1715;
+            --bg-end: #1A1715;
+            --panel: rgba(242, 239, 233, 0.05);
+            --panel-border: rgba(242, 239, 233, 0.12);
+            --text: #F2EFE9;
+            --text-dim: #A89E92;
+            --text-faint: #7A7066;
+            --accent: #C9A227;
+            --accent-2: #b08d1f;
+            --accent-grad: linear-gradient(135deg, #C9A227 0%, #b08d1f 100%);
+            --on-accent: #1A1715;
+            --done: #7A9E6E;
+            --done-bright: #93b585;
+            --done-bg: rgba(122, 158, 110, 0.18);
+            --done-border: rgba(122, 158, 110, 0.55);
+            --on-done: #14210F;
+        }
+        {% endif %}
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { margin: 0; padding: 0; }
-        /* Paint the navy on <html> too, so iOS Safari's status-bar strip and the
-           area behind the toolbar (overscroll / safe-area zones) show navy, not
-           the default white <html> background. Safari also samples this for the
-           status-bar tint. */
-        html { background: var(--bg-solid); }
+        /* Paint the canvas (overscroll / safe-area zones) in the gradient's END
+           color: any strip iOS exposes below the page — notably the
+           home-indicator area at PWA launch, before the viewport settles —
+           then matches the gradient bottom exactly instead of showing a darker
+           band. Safari also samples this for the status-bar tint. */
+        html { background: var(--bg-end); }
         body {
             font-family: var(--font-body);
-            background: var(--bg);
-            background-attachment: fixed;
+            /* The gradient lives on the fixed underlay below; the body itself
+               stays transparent so there is never a second, differently-sized
+               copy of it to seam against. */
+            background: transparent;
             min-height: 100vh;
             min-height: 100dvh;   /* cover the dynamic viewport on mobile Safari */
             color: var(--text);
@@ -110,9 +154,22 @@
             padding: calc(16px + env(safe-area-inset-top)) 16px 16px;
             padding-bottom: 48px;
         }
+        /* The app background: a fixed, full-screen gradient underlay. Sized
+           with 100lvh (the LARGE viewport) because at PWA launch iOS briefly
+           reports a viewport that excludes the home-indicator strip — a
+           gradient painted on <body> stops short there and leaves a dark
+           band of mismatched --bg-solid until the first resize. */
+        body::before {
+            content: ""; position: fixed; top: 0; left: 0; right: 0;
+            height: 100vh; height: 100lvh;
+            background: var(--bg);
+            z-index: -1; pointer-events: none;
+        }
         .wrap {
             max-width: 480px;
             margin: 0 auto;
+            /* Anchors #dashboard-controls (absolute) to the card column edge. */
+            position: relative;
         }
         h1 {
             font-size: 1.4rem;
@@ -134,8 +191,8 @@
         }
         .flash.success { background: rgba(120, 200, 120, 0.12); border-color: rgba(120, 200, 120, 0.35); }
         .suggestion {
-            background: rgba(255, 217, 122, 0.08);
-            border: 1px solid rgba(255, 217, 122, 0.3);
+            background: color-mix(in srgb, var(--accent) 8%, transparent);
+            border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
             border-radius: 12px;
             padding: 14px 16px;
             margin-bottom: 22px;
@@ -167,8 +224,8 @@
             cursor: pointer;
         }
         .suggestion-actions button.primary {
-            background: rgba(255, 217, 122, 0.2);
-            border-color: rgba(255, 217, 122, 0.5);
+            background: color-mix(in srgb, var(--accent) 20%, transparent);
+            border-color: var(--accent-ring);
             color: var(--accent);
         }
         .question {
@@ -230,7 +287,7 @@
         }
         textarea:focus {
             outline: none;
-            border-color: rgba(255, 217, 122, 0.5);
+            border-color: var(--accent-ring);
         }
         .comment-label {
             display: block;
@@ -267,7 +324,7 @@
         }
         #gate .gate-dots {
             display: inline-block; color: var(--accent); letter-spacing: 1px;
-            border: 1px solid rgba(255, 217, 122, 0.4); border-radius: 5px;
+            border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 5px;
             padding: 0 5px; line-height: 1.5; font-weight: 700;
         }
 
@@ -289,7 +346,7 @@
         #gate p b { color: var(--text); }
         #gate .gate-dots {
             display: inline-block; color: var(--accent); letter-spacing: 1px;
-            border: 1px solid rgba(255, 217, 122, 0.4); border-radius: 5px;
+            border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 5px;
             padding: 0 6px; font-weight: 700;
         }
         #gate .gate-share { display: inline-flex; vertical-align: -3px; width: 17px; height: 19px; }
@@ -300,8 +357,8 @@
         }
         #gate .gate-btn:active { transform: scale(0.98); }
         #gate .gate-copy {
-            margin-top: 14px; background: rgba(255,217,122,0.15);
-            border: 1px solid rgba(255,217,122,0.45); color: var(--accent);
+            margin-top: 14px; background: color-mix(in srgb, var(--accent) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent);
             border-radius: 11px; padding: 12px 22px; font-size: 0.95rem; cursor: pointer;
         }
         #gate .gate-copy.copied { background: rgba(120,200,120,0.2); border-color: rgba(120,200,120,0.55); color: var(--done-bright); }
@@ -338,37 +395,56 @@
         }
         #gate .gt-row.gt-done { color: var(--done-bright); background: rgba(120,200,120,0.12); }
         #gate .gt-row.gt-done span { background: var(--done); border-color: var(--done); color: var(--on-done); }
-        /* Stays available in the browser after the optional install prompt. */
+        /* Pending setup steps (install / notifications) as direct icons;
+           each disappears once done. */
         #dashboard-controls {
-            /* Dashboard actions scroll with the page; avoid fixed or nested-scroll controls. */
-            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 20px; z-index: 39;
-            display: flex; align-items: center; gap: 12px;
+            /* Lives INSIDE .wrap (which is position:relative), so right:0 is the
+               card column's right edge at every width -> the last icon's right
+               edge lines up exactly with the cards. Clicks pass through the gaps;
+               only the buttons capture. */
+            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 0;
+            z-index: 39; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+            pointer-events: none;
         }
-        #install-help { display: none; position: relative; }
-        #install-help.show { display: block; }
-        #install-help-toggle {
+        #dashboard-controls > *, #dashboard-controls button { pointer-events: auto; }
+        #install-help { display: none; }
+        #install-help.show { display: flex; align-items: center; gap: 12px; }
+        #install-help button,
+        #dashboard-controls .cfg-gear {
             display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
-            border: 1px solid var(--panel-border); border-radius: 50%; background: var(--bg-solid); color: var(--accent); cursor: pointer;
+            border: 1px solid var(--panel-border); border-radius: 50%; background: var(--bg-solid); color: var(--text-dim); cursor: pointer;
         }
-        #install-help-toggle:hover, #install-help-toggle[aria-expanded="true"] { color: var(--accent); background: var(--panel); }
-        #install-help-toggle svg { width: 19px; height: 19px; }
-        #install-help-menu {
-            display: none; position: absolute; top: 38px; right: 0; width: 210px;
-            padding: 5px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--bg-solid);
-            box-shadow: 0 10px 24px rgba(0,0,0,0.28);
-        }
-        #install-help-menu.show { display: block; }
-        #install-help-menu button {
-            display: flex; align-items: center; width: 100%; min-height: 54px;
-            border: 0; border-radius: 7px; padding: 14px 10px; background: transparent;
-            color: var(--text); font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; white-space: nowrap;
-        }
-        #install-help-menu button + button { border-top: 1px solid var(--panel-border); }
-        #install-help-menu button:hover { background: var(--panel); }
+        #install-help button:hover,
+        #dashboard-controls .cfg-gear:hover { background: var(--panel); color: var(--accent); }
+        #install-help button svg,
+        #dashboard-controls .cfg-gear svg { width: 19px; height: 19px; }
     </style>
 </head>
 <body>
     <div class="wrap">
+        {% comment %} Top-right controls, anchored to this column so they
+        right-align with the cards. install/notification icons show only while
+        pending; the gear (grandfathered beta users) is always last in the row. {% endcomment %}
+        <div id="dashboard-controls">
+        <div id="install-help">
+            {# Each icon hides itself once its setup step is done; the row disappears entirely when both are. #}
+            <button type="button" id="install-help-btn" aria-label="Add to Home Screen" title="Add to Home Screen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 9v6M9 12h6"/></svg>
+            </button>
+            <button type="button" id="notification-help-btn" aria-label="Turn on notifications" title="Turn on notifications">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 15 18 9Z"/><path d="M10.2 20a2 2 0 0 0 3.6 0"/></svg>
+            </button>
+        </div>
+        {% comment %} TEMPORARY: grandfathered health-options gear, LAST in the row
+        (after the install + notification icons). Grandfathered beta users only;
+        native beta users have no legacy_health_config so it never renders. See the
+        field's REMOVE-WHEN-UNUSED note. {% endcomment %}
+        {% if legacy_health_config and not backfill %}
+        <button type="button" class="cfg-gear" id="cfg-gear" aria-label="Health settings" aria-haspopup="dialog" title="Health settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        {% endif %}
+        </div>
         {% if messages %}
             {% for message in messages %}
                 <div class="flash {{ message.tags }}">{{ message }}</div>
@@ -406,17 +482,6 @@
             <path d="M15 2v28" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
             <path d="M5 22l10 12 10-12" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-    </div>
-    <div id="dashboard-controls">
-    <div id="install-help">
-        <button type="button" id="install-help-toggle" aria-label="App settings" aria-expanded="false" aria-controls="install-help-menu">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
-        </button>
-        <div id="install-help-menu" role="menu">
-            <button type="button" id="install-help-btn" role="menuitem">Add to Home Screen</button>
-            <button type="button" id="notification-help-btn" role="menuitem">Turn on notifications</button>
-        </div>
-    </div>
     </div>
 
     <script>
@@ -480,8 +545,6 @@
         var gSkip = document.getElementById("gate-skip");
         var gHint = document.getElementById("gate-hint");
         var installHelp = document.getElementById("install-help");
-        var installHelpToggle = document.getElementById("install-help-toggle");
-        var installHelpMenu = document.getElementById("install-help-menu");
         var installHelpBtn = document.getElementById("install-help-btn");
         var notificationHelpBtn = document.getElementById("notification-help-btn");
         var notifSupported = ("Notification" in window);
@@ -498,17 +561,18 @@
         }
         function showTeaser() { if (gate) gate.classList.add("gate-teaser-on"); }
         function refreshInstallHelp() {
+            // Each icon is a pending setup step: hide it once done, and the
+            // whole row once both are.
+            var canInstall = !isStandalone;
             var canEnableNotifications = notifSupported && Notification.permission !== "granted";
-            if (installHelpBtn) installHelpBtn.style.display = "";
+            if (installHelpBtn) installHelpBtn.style.display = canInstall ? "" : "none";
             if (notificationHelpBtn) notificationHelpBtn.style.display = canEnableNotifications ? "" : "none";
-            return true;  // Keep the settings gear available on the dashboard.
+            var anyPending = canInstall || canEnableNotifications;
+            if (installHelp && !anyPending) installHelp.classList.remove("show");
+            return anyPending;
         }
         function showInstallHelp() {
             if (installHelp && refreshInstallHelp()) installHelp.classList.add("show");
-        }
-        function closeInstallHelpMenu() {
-            if (installHelpMenu) installHelpMenu.classList.remove("show");
-            if (installHelpToggle) installHelpToggle.setAttribute("aria-expanded", "false");
         }
         function welcomeSeen() {
             try { return localStorage.getItem(INTRO_SEEN_KEY) === INTRO_VERSION; } catch (e) { return false; }
@@ -574,19 +638,6 @@
                     gBtn.onclick = function () { window.__deferredInstall.prompt(); };
                 }
             }
-            gHint.textContent = "";
-            showGate();
-        }
-
-        function renderInstalledGate() {
-            gate.classList.remove("gate-arrow-on", "gate-teaser-on");
-            gTitle.textContent = "Already on your Home Screen";
-            gBody.textContent = "Daily is already running from its Home Screen icon.";
-            gBtn.style.display = "none";
-            gCopy.style.display = "none";
-            gSkip.textContent = "Done";
-            gSkip.style.display = "inline-block";
-            gSkip.onclick = passGate;
             gHint.textContent = "";
             showGate();
         }
@@ -696,28 +747,11 @@
         });
 
         if (installHelpBtn) {
-            installHelpBtn.onclick = function () {
-                closeInstallHelpMenu();
-                if (isStandalone) renderInstalledGate();
-                else renderInstallGate();
-            };
+            installHelpBtn.onclick = function () { renderInstallGate(); };
         }
         if (notificationHelpBtn) {
-            notificationHelpBtn.onclick = function () {
-                closeInstallHelpMenu();
-                renderNotifGate();
-                showGate();
-            };
+            notificationHelpBtn.onclick = function () { renderNotifGate(); };
         }
-        if (installHelpToggle) {
-            installHelpToggle.onclick = function () {
-                var open = installHelpMenu && installHelpMenu.classList.toggle("show");
-                installHelpToggle.setAttribute("aria-expanded", open ? "true" : "false");
-            };
-        }
-        document.addEventListener("click", function (e) {
-            if (installHelp && !installHelp.contains(e.target)) closeInstallHelpMenu();
-        });
 
         evaluateGate();
 

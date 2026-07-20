@@ -48,8 +48,9 @@
     {% endif %}
 
     {% if intro_replayable %}
-        {# First visits use the full-screen Welcome/setup flow from base.html.
-           This compact card remains available only for an explicit replay. #}
+        {% comment %} First visits use the full-screen Welcome/setup flow from
+        base.html. This compact card remains available only for an explicit
+        replay. {% endcomment %}
         <div class="intro-card" id="intro-card"
              data-intro-version="{{ intro_version }}"
              data-replay="1" style="display:none">
