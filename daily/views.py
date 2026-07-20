@@ -224,10 +224,15 @@ def token_login(request, token):
 
 
 def ensure_prior_day_coached(participant: DailyParticipant, today: date) -> bool:
-    """Lazy in-request coach: if the most recent check-in BEFORE today has no
-    coach suggestion, run the coach for it synchronously (once). Thin wrapper
-    over the shared coach_runner so the lazy path and the nightly cron share
-    one implementation. Returns True if a coach run happened.
+    """On-demand coach for endpoints that are already outside page rendering.
+
+    The dashboard deliberately never calls this helper: a model request can
+    take several seconds, during which the browser has received no HTML and
+    cannot show a loading state. The hourly coach command owns overnight
+    mutation generation; the lazy morning-report request may still use this
+    helper for a support-only report without blocking the usable dashboard.
+
+    Returns True if a coach run happened.
     """
     return coach_prior_day(participant, today)
 
@@ -424,13 +429,11 @@ def _render_checkin(request, from_token=""):
         })
 
     if not backfill and run_engine:
-        # 1. Coach the most recent prior day if it hasn't been (sync,
-        #    ~3-5s, at most once — afterwards suggestions exist, no-op).
-        coached = ensure_prior_day_coached(participant, today)
-        if coached:
-            logger.info("daily.checkin: lazily coached prior day for %s", participant)
-
-        # 2. Apply pending mutations so today reflects the coach's plan.
+        # The hourly run_coach_for_all job generates overnight suggestions.
+        # Never fall back to an external model call during this dashboard GET:
+        # until the server returns HTML, neither the PWA launch screen nor the
+        # page can tell the user what is happening. Already-generated work is
+        # still promoted here so today's dashboard reflects Jamie's plan.
         applied = apply_pending_mutations(participant, as_of=today)
         if applied:
             logger.info("daily.checkin: applied %d pending mutations for %s", applied, participant)
@@ -2828,8 +2831,11 @@ def manifest(request):
         "scope": "/daily/",
         "display": "standalone",
         "orientation": "portrait",
-        "background_color": "#1a1a2e",
-        "theme_color": "#1a1a2e",
+        # Match the globally rolled-out Climb/Steel canvas. User agents can
+        # paint background_color before any page bytes or CSS are available,
+        # so a mismatch here creates the navy/white/Steel launch flash.
+        "background_color": "#1A1715",
+        "theme_color": "#1A1715",
         "icons": [
             {"src": static("daily/icons/icon-192.png"), "sizes": "192x192", "type": "image/png"},
             {"src": static("daily/icons/icon-512.png"), "sizes": "512x512", "type": "image/png"},
