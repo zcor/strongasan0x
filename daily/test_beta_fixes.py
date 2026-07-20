@@ -9,7 +9,6 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.contrib.staticfiles import finders
 from django.db import connection
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -350,7 +349,7 @@ class PwaStartupTests(TestCase):
         self.assertEqual(response.json()["background_color"], "#1A1715")
         self.assertEqual(response.json()["theme_color"], "#1A1715")
 
-    def test_installed_app_has_branded_launch_shell_and_ios_image(self):
+    def test_installed_app_uses_delayed_shell_without_custom_ios_splash(self):
         participant = _make_participant(beta=True, ai_mutations_enabled=False)
         participant.onboarded_at = timezone.now()
         participant.save(update_fields=["onboarded_at"])
@@ -373,20 +372,7 @@ class PwaStartupTests(TestCase):
         self.assertContains(response, "app-loading-slow")
         self.assertContains(response, "}, 250);")
         self.assertContains(response, "app-ready")
-        self.assertContains(response, 'rel="apple-touch-startup-image"')
-        self.assertContains(response, "device-width: 390px")
-        self.assertContains(response, "launch-1170x2532.png")
-        launch_assets = [
-            "640x1136", "750x1334", "1242x2208", "1125x2436",
-            "828x1792", "1242x2688", "1170x2532", "1284x2778",
-            "1179x2556", "1290x2796", "1206x2622", "1320x2868",
-        ]
-        for dimensions in launch_assets:
-            self.assertIsNotNone(
-                finders.find(f"daily/images/launch-{dimensions}.png"),
-                dimensions,
-            )
-        self.assertIsNotNone(finders.find("daily/images/launch-screen.png"))
+        self.assertNotContains(response, 'rel="apple-touch-startup-image"')
 
 
 class LazyChatHistoryTests(TestCase):
