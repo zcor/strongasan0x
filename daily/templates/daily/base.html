@@ -475,7 +475,10 @@
                card column's right edge at every width -> the last icon's right
                edge lines up exactly with the cards. Clicks pass through the gaps;
                only the buttons capture. */
-            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 0;
+            /* .wrap starts below the body safe-area padding already. Matching the
+               appbar's 8px top padding keeps this row level with the greeting
+               instead of applying the iOS inset twice and dropping it below. */
+            position: absolute; top: 8px; right: 0;
             z-index: 39; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
             pointer-events: none;
         }

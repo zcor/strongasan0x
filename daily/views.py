@@ -736,9 +736,16 @@ def _render_checkin(request, from_token=""):
         if settings.DEBUG and request.session.get("daily_streak_forced", False):
             if context["streak"] < 2:
                 context["streak"] = 3
-        return render(request, "daily/checkin_beta.html", context)
+        response = render(request, "daily/checkin_beta.html", context)
+        # A standalone iOS app can otherwise restore a previous dashboard HTML
+        # document from its page cache. This screen is live and personalized, so
+        # every launch/navigation must use the current template and state.
+        response["Cache-Control"] = "private, no-store, max-age=0, must-revalidate"
+        return response
     context["is_beta"] = False
-    return render(request, "daily/checkin.html", context)
+    response = render(request, "daily/checkin.html", context)
+    response["Cache-Control"] = "private, no-store, max-age=0, must-revalidate"
+    return response
 
 
 def _derive_parent(check_in, parent_question, states):
@@ -2862,7 +2869,18 @@ def service_worker(request):
     """
     js = """\
 self.addEventListener('install', (e) => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) => event.waitUntil((async () => {
+  await self.clients.claim();
+  // A standalone iOS app can restore its old HTML document without making a
+  // network navigation. When this worker changes, move any open Daily window
+  // to a cache-busting URL once, so a deployed UI fix reaches installed apps
+  // without asking people to delete and reinstall them.
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  await Promise.all(windows.map((client) => {
+    const joiner = client.url.includes('?') ? '&' : '?';
+    return client.navigate(client.url + joiner + '__pwa_update=1').catch(() => undefined);
+  }));
+})()));
 // Deliberately NO fetch handler. An earlier version intercepted every
 // navigation with event.respondWith(fetch(...)) to show an offline message —
 // but that put the SW in the critical path of every page load with no timeout,

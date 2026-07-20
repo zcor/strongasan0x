@@ -349,6 +349,13 @@ class PwaStartupTests(TestCase):
         self.assertEqual(response.json()["background_color"], "#1A1715")
         self.assertEqual(response.json()["theme_color"], "#1A1715")
 
+    def test_worker_refreshes_open_app_after_an_update(self):
+        response = self.client.get("/daily/sw.js")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "self.clients.matchAll")
+        self.assertContains(response, "__pwa_update=1")
+
     def test_installed_app_uses_delayed_shell_without_custom_ios_splash(self):
         participant = _make_participant(beta=True, ai_mutations_enabled=False)
         participant.onboarded_at = timezone.now()
@@ -366,6 +373,10 @@ class PwaStartupTests(TestCase):
         response = self.client.get("/daily/checkin/")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Cache-Control"],
+            "private, no-store, max-age=0, must-revalidate",
+        )
         self.assertContains(response, 'id="app-launch"')
         self.assertContains(response, 'aria-label="Loading Daily"')
         self.assertContains(response, "pwa-launching")
