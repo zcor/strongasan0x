@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2868" height="2868" viewBox="0 0 2868 2868">
-  <!-- Square rasterization master. The generated iOS asset crops the centered
-       1320px portrait slice, avoiding converter-specific SVG aspect handling. -->
+  <!-- Square rasterization master. Generated iOS assets resample this square
+       to the target height, then crop the target-width portrait slice from
+       center. This avoids converter-specific SVG aspect handling. -->
   <rect width="2868" height="2868" fill="#1A1715"/>
   <g transform="translate(1178 1120)">
     <rect width="512" height="512" rx="56" fill="#191B31" stroke="#F2EFE9" stroke-width="22"/>
