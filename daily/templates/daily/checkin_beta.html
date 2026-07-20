@@ -224,15 +224,6 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                 </div>
             </div>
         </div>
-        {% comment %} TEMPORARY: reset-to-baseline. Rendered for grandfathered
-        users whenever the list has drifted from baseline; the "reset" option
-        just shows/hides it (so the toggle can reveal it live, no reload). {% endcomment %}
-        {% if legacy_health_config and not is_baseline %}
-        <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="reset-baseline{% if not legacy_health_config.reset %} is-hidden{% endif %}" id="reset-baseline-form">
-            {% csrf_token %}
-            <button type="submit">Reset to original 3 questions</button>
-        </form>
-        {% endif %}
         {% endif %}
 
         {% comment %} Slim win link: collapsed state of the invite (after "Not
@@ -456,10 +447,6 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         <span class="cfg-text"><span class="cfg-label">Show Jamie's note on open</span><span class="cfg-sub">Pop her daily note the moment you open the app.</span></span>
         <input type="checkbox" class="cfg-toggle" data-cfg="coach_note"{% if legacy_health_config.coach_note %} checked{% endif %}>
     </label>
-    <label class="cfg-row">
-        <span class="cfg-text"><span class="cfg-label">Show "Reset to original 3"</span><span class="cfg-sub">Reveal a button to reset your habits to the starting three.</span></span>
-        <input type="checkbox" class="cfg-toggle" data-cfg="reset"{% if legacy_health_config.reset %} checked{% endif %}>
-    </label>
 </div>
 {% endif %}
 
@@ -577,7 +564,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         10%  { opacity: 1; }
         100% { opacity: 0; transform: var(--end-transform) scale(1); }
     }
-    /* TEMPORARY: grandfathered health-options sheet + reset control. The gear
+    /* TEMPORARY: grandfathered health-options sheet. The gear
        button itself lives in base.html's #dashboard-controls (styled there to
        match the install/notification icons), last in that right-aligned row. */
     .cfg-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 90; }
@@ -622,10 +609,6 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
     }
     .cfg-toggle:checked { background: var(--accent); border-color: transparent; color: var(--on-accent); }
-    .reset-baseline { margin: 14px 4px 0; text-align: center; }
-    .reset-baseline button { background: none; border: 0; color: var(--text-dim); text-decoration: underline; font: inherit; font-size: .8rem; padding: 4px 8px; cursor: pointer; }
-    .reset-baseline button:hover { color: var(--text); }
-
     /* Day-stepper (replaces the week strip on a past day). 1fr/auto/1fr keeps
        the selected date optically centered while the side controls hug the
        edges. Height matches the strip so the header doesn't jump between days. */
@@ -1011,7 +994,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     var VIEW_ONLY = {% if view_only %}true{% else %}false{% endif %};
     var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
     // TEMPORARY: grandfathered legacy health options, or null for native beta
-    // users. Gates the config gear + the three restored behaviors.
+    // users. Gates the config gear + the two restored behaviors.
     var LEGACY_CFG = {{ legacy_health_config_json|safe }};
     var WC = 81.68;  // 2πr for the week strip's r=13 rings
     var $ = function (id) { return document.getElementById(id); };
@@ -2275,12 +2258,6 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         gear.addEventListener("click", openSheet);
         if (closeBtn) closeBtn.addEventListener("click", shutSheet);
         scrim.addEventListener("click", shutSheet);
-        // The reset control lives in the DOM when the list has drifted; the
-        // "reset" switch just shows/hides it.
-        function syncReset() {
-            var form = $("reset-baseline-form");
-            if (form) form.classList.toggle("is-hidden", !(LEGACY_CFG && LEGACY_CFG.reset));
-        }
         Array.prototype.forEach.call(sheet.querySelectorAll(".cfg-toggle"), function (t) {
             t.addEventListener("change", function () {
                 var key = t.dataset.cfg, val = t.checked;
@@ -2288,7 +2265,6 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
                 post("/daily/health-config/", { key: key, value: val }, function (d) {
                     t.disabled = false;
                     if (d.config) LEGACY_CFG = d.config;
-                    if (key === "reset") syncReset();
                 }, function () { t.disabled = false; t.checked = !val; });  // revert on failure
             });
         });

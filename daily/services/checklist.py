@@ -220,7 +220,7 @@ def revert_to_baseline(participant: DailyParticipant) -> ChecklistVersion:
         return ChecklistVersion.objects.create(
             participant=participant,
             questions=list(BASELINE_QUESTIONS),
-            source=ChecklistVersion.SOURCE_USER_RESET,
+            source=ChecklistVersion.SOURCE_BASELINE,
             derived_from=current,
             is_current=True,
         )

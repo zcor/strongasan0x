@@ -133,12 +133,11 @@ class DailyParticipant(models.Model):
     # TEMPORARY GRANDFATHER (added 2026-07): three frozen-app health conveniences
     # that beta dropped, kept alive only for users who migrated from the frozen
     # app so they don't silently lose them. Shape:
-    #   {"auto_bonus": bool, "coach_note": bool, "reset": bool}
+    #   {"auto_bonus": bool, "coach_note": bool}
     #   auto_bonus  — auto-fetch the next bonus on load once core is swept
     #   coach_note  — auto-show Jamie's note/report modal on open
-    #   reset       — reveal the "Reset to original 3 questions" control
     # NULL = a native beta user who never had these: the config gear never shows
-    # and auto_bonus/reset stay off (coach_note keeps beta's default auto-show).
+    # and auto_bonus stays off (coach_note keeps beta's default auto-show).
     # Existing users were grandfathered to all-True by migration 0022.
     # REMOVE-WHEN-UNUSED: if telemetry shows grandfathered users never turn any
     # of these off, delete this field + migration 0022, the /daily/health-config/
@@ -233,11 +232,9 @@ class ChecklistVersion(models.Model):
 
     SOURCE_BASELINE = "baseline"
     SOURCE_AI_MUTATION = "ai_mutation"
-    SOURCE_USER_RESET = "user_reset"
     SOURCE_CHOICES = [
         (SOURCE_BASELINE, "Baseline (Stronger in 60)"),
         (SOURCE_AI_MUTATION, "AI mutation"),
-        (SOURCE_USER_RESET, "User reset to baseline"),
     ]
 
     participant = models.ForeignKey(

@@ -1,5 +1,5 @@
 """Tests for the TEMPORARY grandfathered health-options config (gear + the
-three restored behaviors). See DailyParticipant.legacy_health_config and its
+two restored behaviors). See DailyParticipant.legacy_health_config and its
 REMOVE-WHEN-UNUSED note: delete this file with the feature."""
 import json
 
@@ -7,7 +7,7 @@ from django.test import Client, TestCase
 from django.utils import timezone
 
 from daily.auth import SESSION_DAILY_PARTICIPANT_ID
-from daily.models import ChecklistVersion, DailyParticipant
+from daily.models import DailyParticipant
 
 
 def _make(**kwargs):
@@ -26,7 +26,7 @@ def _client_for(participant):
     return c
 
 
-ALL_ON = {"auto_bonus": True, "coach_note": True, "reset": True}
+ALL_ON = {"auto_bonus": True, "coach_note": True}
 
 
 class ConfigGearRenderTests(TestCase):
@@ -91,37 +91,8 @@ class ConfigToggleEndpointTests(TestCase):
         client = _client_for(p)
         for value in ("false", 0, None):
             with self.subTest(value=value):
-                r = self._post(client, "reset", value)
+                r = self._post(client, "auto_bonus", value)
                 self.assertEqual(r.status_code, 400)
                 self.assertEqual(r.json()["error"], "bad_value")
         p.refresh_from_db()
-        self.assertIs(p.legacy_health_config["reset"], True)
-
-
-class ResetControlVisibilityTests(TestCase):
-    """The reset form is rendered when the list has drifted from baseline; the
-    'reset' option shows/hides it."""
-
-    def _drift_off_baseline(self, participant):
-        # Replace the current version with a clearly non-baseline single item.
-        participant.checklist_versions.update(is_current=False)
-        ChecklistVersion.objects.create(
-            participant=participant,
-            questions=[{"key": "u_custom", "label": "Something custom"}],
-            source=ChecklistVersion.SOURCE_AI_MUTATION,
-            is_current=True,
-        )
-
-    def test_reset_hidden_when_option_off(self):
-        p = _make(beta=True, legacy_health_config={"auto_bonus": True, "coach_note": True, "reset": False})
-        self._drift_off_baseline(p)
-        html = _client_for(p).get("/daily/checkin/").content.decode()
-        self.assertIn('id="reset-baseline-form"', html)
-        self.assertIn("reset-baseline is-hidden", html)  # present but hidden
-
-    def test_reset_shown_when_option_on(self):
-        p = _make(beta=True, legacy_health_config=dict(ALL_ON))
-        self._drift_off_baseline(p)
-        html = _client_for(p).get("/daily/checkin/").content.decode()
-        self.assertIn('id="reset-baseline-form"', html)
-        self.assertNotIn("reset-baseline is-hidden", html)  # visible
+        self.assertIs(p.legacy_health_config["auto_bonus"], True)

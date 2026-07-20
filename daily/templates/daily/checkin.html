@@ -117,17 +117,6 @@
         </div>
     {% endif %}
 
-    <div class="footer">
-        {% if not is_baseline %}
-            <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" style="display:inline;">
-                {% csrf_token %}
-                <button type="submit" style="background:none;border:none;color:var(--text-faint);text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:4px 0;margin-top:4px;">
-                    Reset to original 3 questions
-                </button>
-            </form>
-        {% endif %}
-    </div>
-
     {% if debug_as_of is not None %}
         <div class="dev-bar">
             <span class="dev-label">DEV · {{ today|date:"Y-m-d" }}</span>

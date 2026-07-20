@@ -11,7 +11,7 @@ from daily.models import DailyBetaRollout, DailyParticipant
 from daily.services.ai_coach import CHAT_SYSTEM_PROMPT_BETA
 
 
-LEGACY_CONFIG = {"auto_bonus": True, "coach_note": True, "reset": True}
+LEGACY_CONFIG = {"auto_bonus": True, "coach_note": True}
 
 
 def _participant(name, **kwargs):

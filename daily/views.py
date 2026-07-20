@@ -8,7 +8,7 @@ There is no submit. The day is always live:
   - set_item_state (POST /daily/item/): tap=done / skip / back to pending.
   - save_comment (POST /daily/comment/): autosave the day's comment.
   - respond_to_suggestion: Undo an applied mutation from the morning note.
-  - token_login / reset_to_baseline: unchanged.
+  - token_login: unchanged.
 
 Dev-only (DEBUG=True): ?as_of=YYYY-MM-DD overrides "today".
 """
@@ -688,7 +688,6 @@ def _render_checkin(request, from_token=""):
         "streak": current_streak(participant, today) if not backfill else 0,
         "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
         "comment": existing.comment if existing else "",
-        "is_baseline": _is_baseline_questions(current_version.questions),
         "debug_as_of": request.GET.get("as_of") if settings.DEBUG else None,
         "tomorrow_qs": f"?as_of={(today + timedelta(days=1)).isoformat()}" if settings.DEBUG else "",
         "yesterday_qs": f"?as_of={(today - timedelta(days=1)).isoformat()}" if settings.DEBUG else "",
@@ -784,15 +783,6 @@ def _derive_parent(check_in, parent_question, states):
         )
     states[parent_key] = parent_state
     return {"key": parent_key, "state": parent_state}
-
-
-def _is_baseline_questions(qs):
-    if len(qs) != len(BASELINE_QUESTIONS):
-        return False
-    return all(
-        a.get("key") == b.get("key") and a.get("label") == b.get("label")
-        for a, b in zip(qs, BASELINE_QUESTIONS)
-    )
 
 
 @require_daily_actor
@@ -2300,7 +2290,7 @@ def save_comment(request):
 
 # TEMPORARY: toggle one grandfathered legacy health option (see
 # DailyParticipant.legacy_health_config and its REMOVE-WHEN-UNUSED note).
-LEGACY_HEALTH_KEYS = ("auto_bonus", "coach_note", "reset")
+LEGACY_HEALTH_KEYS = ("auto_bonus", "coach_note")
 
 
 @require_daily_actor
@@ -2363,15 +2353,6 @@ def _revert_applied_suggestion(participant, suggestion):
             parent.save(update_fields=["is_current"])
         elif not parent:
             revert_to_baseline(participant)
-
-
-@require_daily_actor
-@require_http_methods(["POST"])
-def reset_to_baseline_view(request):
-    participant = request.daily_participant
-    revert_to_baseline(participant)
-    messages.success(request, "Checklist reset to the original 3 questions.")
-    return redirect(f"/daily/checkin/{_as_of_query(request)}")
 
 
 def _run_coach(check_in_id: int, refinement: str = ""):
