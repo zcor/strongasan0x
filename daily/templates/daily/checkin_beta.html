@@ -224,6 +224,15 @@ daily/CLIMB_REFRAME_PLAN.md section 2c.
                 </div>
             </div>
         </div>
+        {% comment %} TEMPORARY: reset-to-baseline. Rendered for grandfathered
+        users whenever the list has drifted from baseline; the "reset" option
+        just shows/hides it (so the toggle can reveal it live, no reload). {% endcomment %}
+        {% if legacy_health_config and not is_baseline %}
+        <form method="post" action="{% url 'daily:reset_to_baseline' %}{% if debug_as_of %}?as_of={{ debug_as_of }}{% endif %}" class="reset-baseline{% if not legacy_health_config.reset %} is-hidden{% endif %}" id="reset-baseline-form">
+            {% csrf_token %}
+            <button type="submit">Reset to original 3 questions</button>
+        </form>
+        {% endif %}
         {% endif %}
 
         {% comment %} Slim win link: collapsed state of the invite (after "Not
@@ -428,6 +437,32 @@ time it opens.
     </div>
 </div>
 
+{% comment %} TEMPORARY: grandfathered health options. The gear in the appbar
+opens this sheet; native beta users have no config (see legacy_health_config).
+Remove alongside the field when the grandfather window closes. {% endcomment %}
+{% if legacy_health_config %}
+<div id="cfg-scrim" class="cfg-scrim"></div>
+<div id="cfg-sheet" class="cfg-sheet" role="dialog" aria-modal="true" aria-label="Health settings" aria-hidden="true">
+    <div class="cfg-head">
+        <span class="cfg-title">Health settings</span>
+        <button type="button" class="cfg-close" id="cfg-close" aria-label="Close">✕</button>
+    </div>
+    <p class="cfg-note">Extras carried over from the classic app. Turn off any you don't want.</p>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Auto-load next bonus</span><span class="cfg-sub">Pull a fresh bonus in as soon as your habits are done.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="auto_bonus"{% if legacy_health_config.auto_bonus %} checked{% endif %}>
+    </label>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Show Jamie's note on open</span><span class="cfg-sub">Pop her daily note the moment you open the app.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="coach_note"{% if legacy_health_config.coach_note %} checked{% endif %}>
+    </label>
+    <label class="cfg-row">
+        <span class="cfg-text"><span class="cfg-label">Show "Reset to original 3"</span><span class="cfg-sub">Reveal a button to reset your habits to the starting three.</span></span>
+        <input type="checkbox" class="cfg-toggle" data-cfg="reset"{% if legacy_health_config.reset %} checked{% endif %}>
+    </label>
+</div>
+{% endif %}
+
 {# --- One-time next-day report. This is intentionally separate from chat. --- #}
 <div id="morning-report-modal" class="morning-report-modal" hidden>
     <section class="morning-report-card" role="dialog" aria-modal="true" aria-labelledby="morning-report-title">
@@ -531,6 +566,65 @@ time it opens.
     .wstar svg { width: 13px; height: 13px; color: var(--accent); filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
     .wstar.just svg { animation: starpop .5s cubic-bezier(.34,1.56,.64,1); }
     @keyframes starpop { 0%{transform:scale(0) rotate(-40deg); opacity:0} 60%{transform:scale(1.25) rotate(6deg)} 100%{transform:scale(1) rotate(0); opacity:1} }
+    /* Confetti burst when every core habit for the day is done. */
+    .confetti-piece {
+        position: fixed; width: 9px; height: 9px; opacity: 0;
+        pointer-events: none; border-radius: 2px; z-index: 200;
+        animation: confetti-fly 1s cubic-bezier(.16,.84,.34,1) forwards;
+    }
+    @keyframes confetti-fly {
+        0%   { opacity: 0; transform: translate(0,0) scale(.4); }
+        10%  { opacity: 1; }
+        100% { opacity: 0; transform: var(--end-transform) scale(1); }
+    }
+    /* TEMPORARY: grandfathered health-options sheet + reset control. The gear
+       button itself lives in base.html's #dashboard-controls (styled there to
+       match the install/notification icons), last in that right-aligned row. */
+    .cfg-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 90; }
+    .cfg-scrim.show { opacity: 1; pointer-events: auto; }
+    /* Mobile: full-width bottom sheet that slides up. Desktop (>=520px): a
+       centered modal dialog that fades/scales in. */
+    .cfg-sheet {
+        position: fixed; left: 0; right: 0; bottom: 0; transform: translateY(100%);
+        width: 100%; background: var(--bg-solid);
+        border: 1px solid var(--line); border-bottom: 0; border-radius: 0;
+        padding: 6px 20px 24px; z-index: 91; transition: transform .24s cubic-bezier(.16,.84,.34,1);
+    }
+    .cfg-sheet.show { transform: translateY(0); }
+    @media (min-width: 520px) {
+        .cfg-sheet {
+            left: 50%; right: auto; bottom: auto; top: 50%; width: 100%; max-width: 440px;
+            border: 1px solid var(--line); border-radius: 0;
+            transform: translate(-50%, -50%) scale(.96); opacity: 0; visibility: hidden;
+            transition: opacity .18s ease, transform .18s ease, visibility .18s;
+        }
+        .cfg-sheet.show { transform: translate(-50%, -50%) scale(1); opacity: 1; visibility: visible; }
+    }
+    .cfg-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; }
+    .cfg-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+    .cfg-close { background: transparent; border: 0; color: var(--text-dim); font-size: 1.1rem; line-height: 1; padding: 6px; cursor: pointer; }
+    .cfg-note { margin: 0 0 8px; color: var(--text-dim); font-size: .8rem; }
+    .cfg-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-soft); cursor: pointer; }
+    .cfg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .cfg-label { font-size: .94rem; color: var(--text); }
+    .cfg-sub { font-size: .76rem; color: var(--text-dim); line-height: 1.25; }
+    /* Custom checkbox: a thin checkmark (stroke 2 vs the app's chunkier 3.4). */
+    /* Match the Habits checkmark exactly (.check / .row.done .check). */
+    .cfg-toggle {
+        appearance: none; -webkit-appearance: none; flex: none;
+        width: 26px; height: 26px; border-radius: 50%; color: transparent;
+        border: 2px solid rgba(255,255,255,.22); background: transparent;
+        display: grid; place-items: center; cursor: pointer; transition: all .16s ease;
+    }
+    .cfg-toggle::after {
+        content: ""; width: 13px; height: 11px; background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat;
+    }
+    .cfg-toggle:checked { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+    .reset-baseline { margin: 14px 4px 0; text-align: center; }
+    .reset-baseline button { background: none; border: 0; color: var(--text-dim); text-decoration: underline; font: inherit; font-size: .8rem; padding: 4px 8px; cursor: pointer; }
+    .reset-baseline button:hover { color: var(--text); }
 
     /* Day-stepper (replaces the week strip on a past day). 1fr/auto/1fr keeps
        the selected date optically centered while the side controls hug the
@@ -916,6 +1010,9 @@ time it opens.
     // inert (habit checks, the win row) — the day is history, not editable.
     var VIEW_ONLY = {% if view_only %}true{% else %}false{% endif %};
     var CSRF = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    // TEMPORARY: grandfathered legacy health options, or null for native beta
+    // users. Gates the config gear + the three restored behaviors.
+    var LEGACY_CFG = {{ legacy_health_config_json|safe }};
     var WC = 81.68;  // 2πr for the week strip's r=13 rings
     var $ = function (id) { return document.getElementById(id); };
 
@@ -965,6 +1062,43 @@ time it opens.
         try { if (window.__setBadge) window.__setBadge(Math.max(0, total - done)); } catch (e) {}
     }
 
+    // ---------- confetti (fires once when the day's core habits are all done) ----------
+    var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "var(--accent-2)", "#87ceeb", "#ffffff"];
+    var celebrated = false;
+    function fireConfetti(originEl) {
+        originEl = originEl || todayEl || document.querySelector('#items .row.done');
+        var cx, cy;
+        if (originEl) {
+            var rect = originEl.getBoundingClientRect();
+            cx = rect.left + rect.width / 2; cy = rect.top + rect.height / 2;
+        } else { cx = window.innerWidth / 2; cy = window.innerHeight / 3; }
+        for (var i = 0; i < 22; i++) {
+            var p = document.createElement("span");
+            p.className = "confetti-piece";
+            p.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+            p.style.left = cx + "px"; p.style.top = cy + "px";
+            var angle = (Math.PI * 2 * i / 22) + (Math.random() * 0.3);
+            var dist = 90 + Math.random() * 80;
+            var dx = Math.cos(angle) * dist, dy = Math.sin(angle) * dist - 20;
+            p.style.setProperty("--end-transform", "translate(" + dx + "px, " + dy + "px) rotate(" + (Math.random() * 360) + "deg)");
+            document.body.appendChild(p);
+            setTimeout((function (piece) {
+                return function () { if (piece.parentNode) piece.parentNode.removeChild(piece); };
+            })(p), 1100);
+        }
+    }
+    // Celebrate on the interaction that crosses the finish line; re-arm on untick.
+    // Never called on initial paint, so a page that loads complete stays quiet.
+    function maybeCelebrate(originEl) {
+        var rows = coreRows(), total = rows.length;
+        var done = rows.filter(function (r) { return r.classList.contains("done"); }).length;
+        if (total > 0 && done >= total) {
+            if (!celebrated) { celebrated = true; fireConfetti(originEl); }
+        } else {
+            celebrated = false;
+        }
+    }
+
     // ---------- check rows (core + bonus) ----------
     function setState(row, state) {
         row.dataset.state = state;
@@ -1011,6 +1145,8 @@ time it opens.
             setState(row, next);
             if (next === "done") { row.classList.remove("just"); void row.offsetWidth; row.classList.add("just"); }
             refreshProgress();
+            // Only core rows count toward completion; a bonus tap must never fire it.
+            if (coreRows().indexOf(row) !== -1) maybeCelebrate(row);
             post("/daily/item/", { key: row.dataset.key, state: next }, function (d) {
                 if (d.new_bonus) addBonusRow(d.new_bonus);
                 if (d.bonus_revealed) { var bc = $("bonus-card"); if (bc) bc.classList.remove("is-hidden"); }
@@ -1043,6 +1179,24 @@ time it opens.
     document.querySelectorAll('.row[data-check]').forEach(bindRow);
     refreshProgress();
 
+    // TEMPORARY: auto-fetch the next bonus on load (grandfathered auto_bonus).
+    // The server guards generation (needs core swept, no open bonus, tags it
+    // health); we skip the call unless it could plausibly return one.
+    if (LEGACY_CFG && LEGACY_CFG.auto_bonus && !BACKFILL) {
+        var acDone = coreRows().filter(function (r) { return r.classList.contains("done"); }).length;
+        var acOpen = Array.prototype.slice.call(document.querySelectorAll('#bonus-items .row'))
+            .filter(function (r) { return r.dataset.state !== "done" && r.dataset.state !== "skip"; }).length;
+        if (acDone >= {{ bonus_reveal_at }} && acOpen === 0) {
+            var acSp = $("bonus-spinner"), acBc = $("bonus-card");
+            if (acBc) acBc.classList.remove("is-hidden");
+            if (acSp) acSp.classList.remove("is-hidden");
+            post("/daily/bonus/next/", {}, function (d) {
+                if (acSp) acSp.classList.add("is-hidden");
+                if (d.new_bonus) addBonusRow(d.new_bonus);
+            }, function () { if (acSp) acSp.classList.add("is-hidden"); });
+        }
+    }
+
     // ---------- nested detail checklists (sub-items) ----------
     // A core habit can carry a drawer of sub-items (e.g. exercises under
     // "Strength training"). The habit's Any step / All steps setting decides
@@ -1071,6 +1225,8 @@ time it opens.
         var row = document.querySelector('#items .row[data-key="' + update.key + '"]');
         if (row) setState(row, update.state);
         refreshProgress();
+        // Completing a habit via its last sub-step can finish the day too.
+        maybeCelebrate(row);
     }
     function bindSubRow(sub) {
         sub.addEventListener("click", function (e) {
@@ -2091,7 +2247,10 @@ time it opens.
         }
         reveal();
     }
-    if (morningReportModal && !BACKFILL) {
+    // A grandfathered user can suppress the on-open note (coach_note); native
+    // beta users (LEGACY_CFG null) keep the default auto-show.
+    var SHOW_COACH_NOTE = !LEGACY_CFG || LEGACY_CFG.coach_note;
+    if (morningReportModal && !BACKFILL && SHOW_COACH_NOTE) {
         var reportOk = morningReportModal.querySelector("[data-morning-report-ok]");
         if (reportOk) reportOk.addEventListener("click", closeMorningReport);
         morningReportModal.addEventListener("click", function (event) {
@@ -2106,6 +2265,34 @@ time it opens.
             if (data && data.ok && data.report) showMorningReport(data.report);
         }).catch(function () { /* A report is supportive, never page-blocking. */ });
     }
+
+    // ---------- TEMPORARY: grandfathered health options gear ----------
+    (function () {
+        var gear = $("cfg-gear"), sheet = $("cfg-sheet"), scrim = $("cfg-scrim"), closeBtn = $("cfg-close");
+        if (!gear || !sheet || !scrim) return;
+        function openSheet() { scrim.classList.add("show"); sheet.classList.add("show"); sheet.setAttribute("aria-hidden", "false"); }
+        function shutSheet() { scrim.classList.remove("show"); sheet.classList.remove("show"); sheet.setAttribute("aria-hidden", "true"); }
+        gear.addEventListener("click", openSheet);
+        if (closeBtn) closeBtn.addEventListener("click", shutSheet);
+        scrim.addEventListener("click", shutSheet);
+        // The reset control lives in the DOM when the list has drifted; the
+        // "reset" switch just shows/hides it.
+        function syncReset() {
+            var form = $("reset-baseline-form");
+            if (form) form.classList.toggle("is-hidden", !(LEGACY_CFG && LEGACY_CFG.reset));
+        }
+        Array.prototype.forEach.call(sheet.querySelectorAll(".cfg-toggle"), function (t) {
+            t.addEventListener("change", function () {
+                var key = t.dataset.cfg, val = t.checked;
+                t.disabled = true;
+                post("/daily/health-config/", { key: key, value: val }, function (d) {
+                    t.disabled = false;
+                    if (d.config) LEGACY_CFG = d.config;
+                    if (key === "reset") syncReset();
+                }, function () { t.disabled = false; t.checked = !val; });  // revert on failure
+            });
+        });
+    })();
 
     var fab = $("coach-fab"), panel = $("coach-panel"), scrim = $("coach-scrim"),
         log = $("coach-log"), tx = $("coach-text"), send = $("coach-send"), planning = false,

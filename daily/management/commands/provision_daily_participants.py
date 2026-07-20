@@ -133,6 +133,9 @@ class Command(BaseCommand):
                         "source": SOURCE_TELEGRAM,
                         "source_detail": detail,
                         "onboarded_at": timezone.now(),
+                        "beta": True,
+                        "ai_mutations_enabled": True,
+                        "focus": DailyParticipant.FOCUS_HEALTH,
                     },
                 )
 

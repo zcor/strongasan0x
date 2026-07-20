@@ -168,6 +168,8 @@
         .wrap {
             max-width: 480px;
             margin: 0 auto;
+            /* Anchors #dashboard-controls (absolute) to the card column edge. */
+            position: relative;
         }
         h1 {
             font-size: 1.4rem;
@@ -396,22 +398,53 @@
         /* Pending setup steps (install / notifications) as direct icons;
            each disappears once done. */
         #dashboard-controls {
-            /* Dashboard actions scroll with the page; avoid fixed or nested-scroll controls. */
-            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 20px; z-index: 39;
-            display: flex; align-items: center; gap: 12px;
+            /* Lives INSIDE .wrap (which is position:relative), so right:0 is the
+               card column's right edge at every width -> the last icon's right
+               edge lines up exactly with the cards. Clicks pass through the gaps;
+               only the buttons capture. */
+            position: absolute; top: calc(20px + env(safe-area-inset-top)); right: 0;
+            z-index: 39; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+            pointer-events: none;
         }
+        #dashboard-controls > *, #dashboard-controls button { pointer-events: auto; }
         #install-help { display: none; }
         #install-help.show { display: flex; align-items: center; gap: 12px; }
-        #install-help button {
+        #install-help button,
+        #dashboard-controls .cfg-gear {
             display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
             border: 1px solid var(--panel-border); border-radius: 50%; background: var(--bg-solid); color: var(--text-dim); cursor: pointer;
         }
-        #install-help button:hover { background: var(--panel); color: var(--accent); }
-        #install-help button svg { width: 19px; height: 19px; }
+        #install-help button:hover,
+        #dashboard-controls .cfg-gear:hover { background: var(--panel); color: var(--accent); }
+        #install-help button svg,
+        #dashboard-controls .cfg-gear svg { width: 19px; height: 19px; }
     </style>
 </head>
 <body>
     <div class="wrap">
+        {% comment %} Top-right controls, anchored to this column so they
+        right-align with the cards. install/notification icons show only while
+        pending; the gear (grandfathered beta users) is always last in the row. {% endcomment %}
+        <div id="dashboard-controls">
+        <div id="install-help">
+            {# Each icon hides itself once its setup step is done; the row disappears entirely when both are. #}
+            <button type="button" id="install-help-btn" aria-label="Add to Home Screen" title="Add to Home Screen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 9v6M9 12h6"/></svg>
+            </button>
+            <button type="button" id="notification-help-btn" aria-label="Turn on notifications" title="Turn on notifications">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 15 18 9Z"/><path d="M10.2 20a2 2 0 0 0 3.6 0"/></svg>
+            </button>
+        </div>
+        {% comment %} TEMPORARY: grandfathered health-options gear, LAST in the row
+        (after the install + notification icons). Grandfathered beta users only;
+        native beta users have no legacy_health_config so it never renders. See the
+        field's REMOVE-WHEN-UNUSED note. {% endcomment %}
+        {% if legacy_health_config and not backfill %}
+        <button type="button" class="cfg-gear" id="cfg-gear" aria-label="Health settings" aria-haspopup="dialog" title="Health settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        {% endif %}
+        </div>
         {% if messages %}
             {% for message in messages %}
                 <div class="flash {{ message.tags }}">{{ message }}</div>
@@ -449,17 +482,6 @@
             <path d="M15 2v28" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
             <path d="M5 22l10 12 10-12" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-    </div>
-    <div id="dashboard-controls">
-    <div id="install-help">
-        {# Each icon hides itself once its setup step is done; the row disappears entirely when both are. #}
-        <button type="button" id="install-help-btn" aria-label="Add to Home Screen" title="Add to Home Screen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 9v6M9 12h6"/></svg>
-        </button>
-        <button type="button" id="notification-help-btn" aria-label="Turn on notifications" title="Turn on notifications">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 15 18 9Z"/><path d="M10.2 20a2 2 0 0 0 3.6 0"/></svg>
-        </button>
-    </div>
     </div>
 
     <script>

@@ -48,6 +48,7 @@ from .models import (
 )
 from .services.ai_coach import CHECKLIST_SIZE
 from .services.checklist import (
+    HEALTH_BONUS_CATEGORY,
     MAX_CHECKLIST_SIZE,
     all_version_keys,
     apply_pending_mutations,
@@ -718,6 +719,14 @@ def _render_checkin(request, from_token=""):
         context["todays_win"] = _win_json(todays_win)
         context["completed_todays_win"] = _win_json(completed_todays_win)
         context["ai_mutations_enabled"] = participant.ai_mutations_enabled
+        # Grandfathered legacy health conveniences (dict) or None for native beta
+        # users. Drives the config gear + the three gated behaviors. See the
+        # field's REMOVE-WHEN-UNUSED note on DailyParticipant. The _json form is
+        # for the client (a raw dict renders as Python: True/'single quotes').
+        context["legacy_health_config"] = participant.legacy_health_config
+        context["legacy_health_config_json"] = json.dumps(
+            participant.legacy_health_config
+        ) if participant.legacy_health_config else "null"
         # DEV: force-show the streak pill even when the real streak is < 2, so its
         # look can be previewed on a fresh account. Keeps a real streak (>=2)
         # honest; only fabricates a demo number when there's nothing to show.
@@ -978,6 +987,11 @@ def _swap_or_append(version, item, rejected_key=None, is_core=True):
     or appended when rejected_key is None (core list or bonus pile). Returns
     the item, or None on a key collision (checked against every key in play,
     sub-items included)."""
+    # Legacy users can be switched to beta at any time. Beta only renders
+    # explicitly health-tagged bonuses, so never persist another untagged live
+    # bonus during the transition window after the data backfill has run.
+    if not is_core and "category" not in item:
+        item["category"] = HEALTH_BONUS_CATEGORY
     with transaction.atomic():
         v = ChecklistVersion.objects.select_for_update().get(id=version.id)
         incoming_keys = {item["key"]} | {
@@ -2272,6 +2286,39 @@ def save_comment(request):
     check_in.comment = comment.strip()
     check_in.save(update_fields=["comment", "updated_at"])
     return JsonResponse({"ok": True})
+
+
+# TEMPORARY: toggle one grandfathered legacy health option (see
+# DailyParticipant.legacy_health_config and its REMOVE-WHEN-UNUSED note).
+LEGACY_HEALTH_KEYS = ("auto_bonus", "coach_note", "reset")
+
+
+@require_daily_actor
+@require_http_methods(["POST"])
+def health_config(request):
+    """Flip one legacy health option for a grandfathered participant. Native
+    beta users (legacy_health_config is None) never see the gear, so a missing
+    config is rejected rather than created — this never re-grandfathers."""
+    participant = request.daily_participant
+    if not _is_beta(request, participant):
+        return JsonResponse({"ok": False, "error": "not_beta"}, status=403)
+    cfg = participant.legacy_health_config
+    if not isinstance(cfg, dict):
+        return JsonResponse({"ok": False, "error": "not_grandfathered"}, status=403)
+    try:
+        body = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "bad_json"}, status=400)
+    key = str(body.get("key", ""))
+    if key not in LEGACY_HEALTH_KEYS:
+        return JsonResponse({"ok": False, "error": "bad_key"}, status=400)
+    value = body.get("value")
+    if not isinstance(value, bool):
+        return JsonResponse({"ok": False, "error": "bad_value"}, status=400)
+    cfg[key] = value
+    participant.legacy_health_config = cfg
+    participant.save(update_fields=["legacy_health_config", "updated_at"])
+    return JsonResponse({"ok": True, "config": cfg})
 
 
 @require_daily_actor

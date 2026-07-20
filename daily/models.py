@@ -94,14 +94,13 @@ class DailyParticipant(models.Model):
     # app runs the onboarding questionnaire on their next open. Set = skip it.
     onboarded_at = models.DateTimeField(null=True, blank=True)
     # --- The Climb reframe (see daily/CLIMB_REFRAME_PLAN.md) ----------------
-    # Gates the ENTIRE new concept/UI (new onboarding, combined win+habit
-    # screen, wins facet, narrowed Jamie). Default False = today's app,
-    # completely unchanged. Set True per user (admin) to recruit beta testers.
-    # The current path is FROZEN; nothing keys off this except the beta branch.
+    # Gates the Climb experience (new onboarding, combined win+habit screen,
+    # wins facet, narrowed Jamie). Climb is now the default for new accounts;
+    # existing legacy accounts are moved through the reversible rollout command.
     beta = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Show the new Climb experience (combined win+habit screen, "
-                  "narrowed Jamie). False = today's app, untouched.",
+                  "narrowed Jamie). False = temporary legacy fallback.",
     )
     # Opt-in for AI list-curation WITHIN the beta experience. Off by default:
     # beta Jamie is support-only and never rewrites the list unless this is on.
@@ -131,6 +130,20 @@ class DailyParticipant(models.Model):
     streak_through_date = models.DateField(null=True, blank=True)
     streak_bar = models.PositiveSmallIntegerField(default=1)
     streak_cache_version = models.PositiveSmallIntegerField(default=1)
+    # TEMPORARY GRANDFATHER (added 2026-07): three frozen-app health conveniences
+    # that beta dropped, kept alive only for users who migrated from the frozen
+    # app so they don't silently lose them. Shape:
+    #   {"auto_bonus": bool, "coach_note": bool, "reset": bool}
+    #   auto_bonus  — auto-fetch the next bonus on load once core is swept
+    #   coach_note  — auto-show Jamie's note/report modal on open
+    #   reset       — reveal the "Reset to original 3 questions" control
+    # NULL = a native beta user who never had these: the config gear never shows
+    # and auto_bonus/reset stay off (coach_note keeps beta's default auto-show).
+    # Existing users were grandfathered to all-True by migration 0022.
+    # REMOVE-WHEN-UNUSED: if telemetry shows grandfathered users never turn any
+    # of these off, delete this field + migration 0022, the /daily/health-config/
+    # endpoint, the gear UI, and the three gated behaviors wholesale.
+    legacy_health_config = models.JSONField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -153,6 +166,40 @@ class DailyParticipant(models.Model):
             source=ChecklistVersion.SOURCE_BASELINE,
             is_current=True,
         )
+
+
+class DailyBetaRollout(models.Model):
+    """Exact pre-rollout participant flags for a reversible beta cohort.
+
+    A rollout can target a canary subset or every remaining grandfathered
+    legacy participant. Rollback restores this JSON snapshot byte-for-byte;
+    it never guesses what a participant's earlier mode should have been.
+    """
+
+    STATUS_APPLIED = "applied"
+    STATUS_ROLLED_BACK = "rolled_back"
+    STATUS_CHOICES = [
+        (STATUS_APPLIED, "Applied"),
+        (STATUS_ROLLED_BACK, "Rolled back"),
+    ]
+
+    rollout_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_APPLIED
+    )
+    snapshot = models.JSONField(
+        help_text="Original beta/AI/focus flags for every participant in this cohort"
+    )
+    target_count = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    applied_at = models.DateTimeField()
+    rolled_back_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Beta rollout {self.rollout_id} ({self.status}, {self.target_count})"
 
 
 class DailyAccessToken(models.Model):
