@@ -147,11 +147,11 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Eligible rollout cohort: {len(targets)} participant(s)")
         for participant in targets:
-            focus = participant.focus or DailyParticipant.FOCUS_HEALTH
+            want_ai, focus = self._rollout_values(participant)
             self.stdout.write(
                 f"  {participant.id}: {participant.display_name} | "
                 f"beta {participant.beta}->True, "
-                f"AI {participant.ai_mutations_enabled}->True, "
+                f"AI {participant.ai_mutations_enabled}->{want_ai}, "
                 f"focus {participant.focus!r}->{focus!r}"
             )
         if opts["dry_run"]:
@@ -184,11 +184,10 @@ class Command(BaseCommand):
                 applied_at=now,
             )
             for participant in locked:
+                want_ai, focus = self._rollout_values(participant)
                 participant.beta = True
-                participant.ai_mutations_enabled = True
-                participant.focus = (
-                    participant.focus or DailyParticipant.FOCUS_HEALTH
-                )
+                participant.ai_mutations_enabled = want_ai
+                participant.focus = focus
                 participant.save(update_fields=[
                     "beta", "ai_mutations_enabled", "focus", "updated_at",
                 ])
@@ -198,6 +197,22 @@ class Command(BaseCommand):
         ))
         self.stdout.write(
             f"rollback: python manage.py set_beta --rollback {rollout.rollout_id}"
+        )
+
+    @staticmethod
+    def _rollout_values(participant):
+        """Return the safe AI/focus values for one legacy participant.
+
+        Engaged legacy users already had the mutation engine, so beta must keep
+        it on and default their old health workflow to health focus. A naked
+        account has no established workflow to preserve: it gets the beta UI
+        but remains support-only until beta onboarding captures its choice.
+        """
+        if participant.onboarded_at is None:
+            return participant.ai_mutations_enabled, participant.focus
+        return (
+            True,
+            participant.focus or DailyParticipant.FOCUS_HEALTH,
         )
 
     def _rollback(self, raw_rollout_id):
