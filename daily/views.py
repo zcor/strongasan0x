@@ -38,7 +38,6 @@ from .auth import (
     warrior_session_keys_set,
 )
 from .models import (
-    BASELINE_QUESTIONS,
     ChecklistVersion,
     CoachSuggestion,
     DailyCheckIn,
