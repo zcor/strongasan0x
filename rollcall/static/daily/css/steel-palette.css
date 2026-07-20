@@ -1,0 +1,61 @@
+/* Shared Chalk & Steel design tokens for Daily. */
+:root {
+    --bg: linear-gradient(170deg, #1A1715 0%, #221E1A 100%);
+    --bg-solid: #1A1715;
+    --bg-end: #221E1A;
+    --panel: rgba(242, 239, 233, 0.05);
+    --panel-border: rgba(242, 239, 233, 0.12);
+    --text: #F2EFE9;
+    --text-dim: #A89E92;
+    --text-faint: #7A7066;
+    --accent: #C9A227;
+    --accent-2: #b08d1f;
+    --accent-grad: linear-gradient(135deg, #C9A227 0%, #b08d1f 100%);
+    --on-accent: #1A1715;
+    --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+    --accent-ring: color-mix(in srgb, var(--accent) 50%, transparent);
+    --done: #7A9E6E;
+    --done-bright: #93b585;
+    --done-bg: rgba(122, 158, 110, 0.18);
+    --done-border: rgba(122, 158, 110, 0.5);
+    --on-done: #14210F;
+    --warning: #E0A672;
+    --danger: #C96565;
+    --danger-bright: #FF5A5A;
+    --streak: #FF913C;
+    --streak-bright: #FFB060;
+    --line: rgba(255, 255, 255, 0.13);
+    --line-soft: rgba(255, 255, 255, 0.09);
+    --fill: rgba(255, 255, 255, 0.02);
+    --surface: rgba(255, 255, 255, 0.05);
+    --surface-raised: rgba(255, 255, 255, 0.06);
+    --surface-hover: rgba(255, 255, 255, 0.07);
+    --input-border: rgba(255, 255, 255, 0.15);
+    --control-border: rgba(255, 255, 255, 0.22);
+    --track: rgba(255, 255, 255, 0.08);
+    --text-disabled: rgba(255, 255, 255, 0.3);
+    --streak-bg: color-mix(in srgb, var(--streak) 12%, transparent);
+    --streak-border: color-mix(in srgb, var(--streak) 35%, transparent);
+    --streak-shadow: color-mix(in srgb, var(--streak) 50%, transparent);
+    --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+    --overlay: rgba(6, 8, 15, 0.72);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --shadow: rgba(0, 0, 0, 0.45);
+    --shadow-strong: rgba(0, 0, 0, 0.6);
+    --shadow-muted: rgba(0, 0, 0, 0.28);
+    --font-body: 'Inter', -apple-system, sans-serif;
+    --font-data: 'Inter', -apple-system, sans-serif;
+    --font-display: 'Oswald', 'Inter', sans-serif;
+    --radius: 10px;
+}
+
+/* The beta dashboard adds texture while retaining the same Steel tokens. */
+html.beta-steel {
+    --bg:
+        linear-gradient(180deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .05) 28%, rgba(0, 0, 0, .36)),
+        url("../images/bg-texture.jpg") center / cover no-repeat,
+        #1A1715;
+    --bg-solid: #1A1715;
+    --bg-end: #1A1715;
+    --done-border: rgba(122, 158, 110, 0.55);
+}

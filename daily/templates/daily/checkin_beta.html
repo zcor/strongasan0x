@@ -525,7 +525,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .weekstrip { display: flex; justify-content: space-between; gap: 6px; padding: 36px 2px 8px 2px; }
     .wday { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; text-decoration: none; position: relative; }
     .wday > svg { width: 30px; height: 30px; }
-    .wtrack { stroke: rgba(255,255,255,.09); }
+    .wtrack { stroke: var(--line-soft); }
     .warc { stroke: var(--done); transition: stroke-dashoffset .5s ease; }
     .warc.full { stroke: var(--done-bright); }
     .wlabel { font-size: .68rem; font-weight: 500; color: var(--text-dim); }
@@ -538,19 +538,19 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         align-self: flex-start; flex-shrink: 0;
         display: inline-flex; align-items: center; gap: 3px;
         height: 30px; padding: 0 11px 0 9px;
-        background: rgba(255,145,60,.10);
-        border: 1px solid rgba(255,145,60,.38);
+        background: var(--streak-bg);
+        border: 1px solid var(--streak-border);
         border-radius: 999px;
         animation: streak-pop .5s cubic-bezier(.34,1.56,.64,1);
     }
     @keyframes streak-pop { 0%{transform:scale(.6);opacity:0} 100%{transform:scale(1);opacity:1} }
-    .wstreak-flame { font-size: .9rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,.5)); }
-    .wstreak-num { color: #ffb060; font-weight: 700; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    .wstreak-flame { font-size: .9rem; line-height: 1; filter: drop-shadow(0 0 4px var(--streak-shadow)); }
+    .wstreak-num { color: var(--accent); font-weight: 700; font-size: .9rem; font-variant-numeric: tabular-nums; }
     /* Gold star nested in the ring center: a day a whole north star was
        finished. The arc keeps carrying habits on the perimeter; the star sits
        in the empty middle so the two signals never collide. */
     .wstar { position: absolute; top: 0; left: 0; right: 0; height: 30px; display: grid; place-items: center; pointer-events: none; }
-    .wstar svg { width: 13px; height: 13px; color: var(--accent); filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
+    .wstar svg { width: 13px; height: 13px; color: var(--accent); filter: drop-shadow(0 1px 1.5px var(--shadow-strong)); }
     .wstar.just svg { animation: starpop .5s cubic-bezier(.34,1.56,.64,1); }
     @keyframes starpop { 0%{transform:scale(0) rotate(-40deg); opacity:0} 60%{transform:scale(1.25) rotate(6deg)} 100%{transform:scale(1) rotate(0); opacity:1} }
     /* Confetti burst when every core habit for the day is done. */
@@ -567,7 +567,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     /* TEMPORARY: grandfathered health-options sheet. The gear
        button itself lives in base.html's #dashboard-controls (styled there to
        match the install/notification icons), last in that right-aligned row. */
-    .cfg-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 90; }
+    .cfg-scrim { position: fixed; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 90; }
     .cfg-scrim.show { opacity: 1; pointer-events: auto; }
     /* Mobile: full-width bottom sheet that slides up. Desktop (>=520px): a
        centered modal dialog that fades/scales in. */
@@ -600,7 +600,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .cfg-toggle {
         appearance: none; -webkit-appearance: none; flex: none;
         width: 26px; height: 26px; border-radius: 50%; color: transparent;
-        border: 2px solid rgba(255,255,255,.22); background: transparent;
+        border: 2px solid var(--control-border); background: transparent;
         display: grid; place-items: center; cursor: pointer; transition: all .16s ease;
     }
     .cfg-toggle::after {
@@ -632,7 +632,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .nav-loading {
         position: fixed; inset: 0; z-index: 200;
         display: none; align-items: center; justify-content: center;
-        background: rgba(8, 10, 14, .5);
+        background: var(--scrim);
         -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
     }
     .nav-loading.on { display: flex; }
@@ -665,7 +665,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .row.locked { opacity: .5; pointer-events: none; }
     .check {
         flex: none; width: 26px; height: 26px; border-radius: 50%; color: transparent;
-        border: 2px solid rgba(255,255,255,.22); display: grid; place-items: center; transition: all .16s ease;
+        border: 2px solid var(--control-border); display: grid; place-items: center; transition: all .16s ease;
     }
     .check::after {
         content: ""; width: 13px; height: 11px; background: currentColor;
@@ -715,7 +715,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .win.open #win-foot { display: flex; animation: subslide .18s ease; }
     /* Open "tab": a slightly darker inside marks the open row (with the rotated
        chevron), matching the editors' expanded rows. */
-    .rows .habit.open { background: rgba(0,0,0,.28); }
+    .rows .habit.open { background: var(--shadow-muted); }
     /* When the first/only tab is open, cap it with a top border. Other habits
        already get one from the .habit + .habit separator; the first habit and
        the lone win row don't, so add it only in the open state. */
@@ -732,11 +732,11 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
            padded box; calc(100% + 40px) with the -20px margins spans the full
            card width, the same reach the habit rows get from their .rows box. */
         width: calc(100% + 40px); margin: 0 -20px; padding: 12px 20px;
-        background: rgba(0,0,0,.28);
+        background: var(--shadow-muted);
         border-top: 1px solid var(--line-soft);
     }
     .win.open .card-body { padding-bottom: 0; }
-    .win.open #win-foot { background: rgba(0,0,0,.28); }
+    .win.open #win-foot { background: var(--shadow-muted); }
     /* Drop the card-body's bottom padding (like the Your-habits editor) so a
        last open row's darker fill closes flush at the card edge instead of
        leaving a grey strip below it. The habit row's own padding keeps the
@@ -764,7 +764,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .subrow.done .check { background: var(--done); border-color: transparent; color: var(--on-done); }
     .subrow.just .check { animation: pop .32s cubic-bezier(.34,1.56,.64,1); }
     .subx { margin-left: auto; color: var(--text-faint); font-size: .9rem; line-height: 1; flex: none; padding: 4px 6px; }
-    .subx:hover { color: #e0a672; }
+    .subx:hover { color: var(--warning); }
     /* Jump into Your habits with this habit's card pre-expanded. A full-width
        action bar at the bottom of the drawer, like the editors' Delete / Add a
        step / Save strip. It spans the card because .subwrap is full-bleed, so
@@ -777,7 +777,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         background: none; color: var(--text-dim); font: inherit; font-size: .8rem;
         cursor: pointer;
     }
-    .sub-edit-link:hover { background: rgba(255,255,255,.02); }
+    .sub-edit-link:hover { background: var(--fill); }
 
     /* Composer for adding a sub-item (opened from the "···" menu): indented to
        line up with the sub-rows. */
@@ -837,7 +837,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     /* Add-habit composer sits inside the habits card; a hairline separates it
        from the rows above, matching the divided-card look. */
     #add-item-composer > .card-body { border-top: 1px solid var(--line-soft); }
-    .composer-msg, .add-msg { color: #e0a672; font-size: .82rem; padding: 10px 20px; }
+    .composer-msg, .add-msg { color: var(--warning); font-size: .82rem; padding: 10px 20px; }
 
     /* Metrics — understated */
     .metrics-row { display: flex; flex-wrap: wrap; gap: 14px; }
@@ -871,27 +871,27 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
         position: fixed; left: 50%; bottom: 92px; transform: translate(-50%, 12px); z-index: 70;
         max-width: calc(100vw - 40px); text-align: center;
         background: var(--accent-grad); color: var(--acc-ink); font-size: .9rem; font-weight: 600;
-        padding: 12px 18px; border-radius: 999px; box-shadow: 0 14px 30px -10px rgba(0,0,0,.6);
+        padding: 12px 18px; border-radius: 999px; box-shadow: 0 14px 30px -10px var(--shadow-strong);
         opacity: 0; transition: opacity .3s ease, transform .3s cubic-bezier(.34,1.56,.64,1);
     }
     .win-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
     /* FABs */
-    .fab { position: fixed; right: 20px; border: 0; cursor: pointer; display: grid; place-items: center; z-index: 40; box-shadow: 0 10px 26px -8px rgba(0,0,0,.55); }
+    .fab { position: fixed; right: 20px; border: 0; cursor: pointer; display: grid; place-items: center; z-index: 40; box-shadow: 0 10px 26px -8px var(--shadow-strong); }
     .fab-chat {
         bottom: 22px; width: 56px; height: 56px; border-radius: 28px;
         background: var(--bg-solid); border: 1px solid var(--line); color: var(--text);
     }
     .fab-chat svg { width: 21px; height: 21px; display: block; }
-    .fab-dot { position: absolute; top: 11px; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: #ff5a5a; border: 2px solid var(--accent-2); display: none; }
+    .fab-dot { position: absolute; top: 11px; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger-bright); border: 2px solid var(--accent-2); display: none; }
     .fab-chat.has-unread .fab-dot { display: block; }
 
     /* Intro modal — thin, letter-spaced, premium (see reference). Text animates
        in on show; the welcome title reveals letter by letter. */
-    .intro-modal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,15,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; }
+    .intro-modal { position: fixed; inset: 0; z-index: 60; background: var(--overlay); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; }
     .intro-modal.show { display: flex; }
     .intro-card {
-        border: 1px solid var(--line); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), rgba(255,255,255,.01)), var(--bg-solid);
+        border: 1px solid var(--line); background: linear-gradient(180deg, var(--accent-tint), var(--fill)), var(--bg-solid);
         max-width: 24rem; width: 100%; padding: 46px 34px 40px; text-align: center;
     }
     .intro-hi { font-size: 1rem; font-weight: 400; letter-spacing: .01em; color: var(--accent); margin-bottom: 16px; }
@@ -906,7 +906,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .intro-body p { font-size: .95rem; font-weight: 300; color: var(--text-dim); line-height: 1.7; margin: 0 0 14px; }
     .intro-body p:last-child { margin-bottom: 0; }
     .intro-ok {
-        background: transparent; border: 1px solid rgba(255,255,255,.28); color: var(--text);
+        background: transparent; border: 1px solid var(--control-border); color: var(--text);
         font: inherit; font-size: .82rem; font-weight: 400; letter-spacing: .18em; text-transform: lowercase;
         padding: 15px 40px; cursor: pointer; transition: border-color .2s, color .2s, letter-spacing .2s;
     }
@@ -922,7 +922,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     /* Jamie's prior-day encouragement is a one-time report, not a chat bubble. */
     .morning-report-modal {
         position: fixed; inset: 0; z-index: 65; display: flex; align-items: center;
-        justify-content: center; padding: 24px; background: rgba(6,8,15,.72);
+        justify-content: center; padding: 24px; background: var(--overlay);
         backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
         opacity: 0; transition: opacity .2s ease;
     }
@@ -931,7 +931,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .morning-report-card {
         width: 100%; max-width: 24rem; padding: 26px 24px 22px;
         border: 1px solid var(--line); background: var(--bg-solid);
-        box-shadow: 0 20px 60px rgba(0,0,0,.5);
+        box-shadow: 0 20px 60px var(--scrim);
     }
     .morning-report-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
     .morning-report-identity img { border-radius: 50%; border: 1px solid var(--line); object-fit: cover; }
@@ -947,7 +947,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     }
 
     /* Chat panel (bottom sheet) */
-    #coach-scrim { position: fixed; inset: 0; z-index: 45; background: rgba(6,8,15,.5); opacity: 0; pointer-events: none; transition: opacity .2s; }
+    #coach-scrim { position: fixed; inset: 0; z-index: 45; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .2s; }
     #coach-scrim.show { opacity: 1; pointer-events: auto; }
     .coach-panel {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-width: 480px; margin: 0 auto;
@@ -969,14 +969,14 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     .msg-coach { align-self: flex-start; }
     .bubble { padding: 10px 13px; font-size: .95rem; line-height: 1.4; }
     .msg-user .bubble { background: var(--accent-grad); color: var(--acc-ink); }
-    .msg-coach .bubble { background: rgba(255,255,255,.06); border: 1px solid var(--line-soft); color: var(--text); }
+    .msg-coach .bubble { background: var(--surface-raised); border: 1px solid var(--line-soft); color: var(--text); }
     .msg.typing .bubble { color: var(--text-faint); }
     .mtime { font-size: .66rem; color: var(--text-dim); margin-top: 3px; padding: 0 4px; }
     .coach-chips { display: flex; gap: 8px; padding: 8px 18px 0; flex-wrap: wrap; }
-    .chip { background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text-dim); font: inherit; font-size: .8rem; padding: 7px 12px; cursor: pointer; }
+    .chip { background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); font: inherit; font-size: .8rem; padding: 7px 12px; cursor: pointer; }
     .chip.on { border-color: var(--accent); color: var(--accent); }
     .coach-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); }
-    .coach-input textarea { flex: 1; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: .95rem; padding: 10px 12px; resize: none; max-height: 120px; }
+    .coach-input textarea { flex: 1; background: var(--surface); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: .95rem; padding: 10px 12px; resize: none; max-height: 120px; }
     .coach-input textarea:focus { outline: none; border-color: var(--accent-ring); }
     .coach-send { flex: none; width: 40px; height: 40px; border: 0; background: var(--accent-grad); color: var(--acc-ink); font-size: 1.1rem; cursor: pointer; }
     .coach-send:disabled { opacity: .5; }
@@ -1011,7 +1011,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     window.climb = window.climb || {};
     window.climb.beta = function (on) { var u = new URL(location.href); u.searchParams.set("beta", (on === false) ? "0" : "1"); location.href = u.toString(); };
     window.climb.current = function () { window.climb.beta(false); };
-    console.log("%cDaily · BETA mode", "color:#ffd97a;font-weight:600;font-size:1.05em;",
+    console.log("%cDaily · BETA mode", "color:var(--accent);font-weight:600;font-size:1.05em;",
         "\n  climb.beta(false) → back to the CURRENT app\n  or add ?beta=0 / ?beta=1 to any URL");
     {% endif %}
 
@@ -1046,7 +1046,7 @@ Remove alongside the field when the grandfather window closes. {% endcomment %}
     }
 
     // ---------- confetti (fires once when the day's core habits are all done) ----------
-    var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "var(--accent-2)", "#87ceeb", "#ffffff"];
+    var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "var(--accent-2)", "var(--text-dim)", "var(--text)"];
     var celebrated = false;
     function fireConfetti(originEl) {
         originEl = originEl || todayEl || document.querySelector('#items .row.done');

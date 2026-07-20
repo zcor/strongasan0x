@@ -5,17 +5,6 @@ and wins_edit.html BEFORE their own <style> so page rules can override.
 Beta-only: never include this from a legacy (frozen path) template.
 {% endcomment %}
 <style>
-    /* Local tokens layered on base.html's palette (--accent gold, --done green).
-       Defined on :root so elements OUTSIDE the page wrapper (FABs, chat panel,
-       which render at the page root) also resolve them — otherwise var(--acc-ink)
-       is undefined there and falls back wrong. */
-    :root {
-        --line: rgba(255,255,255,.13);
-        --line-soft: rgba(255,255,255,.09);
-        --fill: rgba(255,255,255,.02);
-        --acc-ink: #2a2208;
-        --danger-muted: rgba(224,108,117,.62);
-    }
     .is-hidden { display: none !important; }
 
     /* Quiet link on an eyebrow's right edge (the eyebrow is a flex row) */
@@ -41,7 +30,7 @@ Beta-only: never include this from a legacy (frozen path) template.
         color: var(--text-dim); background: transparent; border: 0; cursor: pointer; transition: color .16s, background .16s;
     }
     .act + .act { border-left: 1px solid var(--line-soft); }
-    .act:hover { color: var(--text); background: rgba(255,255,255,.02); }
+    .act:hover { color: var(--text); background: var(--fill); }
     .act.gold { color: var(--accent); }
     .act:disabled { opacity: .55; cursor: default; }
     .act.loading { color: var(--text-dim); }
@@ -50,7 +39,7 @@ Beta-only: never include this from a legacy (frozen path) template.
 
     /* Inline composers (add habit / win) live in a card footer or body */
     .composer-input {
-        width: 100%; box-sizing: border-box; background: rgba(255,255,255,.05);
+        width: 100%; box-sizing: border-box; background: var(--surface);
         border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 1rem;
         padding: 12px 12px;
     }
@@ -66,5 +55,5 @@ Beta-only: never include this from a legacy (frozen path) template.
         background: transparent; color: var(--text-faint);
         font: inherit; font-size: .82rem; line-height: 1; cursor: pointer;
     }
-    .new-step-remove:hover { color: #e0a672; }
+    .new-step-remove:hover { color: var(--warning); }
 </style>

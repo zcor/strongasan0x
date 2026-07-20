@@ -22,7 +22,7 @@ defaults (.goalhead, .gtitle, .stones, ...).
     .elist-item:first-child { border-top: 0; }
     .elist-item + .elist-item { margin-top: 0; padding-top: 0; }
     .elist-item.expanded {
-        background: rgba(0,0,0,.28);
+        background: var(--shadow-muted);
         padding-top: 6px;
         box-shadow: inset 0 1px 0 var(--line-soft), inset 0 -1px 0 var(--line-soft);
     }
@@ -59,7 +59,7 @@ defaults (.goalhead, .gtitle, .stones, ...).
     .elist-actions .danger { color: var(--danger-muted); }
     .elist-actions .primary { color: var(--accent); }
     .elist-actions button:disabled { opacity: .48; cursor: default; }
-    .elist-actions button:not(:disabled):hover { background: rgba(255,255,255,.02); }
+    .elist-actions button:not(:disabled):hover { background: var(--fill); }
 
     /* Standalone CTA below a card (Add a habit / Add a win / Unarchive): a
        bordered full-width button, set off from the card by a small gap. Add
@@ -84,7 +84,7 @@ defaults (.goalhead, .gtitle, .stones, ...).
 
     .esheet {
         position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end;
-        justify-content: center; padding: 0; background: rgba(6,8,15,.72);
+        justify-content: center; padding: 0; background: var(--overlay);
         backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
     }
     .esheet-card {
@@ -100,7 +100,7 @@ defaults (.goalhead, .gtitle, .stones, ...).
         position: fixed; left: 50%; bottom: 28px; z-index: 2000;
         max-width: 90vw; padding: 12px 18px; border: 1px solid var(--accent);
         border-radius: 12px; background: var(--bg-solid); color: var(--text);
-        font-size: .92rem; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+        font-size: .92rem; box-shadow: 0 10px 30px var(--shadow);
         opacity: 0; pointer-events: none; transform: translate(-50%, 16px);
         transition: opacity .3s ease, transform .3s ease;
     }
@@ -109,7 +109,7 @@ defaults (.goalhead, .gtitle, .stones, ...).
     .eskeleton .card-body { padding: 24px 16px; }
     .eskeleton .skeleton-line {
         height: 18px; width: 100%; margin: 14px 0; border-radius: 2px;
-        background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.12), rgba(255,255,255,.05));
+        background: linear-gradient(90deg, var(--surface), var(--panel-border), var(--surface));
         background-size: 200% 100%; animation: eskeleton 1.25s ease-in-out infinite;
     }
     .eskeleton .skeleton-line.short { width: 32%; }

@@ -1,5 +1,5 @@
 {% load static %}<!DOCTYPE html>
-<html lang="en"{% if theme %} data-theme="{{ theme }}"{% endif %}>
+<html lang="en"{% if beta_steel %} class="beta-steel"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -29,7 +29,7 @@
             transition: opacity 160ms ease-out, visibility 0s linear 160ms;
         }
         .app-launch-mark { width: 112px; height: 112px; }
-        .app-launch-mark .frame { fill: #191B31; stroke: #F2EFE9; }
+        .app-launch-mark .frame { fill: #1A1715; stroke: #F2EFE9; }
         .app-launch-mark .pixel-x { fill: #F2EFE9; }
         .app-launch-progress {
             width: 72px;
@@ -76,7 +76,7 @@
             document.documentElement.classList.add("pwa-launching");
         }
     </script>
-    <meta name="theme-color" content="{% if beta_steel %}#1A1715{% else %}#1a1a2e{% endif %}">
+    <meta name="theme-color" content="#1A1715">
     <title>{% block title %}Daily Check-In{% endblock %}</title>
 
     {# --- PWA: installable home-screen app --- #}
@@ -90,121 +90,10 @@
     <link rel="apple-touch-icon" href="{% static 'daily/icons/icon-180.png' %}">
     <link rel="icon" type="image/png" href="{% static 'daily/icons/icon-192.png' %}">
     {# Theme fonts — loaded NON-blocking (media=print, all onload); display=swap. #}
-    {% if theme == "gauge" %}<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">{% endif %}
-    {% if theme == "steel" %}<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">{% endif %}
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="{% static 'daily/css/steel-palette.css' %}">
     <style>
-        /* ===== Theme system: variables drive the palette + type. The default
-           :root is the original look; [data-theme] overrides redefine tokens. ===== */
-        :root {
-            --bg: linear-gradient(160deg, #1a1a2e 0%, #16213e 100%);
-            --bg-solid: #1a1a2e;
-            --bg-end: #16213e;          /* the gradient's final color */
-            --panel: rgba(255, 255, 255, 0.05);
-            --panel-border: rgba(255, 255, 255, 0.1);
-            --text: #e8eaed;
-            --text-dim: #9aa3b2;
-            --text-faint: #6c7483;
-            --accent: #ffd97a;          /* gold */
-            --accent-2: #f5b942;
-            --accent-grad: linear-gradient(135deg, #ffd97a 0%, #f5b942 100%);
-            --on-accent: #1a1a2e;
-            /* Accent-derived surfaces. Defined once here and inherited by every
-               theme: because they mix from var(--accent), they follow whichever
-               accent is in scope (gold default, brass Steel, emerald Gauge)
-               instead of hardcoding gold. --accent-tint = pressed/active fill,
-               --accent-ring = focus/hover border. */
-            --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
-            --accent-ring: color-mix(in srgb, var(--accent) 50%, transparent);
-            --done: #78c878;            /* green */
-            --done-bright: #8fe08f;
-            --done-bg: rgba(120, 200, 120, 0.18);
-            --done-border: rgba(120, 200, 120, 0.55);
-            --on-done: #14391a;
-            --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            --font-data: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            --radius: 14px;
-        }
-        /* ---- A · GAUGE: precision instrument. Cool, exact, monospace data. ---- */
-        [data-theme="gauge"] {
-            --bg: radial-gradient(120% 80% at 50% 0%, #161B22 0%, #0E1116 70%);
-            --bg-solid: #0E1116;
-            --bg-end: #0E1116;
-            --panel: #161B22;
-            --panel-border: #2A323D;
-            --text: #E8EDF2;
-            --text-dim: #8A95A3;
-            --text-faint: #5B6675;
-            --accent: #4ADE80;          /* signal emerald */
-            --accent-2: #38c46c;
-            --accent-grad: linear-gradient(135deg, #4ADE80 0%, #38c46c 100%);
-            --on-accent: #07120B;
-            --done: #4ADE80;
-            --done-bright: #6EF09A;
-            --done-bg: rgba(74, 222, 128, 0.13);
-            --done-border: rgba(74, 222, 128, 0.5);
-            --on-done: #07120B;
-            --font-body: 'Inter', -apple-system, sans-serif;
-            --font-data: 'IBM Plex Mono', ui-monospace, monospace;
-            --font-display: 'IBM Plex Mono', ui-monospace, monospace;
-            --radius: 8px;
-        }
-        /* ---- B · CHALK & STEEL: the gym. Warm iron, chalk, brass, rust. ---- */
-        [data-theme="steel"] {
-            --bg: linear-gradient(170deg, #1A1715 0%, #221E1A 100%);
-            --bg-solid: #1A1715;
-            --bg-end: #221E1A;
-            --panel: rgba(242, 239, 233, 0.05);
-            --panel-border: rgba(242, 239, 233, 0.12);
-            --text: #F2EFE9;
-            --text-dim: #A89E92;
-            --text-faint: #7A7066;
-            --accent: #C9A227;          /* earned brass */
-            --accent-2: #b08d1f;
-            --accent-grad: linear-gradient(135deg, #C9A227 0%, #b08d1f 100%);
-            --on-accent: #1A1715;
-            --done: #7A9E6E;            /* grown-in moss */
-            --done-bright: #93b585;
-            --done-bg: rgba(122, 158, 110, 0.18);
-            --done-border: rgba(122, 158, 110, 0.5);
-            --on-done: #14210F;
-            --font-body: 'Inter', -apple-system, sans-serif;
-            --font-data: 'Inter', -apple-system, sans-serif;
-            --font-display: 'Oswald', 'Inter', sans-serif;
-            --radius: 10px;
-        }
-        {% if beta_steel %}
-        /* Beta (Climb) identity: the Chalk & Steel COLORS only. Applied at the
-           default (no data-theme) level so it swaps the palette without the
-           rest of the steel theme — --radius and the display/data fonts are
-           deliberately NOT redefined here, so the beta keeps its squared cards
-           and system type. Overridden if a theme is picked explicitly. */
-        :root {
-            /* Dark leather texture behind the app; a gentle top-to-bottom
-               darkening keeps text legible, like the old gradient did. */
-            --bg:
-                linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.05) 28%, rgba(0,0,0,.36)),
-                url("{% static 'daily/images/bg-texture.jpg' %}") center / cover no-repeat,
-                #1A1715;
-            --bg-solid: #1A1715;
-            --bg-end: #1A1715;
-            --panel: rgba(242, 239, 233, 0.05);
-            --panel-border: rgba(242, 239, 233, 0.12);
-            --text: #F2EFE9;
-            --text-dim: #A89E92;
-            --text-faint: #7A7066;
-            --accent: #C9A227;
-            --accent-2: #b08d1f;
-            --accent-grad: linear-gradient(135deg, #C9A227 0%, #b08d1f 100%);
-            --on-accent: #1A1715;
-            --done: #7A9E6E;
-            --done-bright: #93b585;
-            --done-bg: rgba(122, 158, 110, 0.18);
-            --done-border: rgba(122, 158, 110, 0.55);
-            --on-done: #14210F;
-        }
-        {% endif %}
-
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { margin: 0; padding: 0; }
         /* Paint the canvas (overscroll / safe-area zones) in the gradient's END
@@ -255,14 +144,14 @@
             margin-bottom: 20px;
         }
         .flash {
-            background: rgba(135, 206, 235, 0.12);
-            border: 1px solid rgba(135, 206, 235, 0.3);
+            background: var(--accent-tint);
+            border: 1px solid var(--accent-ring);
             border-radius: 10px;
             padding: 12px 14px;
             margin-bottom: 16px;
             font-size: 0.95rem;
         }
-        .flash.success { background: rgba(120, 200, 120, 0.12); border-color: rgba(120, 200, 120, 0.35); }
+        .flash.success { background: var(--done-bg); border-color: var(--done-border); }
         .suggestion {
             background: color-mix(in srgb, var(--accent) 8%, transparent);
             border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
@@ -288,8 +177,8 @@
         }
         .suggestion-actions button {
             flex: 1;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: var(--surface-raised);
+            border: 1px solid var(--input-border);
             color: var(--text);
             padding: 8px 12px;
             border-radius: 8px;
@@ -311,8 +200,8 @@
             display: flex;
             align-items: center;
             gap: 14px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid rgba(255, 255, 255, 0.1);
+            background: var(--surface);
+            border: 2px solid var(--panel-border);
             border-radius: 14px;
             padding: 18px 18px;
             font-size: 1.05rem;
@@ -324,15 +213,15 @@
             transform: scale(0.98);
         }
         .question input[type="checkbox"]:checked + label {
-            background: rgba(120, 200, 120, 0.18);
-            border-color: rgba(120, 200, 120, 0.55);
+            background: var(--done-bg);
+            border-color: var(--done-border);
             color: var(--done-bright);
         }
         .check-icon {
             width: 28px;
             height: 28px;
             border-radius: 50%;
-            border: 2px solid rgba(255, 255, 255, 0.25);
+            border: 2px solid var(--control-border);
             flex-shrink: 0;
             display: flex;
             align-items: center;
@@ -347,8 +236,8 @@
         }
         textarea {
             width: 100%;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: var(--surface);
+            border: 1px solid var(--input-border);
             border-radius: 12px;
             padding: 12px;
             font-family: inherit;
@@ -372,7 +261,7 @@
             display: block;
             width: 100%;
             background: var(--accent-grad);
-            color: #1a1a2e;
+            color: var(--on-accent);
             font-weight: 600;
             font-size: 1.1rem;
             border: none;
@@ -425,7 +314,7 @@
         #gate .gate-share { display: inline-flex; vertical-align: -3px; width: 17px; height: 19px; }
         #gate .gate-btn {
             margin-top: 22px; background: var(--accent-grad);
-            color: #1a1a2e; font-weight: 700; font-size: 1.05rem; border: none;
+            color: var(--on-accent); font-weight: 700; font-size: 1.05rem; border: none;
             border-radius: 13px; padding: 16px 28px; cursor: pointer; min-width: 240px;
         }
         #gate .gate-btn:active { transform: scale(0.98); }
@@ -434,7 +323,7 @@
             border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent);
             border-radius: 11px; padding: 12px 22px; font-size: 0.95rem; cursor: pointer;
         }
-        #gate .gate-copy.copied { background: rgba(120,200,120,0.2); border-color: rgba(120,200,120,0.55); color: var(--done-bright); }
+        #gate .gate-copy.copied { background: var(--done-bg); border-color: var(--done-border); color: var(--done-bright); }
         #gate .gate-skip {
             margin-top: 12px; padding: 8px 12px; border: 0; background: transparent;
             color: var(--text-dim); font: inherit; font-size: 0.9rem; text-decoration: underline; cursor: pointer;
@@ -442,7 +331,7 @@
         #gate .gate-arrow {
             position: fixed; right: 26px; bottom: 18px; width: 30px; height: 36px;
             color: var(--accent); display: none;
-            filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));
+            filter: drop-shadow(0 3px 6px var(--shadow));
         }
         #gate.gate-arrow-on .gate-arrow { display: block; animation: ic-bounce 1.1s ease-in-out infinite; }
         #gate .gate-hint { color: var(--text-faint); font-size: 0.82rem; margin-top: 18px; max-width: 320px; }
@@ -451,22 +340,22 @@
         #gate.gate-teaser-on .gate-teaser { display: block; }
         #gate .gt-phone {
             width: 188px; padding: 16px 14px 14px; border-radius: 20px;
-            background: linear-gradient(160deg, #20223c 0%, #1a2338 100%);
-            border: 1px solid rgba(255,255,255,0.08);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 10px 30px var(--shadow);
         }
         #gate .gt-ring { width: 64px; height: 64px; display: block; margin: 0 auto 12px; }
         #gate .gt-row {
             display: flex; align-items: center; gap: 8px; font-size: 0.78rem;
-            color: var(--text-dim); background: rgba(255,255,255,0.04);
+            color: var(--text-dim); background: var(--surface);
             border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;
         }
         #gate .gt-row span {
             width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
-            border: 1.5px solid rgba(255,255,255,0.2); font-size: 10px;
+            border: 1.5px solid var(--control-border); font-size: 10px;
             display: flex; align-items: center; justify-content: center; color: transparent;
         }
-        #gate .gt-row.gt-done { color: var(--done-bright); background: rgba(120,200,120,0.12); }
+        #gate .gt-row.gt-done { color: var(--done-bright); background: var(--done-bg); }
         #gate .gt-row.gt-done span { background: var(--done); border-color: var(--done); color: var(--on-done); }
         /* Pending setup steps (install / notifications) as direct icons;
            each disappears once done. */
@@ -586,7 +475,7 @@
         <div class="gate-teaser" id="gate-teaser">
             <div class="gt-phone">
                 <svg class="gt-ring" viewBox="0 0 60 60" aria-hidden="true">
-                    <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="5"/>
+                    <circle cx="30" cy="30" r="24" fill="none" stroke="var(--panel-border)" stroke-width="5"/>
                     <circle cx="30" cy="30" r="24" fill="none" stroke="var(--done)" stroke-width="5"
                             stroke-linecap="round" transform="rotate(-90 30 30)"
                             stroke-dasharray="150.8" stroke-dashoffset="50.3"/>

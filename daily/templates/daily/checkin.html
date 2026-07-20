@@ -182,8 +182,8 @@
             display: flex;
             align-items: center;
             gap: 14px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid rgba(255, 255, 255, 0.1);
+            background: var(--surface);
+            border: 2px solid var(--panel-border);
             border-radius: 14px;
             padding: 18px 52px 18px 18px;
             font-size: 1.05rem;
@@ -193,8 +193,8 @@
         }
         .question .row-main:active { transform: scale(0.98); }
         .question.done .row-main {
-            background: rgba(120, 200, 120, 0.18);
-            border-color: rgba(120, 200, 120, 0.55);
+            background: var(--done-bg);
+            border-color: var(--done-border);
             color: var(--done-bright);
         }
         .question.skip .row-main {
@@ -233,7 +233,7 @@
             transform: translateY(-50%);
             background: none;
             border: none;
-            color: rgba(255, 255, 255, 0.3);
+            color: var(--text-disabled);
             font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -241,8 +241,8 @@
             cursor: pointer;
             border-radius: 8px;
         }
-        .skip-btn:hover { color: rgba(255, 255, 255, 0.6); }
-        .question.skip .skip-btn { color: #d08770; }
+        .skip-btn:hover { color: var(--text-dim); }
+        .question.skip .skip-btn { color: var(--warning); }
 
         /* Bonus */
         #bonus-section { margin-top: 22px; }
@@ -261,10 +261,10 @@
         }
         .question.bonus .row-main {
             border-style: dashed;
-            background: rgba(255, 217, 122, 0.05);
+            background: var(--accent-tint);
         }
         .question.bonus.done .row-main {
-            background: rgba(120, 200, 120, 0.18);
+            background: var(--done-bg);
             border-style: solid;
         }
         /* Conditional bonus: hidden until its prerequisite item is checked. */
@@ -290,8 +290,8 @@
         }
         .question.swapping .skip-btn { color: var(--accent); }
         .question.swapped-in .row-main {
-            border-color: rgba(255, 217, 122, 0.6);
-            background: rgba(255, 217, 122, 0.1);
+            border-color: var(--accent-ring);
+            background: var(--accent-tint);
         }
         .question.bonus {
             transition: opacity 0.35s ease, transform 0.35s ease;
@@ -325,7 +325,7 @@
             display: flex; align-items: center; gap: 12px;
             margin: 0 0 18px; flex-wrap: nowrap;
         }
-        .ring-track { stroke: rgba(255, 255, 255, 0.08); }
+        .ring-track { stroke: var(--track); }
         .ring-arc {
             stroke: var(--done);
             stroke-dasharray: 301.6;   /* 2πr, r=48 */
@@ -334,7 +334,7 @@
         }
         #ring.full .ring-arc {
             stroke: var(--done-bright);
-            filter: drop-shadow(0 0 8px rgba(120, 200, 120, 0.55));
+            filter: drop-shadow(0 0 8px var(--done-border));
         }
         .ring-text {
             fill: var(--text);
@@ -349,14 +349,14 @@
         .streak-chip {
             display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
             padding: 5px 11px 5px 8px;
-            background: rgba(255, 145, 60, 0.12);
-            border: 1px solid rgba(255, 145, 60, 0.35);
+            background: var(--streak-bg);
+            border: 1px solid var(--streak-border);
             border-radius: 999px;
             animation: streak-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         @keyframes streak-pop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-        .streak-flame { font-size: 0.95rem; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,145,60,0.5)); }
-        .streak-num { color: #ffb060; font-weight: 700; font-size: 0.95rem; }
+        .streak-flame { font-size: 0.95rem; line-height: 1; filter: drop-shadow(0 0 4px var(--streak-shadow)); }
+        .streak-num { color: var(--accent); font-weight: 700; font-size: 0.95rem; }
 
         /* Week strip — sits inline in the meta row, fills remaining width. */
         .week-strip {
@@ -375,22 +375,22 @@
             border-radius: 8px;
             padding: 2px;
         }
-        .week-day:hover { background: rgba(255, 255, 255, 0.06); }
+        .week-day:hover { background: var(--surface-raised); }
 
         /* Backfill banner + intro card */
         .backfill-banner {
-            background: rgba(135, 206, 235, 0.1);
-            border: 1px solid rgba(135, 206, 235, 0.3);
+            background: color-mix(in srgb, var(--panel) 70%, var(--accent) 8%);
+            border: 1px solid var(--accent-ring);
             border-radius: 10px;
             padding: 12px 14px;
             margin-bottom: 16px;
             font-size: 0.92rem;
-            color: #b8d8e8;
+            color: var(--text-dim);
         }
-        .backfill-banner a { color: #87ceeb; margin-left: 8px; }
+        .backfill-banner a { color: var(--accent); margin-left: 8px; }
         .intro-card {
-            background: rgba(255, 217, 122, 0.06);
-            border: 1px solid rgba(255, 217, 122, 0.25);
+            background: var(--accent-tint);
+            border: 1px solid var(--accent-ring);
             border-radius: 12px;
             padding: 14px 16px;
             margin-bottom: 18px;
@@ -408,8 +408,8 @@
         .intro-card ol { margin: 0 0 10px; padding-left: 20px; }
         .intro-card li { margin-bottom: 5px; }
         .intro-dismiss {
-            background: rgba(255, 217, 122, 0.18);
-            border: 1px solid rgba(255, 217, 122, 0.4);
+            background: var(--accent-soft);
+            border: 1px solid var(--accent-ring);
             color: var(--accent);
             padding: 7px 16px;
             border-radius: 8px;
@@ -418,14 +418,14 @@
         }
         .week-day.today { opacity: 1; }
         .week-day.today .week-label { color: var(--text); font-weight: 700; }
-        .mini-track { stroke: rgba(255, 255, 255, 0.08); }
+        .mini-track { stroke: var(--track); }
         .mini-arc {
             stroke: var(--done);
             transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .mini-arc.mini-full {
             stroke: var(--done-bright);
-            filter: drop-shadow(0 0 3px rgba(120, 200, 120, 0.6));
+            filter: drop-shadow(0 0 3px var(--done-border));
         }
         .week-label {
             color: var(--text-faint);
@@ -447,11 +447,11 @@
         .metric-name { color: var(--text-dim); font-size: 0.82rem; }
         .metric-input-wrap {
             display: flex; align-items: center; gap: 6px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: var(--surface);
+            border: 1px solid var(--input-border);
             border-radius: 10px; padding: 0 10px;
         }
-        .metric-input-wrap:focus-within { border-color: rgba(255, 217, 122, 0.5); }
+        .metric-input-wrap:focus-within { border-color: var(--accent-ring); }
         .metric-input {
             flex: 1; background: none; border: none; color: var(--text);
             font-size: 1rem; padding: 11px 0; min-width: 0; font-family: inherit;
@@ -482,8 +482,8 @@
         .dev-bar {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            background: rgba(255, 100, 100, 0.95);
-            color: #1a1a2e;
+            background: var(--danger-bright);
+            color: var(--on-accent);
             padding: 8px 12px;
             font-size: 0.8rem;
             font-family: ui-monospace, monospace;
@@ -492,12 +492,12 @@
             align-items: center;
         }
         .dev-nav { display: flex; gap: 12px; align-items: center; }
-        .dev-nav a { color: #1a1a2e; text-decoration: underline; }
+        .dev-nav a { color: var(--on-accent); text-decoration: underline; }
         .dev-label { font-weight: 700; letter-spacing: 0.05em; }
 
         /* ===== Coach: FAB ⟷ chat panel (shared-element expand/contract) ===== */
         #coach-scrim {
-            position: fixed; inset: 0; background: rgba(10, 12, 24, 0.55);
+            position: fixed; inset: 0; background: var(--scrim);
             opacity: 0; pointer-events: none; transition: opacity 0.28s ease; z-index: 1400;
         }
         #coach-scrim.show { opacity: 1; pointer-events: auto; }
@@ -507,7 +507,7 @@
             bottom: calc(18px + env(safe-area-inset-bottom));
             width: 56px; height: 56px; border-radius: 28px;
             background: var(--accent-grad);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+            box-shadow: 0 8px 24px var(--shadow);
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
             /* The morph: same element animates to a full panel. */
@@ -522,7 +522,7 @@
         .coach-fab-icon { font-size: 1.5rem; transition: opacity 0.15s; }
         .coach-dot {
             position: absolute; top: 11px; right: 11px; width: 11px; height: 11px;
-            border-radius: 50%; background: #ff5a5a; border: 2px solid #1a1a2e;
+            border-radius: 50%; background: var(--danger-bright); border: 2px solid var(--on-accent);
             display: none;
         }
         .coach-fab.has-unread .coach-dot { display: block; }
@@ -533,10 +533,10 @@
             height: min(80vh, 620px);
             right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
             border-radius: 20px;
-            background: linear-gradient(165deg, #20223c 0%, #181f37 100%);
-            box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+            background: var(--bg);
+            box-shadow: 0 18px 60px var(--shadow-strong);
             cursor: default;
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid var(--track);
         }
         .coach-fab.open .coach-fab-icon,
         .coach-fab.open .coach-dot { opacity: 0; pointer-events: none; }
@@ -550,7 +550,7 @@
 
         .coach-head {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.07);
+            padding: 14px 16px 10px; border-bottom: 1px solid var(--line-soft);
             flex-shrink: 0;
         }
         .coach-title { color: var(--accent); font-weight: 600; font-size: 1rem; }
@@ -572,7 +572,7 @@
             white-space: pre-wrap; word-break: break-word;
         }
         .msg-coach .msg-bubble {
-            background: rgba(255,255,255,0.07); color: var(--text); border-bottom-left-radius: 5px;
+            background: var(--surface-hover); color: var(--text); border-bottom-left-radius: 5px;
         }
         .msg-user .msg-bubble {
             background: var(--accent-grad);
@@ -586,29 +586,29 @@
             display: flex; gap: 8px; padding: 8px 12px 0; flex-shrink: 0;
         }
         .coach-chip {
-            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+            background: var(--surface); border: 1px solid var(--input-border);
             color: var(--text-dim); border-radius: 999px; padding: 6px 12px;
             font-size: 0.78rem; font-family: inherit; cursor: pointer;
             transition: color 0.15s, border-color 0.15s;
         }
-        .coach-chip:hover { color: var(--accent); border-color: rgba(255,217,122,0.4); }
+        .coach-chip:hover { color: var(--accent); border-color: var(--accent-ring); }
         .coach-chip:disabled { opacity: 0.4; cursor: default; }
         .coach-chips.planning #chip-plan {
-            color: var(--accent); border-color: rgba(255,217,122,0.5);
-            background: rgba(255,217,122,0.08);
+            color: var(--accent); border-color: var(--accent-ring);
+            background: var(--accent-tint);
         }
 
         .coach-input {
             display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
             padding-bottom: calc(10px + env(safe-area-inset-bottom));
-            border-top: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+            border-top: 1px solid var(--line-soft); flex-shrink: 0;
         }
         #coach-text {
-            flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+            flex: 1; background: var(--surface-raised); border: 1px solid var(--input-border);
             border-radius: 18px; color: var(--text); font-family: inherit; font-size: 0.95rem;
             padding: 9px 14px; resize: none; max-height: 110px; line-height: 1.35;
         }
-        #coach-text:focus { outline: none; border-color: rgba(255,217,122,0.5); }
+        #coach-text:focus { outline: none; border-color: var(--accent-ring); }
         .coach-send {
             flex-shrink: 0; width: 38px; height: 38px; border-radius: 19px; border: none;
             background: var(--accent-grad); color: var(--on-accent);
@@ -620,15 +620,15 @@
         .coach-modal {
             position: fixed; inset: 0; z-index: 1600; display: flex;
             align-items: center; justify-content: center; padding: 28px;
-            background: rgba(10, 12, 24, 0.6);
+            background: var(--scrim);
             opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
         }
         .coach-modal.show { opacity: 1; pointer-events: auto; }
         .coach-modal-card {
-            background: linear-gradient(165deg, #232544 0%, #1b2540 100%);
-            border: 1px solid rgba(255,217,122,0.3); border-radius: 18px;
+            background: var(--bg);
+            border: 1px solid var(--accent-ring); border-radius: 18px;
             padding: 20px; max-width: 380px; width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            box-shadow: 0 20px 60px var(--scrim);
             transition: transform 0.4s cubic-bezier(0.4,0,0.6,1), opacity 0.4s ease;
         }
         .coach-modal.genie .coach-modal-card { transform: translate(40vw, 60vh) scale(0.05); opacity: 0; }
@@ -638,7 +638,7 @@
         }
         .coach-modal-text { font-size: 1.02rem; line-height: 1.5; color: var(--text); margin-bottom: 18px; }
         .coach-modal-ok {
-            width: 100%; background: rgba(255,217,122,0.2); border: 1px solid rgba(255,217,122,0.5);
+            width: 100%; background: var(--accent-soft); border: 1px solid var(--accent-ring);
             color: var(--accent); padding: 12px; border-radius: 11px; font-size: 0.95rem;
             font-weight: 600; cursor: pointer;
         }
@@ -669,7 +669,7 @@
             } catch (e) {}
             // Core count fallback when the DOM query returns 0 (mid-swap, etc.).
             var CORE_TOTAL = {{ core_items|length }} || {{ checklist_size }};
-            var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "#87ceeb", "var(--accent-2)", "#ffffff"];
+            var CONFETTI_COLORS = ["var(--done)", "var(--accent)", "var(--text-dim)", "var(--accent-2)", "var(--text)"];
 
             function postItem(key, state, onOk) {
                 fetch("/daily/item/" + qs, {

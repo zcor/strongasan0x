@@ -201,7 +201,6 @@ def token_login(request, token):
     if participant is None:
         return render(request, "daily/token_invalid.html", status=404)
 
-    _resolve_theme(request)
     # Render check-in IN PLACE at /daily/c/<token>/ — do NOT redirect to the
     # tokenless /daily/checkin/. On iOS a standalone PWA has its own cookie/
     # storage jar; when a user does "Add to Home Screen" from this page, iOS
@@ -264,23 +263,6 @@ def _morning_note(participant: DailyParticipant, today: date):
             # exists, otherwise nothing.
             return qs.exclude(rationale="seed_welcome").first()
     return note
-
-
-VALID_THEMES = {"gauge", "steel"}
-
-
-def _resolve_theme(request) -> str:
-    """Theme for the page: ?theme=gauge|steel sets + remembers it in session;
-    ?theme=default clears it. Empty string = the original look. Lets us A/B the
-    visual identity on-device without per-user config."""
-    raw = request.GET.get("theme")
-    if raw is not None:
-        # Store "" for default/anything-invalid; a real theme otherwise.
-        chosen = raw if raw in VALID_THEMES else ""
-        request.session["daily_theme"] = chosen
-        request.session.modified = True
-        return chosen
-    return request.session.get("daily_theme", "") or ""
 
 
 def _get_or_create_today(participant: DailyParticipant, today: date, version: ChecklistVersion) -> DailyCheckIn:
@@ -407,12 +389,9 @@ def _render_checkin(request, from_token=""):
         if is_beta:
             # Beta: the one-card onboarding (fork + focus question), NOT the
             # legacy 3-question survey. Current path is untouched below.
-            beta_theme = _resolve_theme(request)
             return render(request, "daily/onboarding_beta.html", {
                 "participant": participant,
-                "theme": beta_theme,
-                # Chalk & Steel palette by default (colors only, see base.html).
-                "beta_steel": not beta_theme,
+                "beta_steel": True,
                 "self_token": str(_active_token(participant) or ""),
                 "beta_toggle": settings.DEBUG,
             })
@@ -424,7 +403,6 @@ def _render_checkin(request, from_token=""):
             "participant": participant,
             "questions": QUESTIONS,
             "q2_branch_json": json.dumps(q2.get("branch_options", {})),
-            "theme": _resolve_theme(request),
         })
 
     if not backfill and run_engine:
@@ -653,7 +631,6 @@ def _render_checkin(request, from_token=""):
         "first_visit": first_visit and not backfill,
         "intro_replayable": intro_replayable,
         "intro_version": 1,  # bump to re-show the intro to everyone once
-        "theme": _resolve_theme(request),
         "metric_fields": _metric_fields(participant, today) if not backfill else [],
         "wrapped": wrapped,
         "week": week,
@@ -709,9 +686,7 @@ def _render_checkin(request, from_token=""):
         todays_win = dashboard_wins["selected"] if dashboard_wins else None
         completed_todays_win = dashboard_wins["completed"] if dashboard_wins else None
         context["is_beta"] = True
-        # Beta wears the Chalk & Steel palette by default (colors only, see
-        # base.html); an explicit ?theme=... still wins.
-        context["beta_steel"] = not context["theme"]
+        context["beta_steel"] = True
         # Health focus makes Jamie a coach ("Coach Jamie"); life/unset keep the
         # plain first name, matching her support-only role there.
         context["coach_name"] = (
@@ -1692,7 +1667,6 @@ def habits_edit(request):
         "max_checklist_size": MAX_CHECKLIST_SIZE,
         "habits_dialog": habits_dialog,
         "self_token": "" if habits_dialog else str(_active_token(participant) or ""),
-        "theme": _resolve_theme(request),
         "beta_toggle": settings.DEBUG,
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
     }
@@ -1723,7 +1697,6 @@ def wins_edit(request):
         "has_archived": backlog["has_archived"],
         "wins_dialog": wins_dialog,
         "self_token": "" if wins_dialog else str(_active_token(participant) or ""),
-        "theme": _resolve_theme(request),
         # Same gate controls the check-in uses, so the install/notification gate
         # auto-skips in DEV here too (otherwise base.html traps this page behind
         # the "Add to Home Screen" front door).
@@ -1793,7 +1766,6 @@ def wins_achieved(request):
         "achieved": [
             {"goal": g, "stones": stones_by_goal.get(g.id, [])} for g in goals
         ],
-        "theme": _resolve_theme(request),
         "beta_toggle": settings.DEBUG,
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
     }
@@ -1837,7 +1809,6 @@ def wins_archived(request):
             for goal in archived_goals
         ],
         "wins_dialog": wins_dialog,
-        "theme": _resolve_theme(request),
         "beta_toggle": settings.DEBUG,
         "dev_gate": settings.DEBUG and request.session.get("daily_gate_forced", False),
     }

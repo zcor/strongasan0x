@@ -61,11 +61,11 @@
         background: transparent; color: var(--text-faint);
         font: inherit; font-size: .82rem; line-height: 1; cursor: pointer;
     }
-    .habits-editor .habit-detail-delete:hover { color: #e0a672; }
+    .habits-editor .habit-detail-delete:hover { color: var(--warning); }
     .habits-editor .habit-detail-composer { padding: 14px 16px; border-top: 1px solid var(--line-soft); }
     .habits-editor .habit-detail-composer .card-foot { margin: 10px -16px -14px; }
     .habits-editor .habit-editor-message {
-        width: 100%; margin-top: 12px; padding: 10px 11px; border: 1px solid #c96565;
+        width: 100%; margin-top: 12px; padding: 10px 11px; border: 1px solid var(--danger);
         background: transparent; color: var(--text); font-size: .82rem; line-height: 1.4;
     }
     .habits-editor .habit-add-name-row { display: flex; align-items: stretch; }
@@ -88,7 +88,7 @@
         font: inherit; text-align: left; cursor: pointer;
     }
     .habits-editor .habit-move-row:first-child { border-top: 0; }
-    .habits-editor .habit-move-row:not(:disabled):hover { background: rgba(255,255,255,.02); }
+    .habits-editor .habit-move-row:not(:disabled):hover { background: var(--fill); }
     .habits-editor .habit-move-row:disabled { cursor: default; }
     .habits-editor .habit-move-row.is-moving { opacity: .5; }
     .habits-editor .habit-move-name { min-width: 0; font-size: 1rem; line-height: 1.25; }

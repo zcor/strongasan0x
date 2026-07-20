@@ -26,7 +26,7 @@
     .wins-editor .elist-item:not(.collapsed) .goal-title-input { display: block; }
     /* Steps sit close under the goal title. */
     .wins-editor .goal .stones.elist-body { padding-top: 0; }
-    .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: #e0a672; }
+    .wins-editor .gremove:hover, .wins-editor .sremove:hover { color: var(--warning); }
     .wins-editor .sremove { margin-left: auto; }
 
     /* One-off wins share the list and row anatomy with north stars; they
@@ -47,7 +47,7 @@
     }
     .wins-editor .step-check .check {
         width: 18px; height: 18px; border-radius: 50%; color: transparent;
-        border: 2px solid rgba(255,255,255,.22); display: grid; place-items: center;
+        border: 2px solid var(--control-border); display: grid; place-items: center;
     }
     .wins-editor .step-check .check::after {
         content: ""; width: 10px; height: 9px; background: currentColor;
@@ -63,7 +63,7 @@
 
     /* Meet the footer flush, like the habits list meets its footer. */
     .wins-editor #wins-list.has-items { margin-bottom: -18px; }
-    .wins-editor .composer-msg { color: #e0a672; font-size: .82rem; margin-top: 10px; }
+    .wins-editor .composer-msg { color: var(--warning); font-size: .82rem; margin-top: 10px; }
     /* Full width of the card, mirroring the habits step composer. */
     .wins-editor .stone-composer { padding: 14px 16px; border-top: 1px solid var(--line-soft); }
     .wins-editor .stone-composer .card-foot { margin: 10px -16px -14px; }
@@ -71,7 +71,7 @@
     .wins-editor .nc-steps-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin: 16px 0 10px; }
     .wins-editor .ncomposer .composer-msg {
         width: 100%; box-sizing: border-box; margin: 16px 0 0; padding: 11px 12px;
-        border: 1px solid #c96565; background: transparent; color: var(--text);
+        border: 1px solid var(--danger); background: transparent; color: var(--text);
         line-height: 1.4;
     }
     .wins-dialog {
@@ -108,7 +108,7 @@
     .wins-archived .goal-select {
         -webkit-appearance: none; appearance: none; flex: none;
         width: 18px; height: 18px; margin: 0 11px 0 0; border-radius: 50%;
-        border: 2px solid rgba(255,255,255,.22); background: none;
+        border: 2px solid var(--control-border); background: none;
         display: grid; place-items: center; cursor: pointer;
     }
     .wins-archived .goal-select::after {

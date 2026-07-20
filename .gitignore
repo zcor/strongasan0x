@@ -41,6 +41,9 @@ daily/seed_demo.py
 /parse_*.py
 /*.sh
 
+# Personal local server launcher
+/scripts/dev.sh
+
 # Python
 __pycache__/
 *.pyc
