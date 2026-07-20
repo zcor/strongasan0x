@@ -88,34 +88,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Daily">
     <link rel="apple-touch-icon" href="{% static 'daily/icons/icon-180.png' %}">
-    {% comment %} iOS/WebKit selects startup images by exact CSS viewport and
-    pixel ratio. A generic PNG is unreliable on current iPhones, so cover the
-    shipped phone families explicitly after the generic fallback. {% endcomment %}
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-screen.png' %}">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-640x1136.png' %}"
-          media="screen and (device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-750x1334.png' %}"
-          media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1242x2208.png' %}"
-          media="screen and (device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1125x2436.png' %}"
-          media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-828x1792.png' %}"
-          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1242x2688.png' %}"
-          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1170x2532.png' %}"
-          media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1284x2778.png' %}"
-          media="screen and (device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1179x2556.png' %}"
-          media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1290x2796.png' %}"
-          media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1206x2622.png' %}"
-          media="screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
-    <link rel="apple-touch-startup-image" href="{% static 'daily/images/launch-1320x2868.png' %}"
-          media="screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
     <link rel="icon" type="image/png" href="{% static 'daily/icons/icon-192.png' %}">
     {# Theme fonts — loaded NON-blocking (media=print, all onload); display=swap. #}
     {% if theme == "gauge" %}<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">{% endif %}
