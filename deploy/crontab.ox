@@ -14,11 +14,10 @@
 # a participant's target hour as early as their local midnight (learned wake
 # hour minus one, floored at 0) — the SAME hour run_coach_for_all needs to
 # have processed "yesterday" in for that participant. Coach-before-badge
-# guarantees the overnight note + any checklist mutation are in place before
-# that hour's badge push reads the checklist. (Belt-and-suspenders: the lazy
-# in-request path in views.py also catches up synchronously if a user opens
-# the app before either cron tick, so this ordering is a freshness guarantee
-# for the push, not a correctness requirement for the app itself.)
+# guarantees the overnight note + any checklist mutation are ready before the
+# user opens the dashboard. The dashboard never calls the external model as a
+# fallback: a missed boundary waits for the next hourly tick so page rendering
+# always stays responsive.
 #
 # Logs go to the repo's logs/ dir — zcor CANNOT write /var/log (root-owned
 # 755), which silently failed the redirect and stopped cron from EVER running.

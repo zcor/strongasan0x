@@ -9,18 +9,19 @@ THAT participant's own timezone, and `coach_prior_day` only acts when the
 most recent check-in before today has no suggestion yet. So of the 24 hourly
 ticks a day, only the single tick right after a participant's local midnight
 finds un-coached work; the other 23 are a no-op query per participant. Two
-crons racing (or a lazy in-request coach firing in between) can't double
--coach — the "does a suggestion already exist" check is the same guard either
-way. This hourly cadence is what lets "smart morning timing" (see
+overlapping command runs can't double-coach — the "does a suggestion already
+exist" check is the same guard either way. This hourly cadence is what lets
+"smart morning timing" (see
 daily.services.tz.target_morning_hour) push the badge as early as a
 participant's local midnight: the coach job is scheduled to run just before
 the badge job each hour (see deploy/crontab.ox) so that day's note and any
 checklist mutation are ready before the badge push reads them.
 
-The lazy in-request path (daily/views.ensure_prior_day_coached) still exists as
-a belt-and-suspenders for users whose day boundary the cron just missed; both
-go through the same coach_runner, and both are idempotent (a day that already
-has a suggestion is skipped), so running both never double-coaches.
+Dashboard rendering never calls the model as a fallback: doing so delays the
+first response by several seconds and leaves an installed PWA on an OS-owned
+blank launch surface. The next hourly tick safely catches any missed boundary.
+The separate morning-report request may generate a support-only report on
+demand, outside the usable dashboard's critical path.
 
 Usage:
     python manage.py run_coach_for_all                 # all active participants
