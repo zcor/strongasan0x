@@ -92,6 +92,16 @@ class BetaRolloutCommandTests(TestCase):
         self.assertEqual(participant.focus, DailyParticipant.FOCUS_LIFE)
         self.assertIs(participant.ai_mutations_enabled, True)
 
+    def test_rollout_keeps_naked_participant_support_only_until_onboarding(self):
+        participant = _participant("Naked", onboarded_at=None)
+
+        call_command("set_beta", "--rollout", stdout=StringIO())
+
+        participant.refresh_from_db()
+        self.assertIs(participant.beta, True)
+        self.assertIs(participant.ai_mutations_enabled, False)
+        self.assertEqual(participant.focus, "")
+
     def test_rollback_restores_exact_original_flags(self):
         first = _participant("First")
         second = _participant(
