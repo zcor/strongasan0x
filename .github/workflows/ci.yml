@@ -2,6 +2,35 @@ name: CI
 on: [push, pull_request]
 
 jobs:
+  commit-message:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require Conventional Commit messages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            commit_range="$PR_BASE..$PR_HEAD"
+          elif [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            commit_range="$HEAD_SHA"
+          else
+            commit_range="$PUSH_BEFORE..$HEAD_SHA"
+          fi
+
+          invalid="$(git log --format='%h %s' "$commit_range" | grep -vE '^[0-9a-f]+ (build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?: .+' || true)"
+          if [ -n "$invalid" ]; then
+            echo "::error::Commit messages must follow Conventional Commits (for example: fix: correct dashboard layout)."
+            echo "$invalid"
+            exit 1
+          fi
+
   lint:
     runs-on: ubuntu-latest
     steps:
