@@ -346,6 +346,7 @@ class PwaStartupTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/manifest+json")
+        self.assertEqual(response["Cache-Control"], "no-cache")
         self.assertEqual(response.json()["background_color"], "#1A1715")
         self.assertEqual(response.json()["theme_color"], "#1A1715")
 
@@ -369,8 +370,22 @@ class PwaStartupTests(TestCase):
         self.assertContains(response, 'id="app-launch"')
         self.assertContains(response, 'aria-label="Loading Daily"')
         self.assertContains(response, "pwa-launching")
+        self.assertContains(response, "app-loading-slow")
+        self.assertContains(response, "}, 250);")
         self.assertContains(response, "app-ready")
         self.assertContains(response, 'rel="apple-touch-startup-image"')
+        self.assertContains(response, "device-width: 390px")
+        self.assertContains(response, "launch-1170x2532.png")
+        launch_assets = [
+            "640x1136", "750x1334", "1242x2208", "1125x2436",
+            "828x1792", "1242x2688", "1170x2532", "1284x2778",
+            "1179x2556", "1290x2796", "1206x2622", "1320x2868",
+        ]
+        for dimensions in launch_assets:
+            self.assertIsNotNone(
+                finders.find(f"daily/images/launch-{dimensions}.png"),
+                dimensions,
+            )
         self.assertIsNotNone(finders.find("daily/images/launch-screen.png"))
 
 
@@ -862,4 +877,3 @@ class WinRemoveKeepsGoalOpenTests(TestCase):
 
         goal.refresh_from_db()
         self.assertEqual(goal.status, WinItem.STATUS_OPEN)
-

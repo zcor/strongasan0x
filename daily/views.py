@@ -2844,8 +2844,11 @@ def manifest(request):
         ],
     }
     # application/manifest+json is the spec type; some iOS versions are picky,
-    # but this is correct and Chrome requires it.
-    return JsonResponse(data, content_type="application/manifest+json")
+    # but this is correct and Chrome requires it. Revalidate rather than
+    # pinning an installed app to stale launch colors after a deployment.
+    response = JsonResponse(data, content_type="application/manifest+json")
+    response["Cache-Control"] = "no-cache"
+    return response
 
 
 def service_worker(request):
