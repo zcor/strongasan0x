@@ -90,8 +90,10 @@ python manage.py post_rankings_to_telegram --week-end <week-end> --dry-run
 python manage.py post_rankings_to_telegram --week-end <week-end>
 ```
 
-Defaults to the "Strong as an 0x" supergroup (`-1003122619283`). It sends a single photo with the
-rankings and link in the caption, so the winner stanza sits at the top of the message.
+Defaults to the "Strong as an 0x" supergroup (`-1003122619283`). It sends **two** messages: a
+`sendPhoto` carrying the winner stanza with rankings and the link in its caption, then a follow-up
+`sendMessage` with the stats table. Expect two message IDs in the output and report both — the
+command's own module docstring still claims a single photo, which is stale.
 
 ## 5. Post to Discord
 

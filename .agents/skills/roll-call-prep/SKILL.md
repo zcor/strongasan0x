@@ -127,8 +127,38 @@ Also check:
 
 ## 6. Build the post markdown
 
-Assemble `logs/<week-end>/substack_<week-end>.md` from the ode, the rankings table, and the full
-attestations.
+Assemble `logs/<week-end>/substack_<week-end>.md` in this exact shape — match it rather than
+inventing a layout, so the archive stays consistent week to week:
+
+```md
+# Roll Call: July 13 - 19, 2026     <- "Month D - D, YYYY", spanning months when needed
+
+<the full ode, verbatim, starting at **FIFTH AMONG HEROES: ...**>
+
+---
+
+## The Rankings
+
+1. **Spencer420**
+2. **RektDiomedes**
+...                                  <- numbered bold list, NOT a pipe table;
+                                        every line ends with two trailing spaces
+
+---
+
+## The Attestations
+
+### #1 — Spencer420
+
+<raw_text verbatim>
+
+### #2 — RektDiomedes
+...
+```
+
+Pull `raw_text` straight from the DB in final rank order and include it unedited; for a warrior with
+multiple parts, order them by `part_number` then `posted_at`. Some warriors' own text contains `##`
+headings, which will appear as document headings — that is how prior weeks look; leave it.
 
 The page is rendered by a deliberately small renderer — see
 [roll_call_markdown.py](../../../rollcall/services/roll_call_markdown.py). Stay inside its supported
