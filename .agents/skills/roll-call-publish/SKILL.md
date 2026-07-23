@@ -75,8 +75,10 @@ python manage.py post_rankings_to_x --week-end <week-end>
 Dry-run first, every time. Tweet 1 carries the rankings plus the rendered winner-stanza image, then
 a 60-second sleep, then tweet 2 replies with the recruitment and links block.
 
-**Tweet 2 returns 403 on the free API tier. That is expected and is not a failure.** Tweet 1 stays
-live; capture its URL from the output.
+Tweet 2 **historically** 403'd on the free API tier, and the command has a trimmed fallback for it.
+That is no longer reliable: on 2026-07-23 the full tweet 2 posted successfully. So do not report a
+403 as "expected and fine" without looking — check the output and say what actually happened. Either
+way tweet 1 stays live; capture its URL.
 
 `generate_twitter_rankings --week <monday> --post` is the older text-only path, untouched since
 2026-04-27. Use it only when the user wants to hand-edit the tweet text before posting.
