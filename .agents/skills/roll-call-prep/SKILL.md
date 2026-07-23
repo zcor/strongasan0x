@@ -31,9 +31,25 @@ below individually.
 
 ## 1. Review attestations
 
+`list_attestations` takes `--days`/`--source`/`--limit` and has **no week filter**, so scope the
+week yourself:
+
 ```sh
-python manage.py list_attestations
+python manage.py shell -c "
+from rollcall.models import Attestation, WeeklyRollCall
+rc = WeeklyRollCall.objects.get(week_end_date='<week-end>')
+for a in Attestation.objects.filter(weekly_roll_call=rc).order_by('posted_at'):
+    n = a.telegram_user.linked_name if a.telegram_user else '?'
+    print(n, a.posted_at, a.source, 'hidden=', a.is_hidden, len(a.raw_text or ''))
+"
 ```
+
+The name lives on `telegram_user.linked_name`; `Attestation` has no `display_name` field.
+
+Attestations for a week normally arrive on the **Monday and Tuesday after it closes**, and the next
+window does not open until Friday (`ATTESTATION_WEEKEND_START_HOUR`). An empty current week midweek
+is expected and is *not* evidence of a stuck bot — judge bot health by whether last week's
+attestations landed, not by silence today.
 
 Hide spam or duplicates through `/review-attestations/`. Add anything the bot missed:
 
@@ -55,8 +71,8 @@ is heavy lifting (bench 230–260, rows/squats/deadlift around 200).
 
 ## 2. Run ranking trials
 
-Use DeepSeek. Anthropic credits are frequently depleted, and `--provider deepseek` costs about
-$0.0005 per trial.
+Use DeepSeek. Anthropic credits are frequently depleted, and `--provider deepseek` costs roughly
+0.0004 USD per trial — a four-trial week is well under a cent.
 
 ```sh
 for i in 1 2 3; do
