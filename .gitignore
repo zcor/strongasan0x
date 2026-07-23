@@ -64,5 +64,7 @@ Thumbs.db
 *.bak
 *.backup*
 
-# Claude
-.claude/
+# Claude — local settings and worktrees stay out, but project skills are
+# source and must travel with the repo (Cloud Claude cannot see a local ~/.claude).
+.claude/*
+!.claude/skills/

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Roll Call — Publish Week"
+  short_description: "Publish live and syndicate the week"
+  default_prompt: "Use $roll-call-publish to take this week's staged Roll Call post live and syndicate it."
+
+policy:
+  allow_implicit_invocation: false

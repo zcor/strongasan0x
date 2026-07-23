@@ -13,7 +13,10 @@ Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submi
 ```bash
 python manage.py runserver 8001
 
-# Weekly publishing (see WEEKLY_PROCESS.md in garmin_project for full checklist)
+# Weekly publishing — the full ordered workflow lives in two skills:
+#   .agents/skills/roll-call-prep/     trials -> ode -> markdown -> staged ingest -> preview
+#   .agents/skills/roll-call-publish/  publish live -> X -> Telegram -> Discord -> roles
+# (garmin_project/WEEKLY_PROCESS.md is superseded: it describes the retired Substack flow)
 python manage.py list_attestations
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --provider deepseek
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --output-only
@@ -24,8 +27,14 @@ python manage.py generate_twitter_rankings --week YYYY-MM-DD
 python manage.py assign_top_ten_role
 python manage.py extract_metrics  # only processes is_published=True weeks
 
-# Full workflow (orchestrates all steps)
-python manage.py publish_roll_call --week-end YYYY-MM-DD --substack-url URL
+# Self-hosted post (Substack is retired — the URL field now stores the on-site link)
+python manage.py post_rankings_to_x --week-end YYYY-MM-DD          # dry-run first
+python manage.py post_rankings_to_telegram --week-end YYYY-MM-DD   # dry-run first
+
+# LEGACY — do not use. publish_roll_call is unmaintained since 2026-02-14: it prompts
+# interactively (EOFError in non-interactive shells), never posts to Telegram, only
+# generates the tweet, and still asks for a Substack URL. Run the steps individually.
+# python manage.py publish_roll_call --week-end YYYY-MM-DD --substack-url URL
 
 # Bots
 python manage.py run_discord_bot
