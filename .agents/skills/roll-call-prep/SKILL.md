@@ -18,8 +18,18 @@ else, and the ingest step is idempotent under `--overwrite`. Stop before publish
 - `--week-end` takes the **Sunday** that ends the week.
 - `--week` takes the **Monday publication date** and resolves to the week before it.
 
-Mixing these up silently targets the wrong week. Fix the week in your head once, write both dates
-down, and reuse them.
+Mixing these up silently targets the wrong week. Fix both dates once and reuse them. Commands are
+not consistent — check this table rather than guessing:
+
+| Command | Flag |
+| --- | --- |
+| `run_ranking_trial` | `--week-end` (Sunday) |
+| `generate_substack_ode` | `--week-end` (Sunday) |
+| `ingest_roll_call` | `--week` (Monday) — has **no** `--week-end` |
+| `post_rankings_to_x` | `--week-end` (Sunday) |
+| `post_rankings_to_telegram` | `--week-end` (Sunday) |
+| `post_rankings_to_discord` | `--week` (Monday) |
+| `assign_top_ten_role` | neither — `--weeks` is a **count** of recent weeks, not a date |
 
 ## Do not use `publish_roll_call`
 
@@ -65,9 +75,22 @@ If the newest attestation is days old the bot may be stuck. Telegram only retain
 updates for about 24 hours, so a multi-day outage means those attestations are gone and must be
 pasted in by hand.
 
-CurveCap's Garmin-generated attestations carry no weights. Fill them in by editing `raw_text` in
-place — never create a second attestation. Mon/Wed/Sat is circuit class at 66–110 lb; Tue/Thu/Fri/Sun
-is heavy lifting (bench 230–260, rows/squats/deadlift around 200).
+**CurveCap's Garmin auto-export has three recurring defects. Check all three and surface them to
+the user before running trials — they materially change his rank, and only he can decide.**
+
+1. **No weights.** Fill them in by editing `raw_text` in place — never create a second attestation.
+   Mon/Wed/Sat is circuit class at 66–110 lb; Tue/Thu/Fri/Sun is heavy lifting (bench 230–260,
+   rows/squats/deadlift around 200).
+2. **Off-by-one week window.** The export headline reads "Week of ... through ..." and has covered
+   **Sunday–Saturday** while the contest week is **Monday–Sunday** — so it credits a day from the
+   already-published previous week and drops the final Sunday entirely.
+3. **Zero-days from missed syncs.** Days showing `0 steps, 0 kcal, 0 bpm resting HR`. A resting
+   heart rate of 0 is impossible, so these are missing data, not rest — but the ranker reads them as
+   a dead week. The 2026-07-19 week had three such days and it cost him third place.
+
+The Garmin source tables are **not** in this database, so none of this can be re-fetched from here.
+Report what you find and let the user choose: fill weights only, paste the missing days in, or run
+untouched.
 
 ## 2. Run ranking trials
 
@@ -118,12 +141,23 @@ Write the `.md` file so the user can preview and copy it.
 hallucinates weights and rep counts, flips kg and lb, confuses one warrior's lifts for another's,
 and mistypes names. This is the single most common defect in the weekly post.
 
-Also check:
+Every one of these was a real defect in the 2026-07-19 ode — check for them by name:
 
-- Naly is male — he/him.
-- Every verse line ends with two trailing spaces, or the line breaks collapse. Re-add them after
-  any manual edit; `--output` adds them on write, stdout does not.
-- Swap tied ranks to match whatever the user decided in step 3.
+- **Misspelled name in a section heading.** `RKBAY` for `RKTBAY`, while the verse below spelled it
+  correctly. Check headings separately from body text.
+- **A superlative that contradicts the rank.** "His weekend fury proved he was **the best**" was
+  written about the *fourth*-place warrior. Any "best", "first", "greatest" outside the winner's
+  stanza is a bug.
+- **A rep count invented where the source was truncated.** The ode claimed `195` "for six" when the
+  attestation records `195-` with no reps at all. Where the source trails off, the ode must not
+  complete it — drop the claim or use a set that is actually recorded.
+- **Naly is male** — he/him.
+- **Trailing double spaces on every verse line**, or line breaks collapse. Re-add after any manual
+  edit; `--output` adds them on write, stdout does not.
+- **Section order and headings** follow the previous week: `**FIFTH AMONG HEROES: NAME**` counting
+  up to `**FIRST AMONG HEROES: NAME**`, then `**THE CLOSING CHORUS**`. A proem is *not* standard —
+  most weeks have none, so do not add one.
+- **Swap tied ranks** to match whatever the user decided in step 3.
 
 ## 6. Build the post markdown
 

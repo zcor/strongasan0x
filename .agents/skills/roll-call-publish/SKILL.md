@@ -18,8 +18,16 @@ The week must already be staged by `roll-call-prep`: `full_text` populated, rank
 ## Date flags
 
 `--week-end` is the **Sunday**. `--week` is the **Monday publication date** and resolves to the week
-before it. The syndication commands are split across both conventions — check each one below rather
-than assuming.
+before it. The syndication commands are split across both conventions — check this table rather than
+assuming:
+
+| Command | Flag |
+| --- | --- |
+| `ingest_roll_call` | `--week` (Monday) — has **no** `--week-end` |
+| `post_rankings_to_x` | `--week-end` (Sunday) |
+| `post_rankings_to_telegram` | `--week-end` (Sunday) |
+| `post_rankings_to_discord` | `--week` (Monday) |
+| `assign_top_ten_role` | neither — `--weeks` is a **count** of recent weeks, not a date |
 
 Do not use `publish_roll_call`; it is unmaintained since 2026-02-14, prompts interactively, skips
 Telegram entirely, and only generates the tweet instead of posting it.
