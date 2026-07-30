@@ -8,6 +8,20 @@ Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submi
 - Runs on port 8001
 - DB table prefix: `rollcall_*` (shared PostgreSQL with garmin_project's `garmin_data_*` tables)
 
+## Concurrent Git safety
+
+Other Claude, Codex, human, or automation sessions may be active in this
+repository. Before any Git mutation, use `$git-session-safety`. Never claim or
+clean another session's dirty/staged/untracked paths or registered worktree:
+unknown ownership is preserved and reported. Stage and commit explicit owned
+paths only; never use `git add -A`, `git add .`, or an unscoped commit in a
+shared checkout.
+
+Session close-out is not integration or publication. An integration owner must
+re-check the current remote target and candidate lineage immediately before a
+merge or push. A rejected push may be duplicate or superseded work; use
+`git cherry` and end-state comparison before replaying it.
+
 ## Development Commands
 
 ```bash
