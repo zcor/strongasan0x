@@ -45,6 +45,33 @@ python manage.py run_discord_bot  # Discord bot
 python manage.py run_telegram_bot # Telegram bot
 ```
 
+## CI and local validation
+
+GitHub Actions spending is permanently `$0`. The one pull-request workflow is
+supplemental evidence only while GitHub supplies the hosted run at no charge.
+Do not add push or scheduled triggers, a paid runner, a payment method, or a
+spending-cap increase. The hosted check runs `ruff check .` and the
+Django-template-comment guard below.
+
+When Actions cannot start because billing or quota blocks it before any step
+runs, local validation at the exact candidate SHA is acceptable merge evidence.
+Record the SHA and command output in the PR or merge record, then run:
+
+```bash
+git rev-parse HEAD
+git status --short
+git diff --check
+ruff check .
+if grep -rnE '\{#' --include='*.html' . | grep -vE '#\}'; then
+  echo 'Multi-line Django template comment found. Make it single-line or use {% comment %}.'
+  exit 1
+fi
+```
+
+This fallback does not excuse a hosted job that actually started and failed.
+Run Django tests only with an explicitly safe, non-production database
+configuration; the local `.env` may point at shared infrastructure.
+
 ## Weekly Workflow
 
 1. **Friday-Sunday**: Participants submit attestations via Discord, Telegram, or Warrior Dashboard

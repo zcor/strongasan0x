@@ -18,3 +18,13 @@ pushing, creating a worktree, or responding to a dirty checkout, use
 - Session close-out does not authorize a merge, deployment, bot action,
   publication, or external message. An integration owner re-checks the remote
   target and candidate lineage immediately before integrating.
+
+## GitHub Actions
+
+GitHub Actions spending is permanently `$0`. The PR-only workflow is optional
+hosted evidence while it is supplied at no charge; it is not the sole merge
+path. Follow `README.md`'s exact-SHA local procedure if GitHub prevents the job
+from starting because of billing, quota, or runner admission. A job that
+actually starts and fails remains blocking. Do not add a payment method, raise
+a spending cap, buy a runner, weaken validation, or infer deployment authority
+from an integration request.
