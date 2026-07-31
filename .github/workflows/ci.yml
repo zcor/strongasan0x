@@ -1,5 +1,9 @@
 name: CI
-on: [push, pull_request]
+
+# Keep this hosted check deliberately small. Local exact-SHA validation is the
+# fallback when Actions is unavailable; see README.md. GitHub Actions spending
+# is permanently $0; do not add push or scheduled triggers.
+on: [pull_request]
 
 jobs:
   commit-message:
