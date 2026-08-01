@@ -2,8 +2,8 @@
 Minimal, dependency-free markdown -> HTML renderer for WeeklyRollCall.full_text.
 
 The roll call post format is produced by generate_substack_ode.py and
-ingest_roll_call.py and is a constrained subset of markdown written for
-Substack: '#'/'##'/'###' headings, '**bold**', '*italic*', '---' horizontal
+ingest_roll_call.py and is a constrained subset of markdown rendered on
+strongasan0x.com: '#'/'##'/'###' headings, '**bold**', '*italic*', '---' horizontal
 rules, '- ' bullet lists (with '  - ' nested sub-bullets), '|' pipe tables,
 '[text](url)' links, backslash-escaped punctuation (e.g. "0x\\_Vikt0r"), and
 verse lines that may end with two-or-more trailing spaces to force a hard
@@ -101,8 +101,7 @@ def render_roll_call_markdown(raw_text):
             return
         # Within a paragraph, a line ending in 2+ trailing spaces forces a
         # <br>; otherwise consecutive lines are joined with a single space
-        # (soft break), matching how the ode's verse lines render in
-        # Substack/CommonMark.
+        # (soft break), matching the Roll Call's CommonMark-style rendering.
         rendered_lines = []
         for line in paragraph_buf:
             hard_break = line.endswith('  ')

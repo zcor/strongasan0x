@@ -3,11 +3,11 @@ from django.contrib.auth.models import User
 
 
 class WeeklyRollCall(models.Model):
-    """Store weekly Substack roll call posts"""
+    """Store weekly Roll Call posts published on strongasan0x.com."""
     week_start_date = models.DateField(help_text="Monday of the week")
     week_end_date = models.DateField(help_text="Sunday of the week")
-    substack_url = models.URLField(help_text="Link to Substack post")
-    full_text = models.TextField(help_text="Complete Substack post text (unlimited length)")
+    substack_url = models.URLField(help_text="Canonical Roll Call URL (legacy field name)")
+    full_text = models.TextField(help_text="Complete Roll Call markdown (unlimited length)")
     is_published = models.BooleanField(default=False, help_text="Whether this roll call has been officially published.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

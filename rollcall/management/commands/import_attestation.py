@@ -182,7 +182,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     f'Created weekly roll call for week of {week_start} '
-                    f'(you may want to update it with actual Substack data)'
+                    f'(update it with the on-site Roll Call URL before publishing)'
                 )
             )
 

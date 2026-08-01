@@ -1,5 +1,5 @@
 """
-Generate a Homeric ode for Substack based on ranked attestations
+Generate a Homeric ode for a self-hosted Roll Call based on ranked attestations
 """
 from django.core.management.base import BaseCommand
 from django.conf import settings
@@ -75,7 +75,7 @@ def add_trailing_spaces(text):
 
 
 class Command(BaseCommand):
-    help = 'Generate a Homeric ode for Substack based on ranked attestations'
+    help = 'Generate a Homeric ode for a self-hosted Roll Call'
 
     def add_arguments(self, parser):
         parser.add_argument(

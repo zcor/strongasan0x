@@ -55,7 +55,10 @@ def get_active_roll_call(reference_dt=None, allow_create=True):
         week_start_date=week_start,
         defaults={
             "week_end_date": target_sunday,
-            "substack_url": f"https://strongasan0x.substack.com/p/week-of-{week_start.strftime('%Y-%m-%d')}",
+            # The column name is legacy. It now stores the canonical on-site
+            # Roll Call URL so downstream announcements never inherit a dead
+            # Substack fallback.
+            "substack_url": f"https://strongasan0x.com/roll-call/{target_sunday.isoformat()}/",
             "full_text": f"Roll Call for the week of {week_start.strftime('%Y-%m-%d')}",
             "is_published": False,
         },

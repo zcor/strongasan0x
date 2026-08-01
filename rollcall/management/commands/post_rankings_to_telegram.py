@@ -7,13 +7,14 @@ Usage:
 
 By default posts to the rollcall group chat. Override with --chat-id.
 
-The post is a single sendPhoto: rankings + Substack link land in the photo's
+The post is a single sendPhoto: rankings + the on-site Roll Call link land in the photo's
 caption so the winner stanza image sits at the top of the message.
 """
 from __future__ import annotations
 
 import os
 from datetime import date
+from html import escape, unescape
 from pathlib import Path
 
 import requests
@@ -28,9 +29,9 @@ from rollcall.models import (
 from rollcall.services.winner_stanza import render_winner_image
 
 
-# Hard-coded fallbacks — match what's been used historically.
+# Hard-coded production target.
 DEFAULT_TELEGRAM_CHAT_ID = -1003122619283
-SUBSTACK_BASE = "https://strongasan0x.substack.com/p"
+WEBSITE_URL = "https://strongasan0x.com"
 
 RANK_EMOJI = {
     1: "🥇",
@@ -50,33 +51,31 @@ def _ordinal_handle(rank: int, name: str, telegram_username: str | None) -> str:
     """Render one ranked line: emoji + @handle if known, else bare name."""
     prefix = RANK_EMOJI.get(rank, f"{rank}.")
     if telegram_username:
-        return f"{prefix} @{telegram_username}"
-    return f"{prefix} {name}"
+        return f"{prefix} @{_escape_html(telegram_username)}"
+    return f"{prefix} {_escape_html(name)}"
+
+
+def _escape_html(value: str) -> str:
+    """Escape dynamic Telegram HTML exactly once at rendering time."""
+    return escape(unescape(str(value)), quote=True)
 
 
 def _format_date_range(week_start: date, week_end: date) -> str:
-    """Match the human-style dates used in prior posts: 'May 4 — May 10, 2026'."""
+    """Return a compact human-readable week range."""
     if week_start.month == week_end.month:
         return (
-            f"{week_start.strftime('%B')} {week_start.day} — "
+            f"{week_start.strftime('%B')} {week_start.day} - "
             f"{week_end.day}, {week_end.year}"
         )
     return (
-        f"{week_start.strftime('%b')} {week_start.day} — "
+        f"{week_start.strftime('%b')} {week_start.day} - "
         f"{week_end.strftime('%b')} {week_end.day}, {week_end.year}"
     )
 
 
-def _substack_slug(week_start: date, week_end: date) -> str:
-    """Substack slug convention used historically.
-
-    e.g. roll-call-may-4-may-10-2026
-    """
-    fmt = "%-B-%-d" if hasattr(week_start, "strftime") else "%B-%-d"
-    # Use lower-case month names without leading zeros on day.
-    start = f"{week_start.strftime('%B').lower()}-{week_start.day}"
-    end = f"{week_end.strftime('%B').lower()}-{week_end.day}-{week_end.year}"
-    return f"roll-call-{start}-{end}"
+def _roll_call_url(roll_call: WeeklyRollCall) -> str:
+    """Return the canonical on-site URL for a Roll Call."""
+    return f"{WEBSITE_URL}/roll-call/{roll_call.week_end_date.isoformat()}/"
 
 
 def _load_ranked_attestations(roll_call: WeeklyRollCall):
@@ -120,7 +119,7 @@ def _resolve_warrior_mapping(name: str) -> TelegramUserMapping | None:
     mapping = TelegramUserMapping.objects.filter(linked_name=name).first()
     if mapping:
         return mapping
-    # Fuzzy: case-insensitive contains
+    # Fuzzy: case-insensitive match.
     return TelegramUserMapping.objects.filter(linked_name__iexact=name).first()
 
 
@@ -155,16 +154,15 @@ def build_stats_message(roll_call: WeeklyRollCall) -> str | None:
     for rank, (name, s) in enumerate(sorted_stats, start=1):
         avg = f"{s['average_rank']:.2f}"
         se = f"± {s['std_error']:.2f}"
-        lines.append(
-            f"{rank:<6}{name[:21]:<22}{avg:<14}{se:<10}{s['trial_count']:<8}"
-        )
+        safe_name = _escape_html(name)[:21]
+        lines.append(f"{rank:<6}{safe_name:<22}{avg:<14}{se:<10}{s['trial_count']:<8}")
     lines.append(sep)
     table = "\n".join(lines)
 
     week_start = roll_call.week_start_date
     week_end = roll_call.week_end_date
     date_str = _format_date_range(week_start, week_end)
-    return f"Ranking trial details — {date_str}\n<pre><code>{table}</code></pre>"
+    return f"Ranking trial details - {date_str}\n<pre><code>{table}</code></pre>"
 
 
 def build_caption(roll_call: WeeklyRollCall, ranked) -> str:
@@ -173,14 +171,8 @@ def build_caption(roll_call: WeeklyRollCall, ranked) -> str:
     lines = [f"🏆 🐂 Roll Call: {date_str}", "", "Ethereum's toughest warriors:", ""]
     for rank, name, mapping in ranked:
         lines.append(_ordinal_handle(rank, name, mapping.telegram_username if mapping else None))
-    # Prefer the ACTUAL substack URL ingested for this week — the generated slug
-    # guesses a convention (…-june-21-2026) that doesn't always match the real
-    # published slug (…-june-15-june-21), which would post a 404 link. Only fall
-    # back to the generated slug when no URL was ingested.
-    url = (getattr(roll_call, "substack_url", "") or "").strip()
-    if not url:
-        url = f"{SUBSTACK_BASE}/{_substack_slug(week_start, week_end)}"
-    lines.extend(["", "Full ode + details:", url])
+    url = _roll_call_url(roll_call)
+    lines.extend(["", "Full ode + details:", f'<a href="{url}">Roll Call</a>'])
     return "\n".join(lines)
 
 
@@ -251,7 +243,7 @@ class Command(BaseCommand):
         with open(winner_png, "rb") as photo:
             r = requests.post(
                 f"https://api.telegram.org/bot{token}/sendPhoto",
-                data={"chat_id": chat_id, "caption": caption},
+                data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
                 files={"photo": photo},
                 timeout=30,
             )

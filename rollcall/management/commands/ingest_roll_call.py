@@ -7,7 +7,7 @@ from rollcall.models import WeeklyRollCall, RollCallRanking
 
 
 class Command(BaseCommand):
-    help = 'Ingest roll call data for a weekly Substack post'
+    help = 'Ingest roll call data for a weekly post on strongasan0x.com'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -24,7 +24,7 @@ class Command(BaseCommand):
             '--substack-url',
             type=str,
             required=True,
-            help='URL to the Substack post'
+            help='Canonical on-site Roll Call URL (legacy option name)'
         )
         parser.add_argument(
             '--text-file',

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submit weekly health attestations via Discord and Telegram bots, AI models rank them, and results are published to Substack with a Homeric ode.
+Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submit weekly health attestations via Discord and Telegram bots, AI models rank them, and results are published on strongasan0x.com with a Homeric ode.
 
 - Remote: `git@github.com:zcor/strongasan0x.git` (branch: `main`)
 - Runs on port 8001
@@ -21,7 +21,7 @@ python manage.py list_attestations
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --provider deepseek
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --output-only
 python manage.py generate_substack_ode --week-end YYYY-MM-DD --provider deepseek --output ode.txt
-python manage.py ingest_roll_call --week YYYY-MM-DD --substack-url URL --rankings 'JSON' --publish --overwrite
+python manage.py ingest_roll_call --week YYYY-MM-DD --substack-url https://strongasan0x.com/roll-call/YYYY-MM-DD/ --rankings 'JSON' --publish --overwrite
 python manage.py post_rankings_to_discord --week YYYY-MM-DD
 python manage.py generate_twitter_rankings --week YYYY-MM-DD
 python manage.py assign_top_ten_role
@@ -31,9 +31,8 @@ python manage.py extract_metrics  # only processes is_published=True weeks
 python manage.py post_rankings_to_x --week-end YYYY-MM-DD          # dry-run first
 python manage.py post_rankings_to_telegram --week-end YYYY-MM-DD   # dry-run first
 
-# LEGACY — do not use. publish_roll_call is unmaintained since 2026-02-14: it prompts
-# interactively (EOFError in non-interactive shells), never posts to Telegram, only
-# generates the tweet, and still asks for a Substack URL. Run the steps individually.
+# LEGACY — do not use. publish_roll_call now fails safely with instructions for the
+# staged on-site workflow. Run the steps individually.
 # python manage.py publish_roll_call --week-end YYYY-MM-DD --substack-url URL
 
 # Bots
@@ -63,17 +62,17 @@ python manage.py run_telegram_bot
 - **Django `timezone.utc` doesn't exist** — use `datetime.timezone.utc` or `from datetime import timezone; timezone.utc`.
 - **Anthropic credits frequently depleted** — always try `--provider deepseek` as fallback.
 - **DeepSeek ode generation** — needs explicit rhyming instructions (AA BB CC couplet pattern) in the prompt or it produces prose/blank verse. The `ODE_PROMPT_TEMPLATE` was updated with "CRITICAL REQUIREMENT — RHYMING" section and example stanzas.
-- **Substack markdown line breaks** — verse lines need trailing double-spaces (`  `) for proper rendering. The `add_trailing_spaces()` function handles this when writing to file via `--output`, but not when outputting to stdout.
+- **Roll Call markdown line breaks** — verse lines need trailing double-spaces (`  `) for proper rendering. The `add_trailing_spaces()` function handles this when writing to file via `--output`, but not when outputting to stdout.
 - **`ingest_roll_call` expects 10 rankings** — warns but still works with 9. No `--week-end` flag; use `--week` with Monday date.
 - **Duplicate user mappings** — e.g. Jones | Rarestone Compass had two TelegramUserMappings. Use `.get(id=N)` not `.get(linked_name=...)` when duplicates exist.
 - **CurveCap Garmin attestations** — auto-generated from watch data, don't include weight amounts. Must manually add based on historical patterns: Mon/Wed/Sat circuit class (66-110 lb), Tue/Thu/Fri/Sun heavy lifting (bench 230-260 lb, back/legs 200 lb).
-- **`generate_twitter_rankings`** — date formatting bug shows "Feb. 23 - 1, 2026" instead of "Feb. 23 - Mar. 1, 2026". Substack slug is auto-generated from `--week` date, not the actual Substack URL slug.
+- **`generate_twitter_rankings`** — date formatting bug shows "Feb. 23 - 1, 2026" instead of "Feb. 23 - Mar. 1, 2026". It falls back to the canonical on-site Roll Call URL.
 
 ## Weekly Publishing Logs
 
 Logs are stored in `logs/YYYY-MM-DD/` (keyed by week-end Sunday date):
 - `ode.txt` — Generated Homeric ode with trailing spaces
-- `substack_YYYY-MM-DD.md` — Full Substack markdown (ode + rankings table + attestations)
+- `roll_call_YYYY-MM-DD.md` — Full Roll Call markdown (ode + rankings table + attestations)
 - `prompt.txt` — Ranking prompt sent to AI
 - `trial_N_provider_model.json` — Individual ranking trial results
 - `attestations_YYYY-MM-DD.txt` — Exported attestations

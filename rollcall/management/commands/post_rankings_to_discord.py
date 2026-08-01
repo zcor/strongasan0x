@@ -282,22 +282,15 @@ class Command(BaseCommand):
                     
                     # 4. Links on same line with bullet separator and text labels
                     lines.append("")
-                    # Use publication date for website link (website handles Monday dates as publication dates)
-                    date_url = publication_date.strftime('%Y-%m-%d')
-                    website_link = f"https://strongasan0x.com/?date={date_url}"
-                    
-                    # Prefer the ACTUAL ingested Substack URL — the generated
-                    # slug guesses a convention (…-june-21-2026) that often
-                    # doesn't match the real published slug and 404s.
-                    substack_link = (getattr(roll_call, 'substack_url', '') or '').strip()
-                    if not substack_link:
-                        month_name = publication_date.strftime('%B').lower()
-                        substack_slug = f"roll-call-{month_name}-{publication_date.day}-{publication_date.year}"
-                        substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
-                    
-                    # Use Discord markdown link format: [text](url) with bullet separator
-                    # Note: Discord links don't show previews when formatted this way
-                    lines.append(f"[Website]({website_link}) • [Substack]({substack_link})")
+                    # The storage field is legacy. Build the canonical URL
+                    # directly so no retired value can be syndicated.
+                    roll_call_link = (
+                        f"https://strongasan0x.com/roll-call/"
+                        f"{roll_call.week_end_date.isoformat()}/"
+                    )
+
+                    # Formatted links suppress Discord's external preview.
+                    lines.append(f"[Roll Call]({roll_call_link})")
                     
                     message = "\n".join(lines)
                     

@@ -6,7 +6,7 @@ Usage:
 
 Tweet 1 carries the rankings + the rendered winner stanza image.
 A 60-second sleep follows, then tweet 2 (a reply) carries the
-recruitment+info block with Substack/Forms/Discord/Website links.
+recruitment+info block with Roll Call, form, Discord, and website links.
 
 If tweet 2 exceeds the 𝕏 per-tweet length limit, the command retries
 with a pre-defined trimmed variant. Tweet 1 is always sent first; if
@@ -25,7 +25,6 @@ from rollcall.models import RollCallRanking, TelegramUserMapping, WeeklyRollCall
 from rollcall.services.winner_stanza import render_winner_image
 
 
-SUBSTACK_BASE = "https://strongasan0x.substack.com/p"
 FORMS_URL = "https://forms.gle/pwBvd15SmsjDPCfK7"
 DISCORD_URL = "https://discord.gg/2wQpAHme3R"
 WEBSITE_URL = "https://strongasan0x.com"
@@ -70,12 +69,6 @@ def _x_handle(name: str) -> str | None:
     return None
 
 
-def _substack_slug(week_start: date, week_end: date) -> str:
-    start = f"{week_start.strftime('%B').lower()}-{week_start.day}"
-    end = f"{week_end.strftime('%B').lower()}-{week_end.day}-{week_end.year}"
-    return f"roll-call-{start}-{end}"
-
-
 def _load_ranked(roll_call: WeeklyRollCall):
     rankings = list(
         RollCallRanking.objects.filter(weekly_roll_call=roll_call).order_by("rank")
@@ -113,22 +106,17 @@ def build_tweet1(roll_call: WeeklyRollCall, ranked) -> str:
     return "\n".join(lines)
 
 
-def _substack_url(roll_call: WeeklyRollCall) -> str:
-    """Prefer the ACTUAL ingested URL — the generated slug guesses a convention
-    (…-june-21-2026) that often doesn't match the real published slug and 404s.
-    Fall back to the generated slug only when no URL was ingested."""
-    url = (getattr(roll_call, "substack_url", "") or "").strip()
-    if url:
-        return url
-    return f"{SUBSTACK_BASE}/{_substack_slug(roll_call.week_start_date, roll_call.week_end_date)}"
+def _roll_call_url(roll_call: WeeklyRollCall) -> str:
+    """Return the canonical on-site URL for a Roll Call."""
+    return f"{WEBSITE_URL}/roll-call/{roll_call.week_end_date.isoformat()}/"
 
 
 def build_tweet2_full(roll_call: WeeklyRollCall) -> str:
-    substack_url = _substack_url(roll_call)
+    roll_call_url = _roll_call_url(roll_call)
     return (
         f"Are you strong as an 0x?   We invite recruits to submit a weekly health attestation:  {FORMS_URL}\n"
         f"\n"
-        f"We feed it to the oracle and publish the top ten each week: {substack_url}\n"
+        f"We feed it to the oracle and publish the top ten each week: {roll_call_url}\n"
         f"\n"
         f"MORE INFO\n"
         f"  Discord: {DISCORD_URL}\n"
@@ -140,7 +128,7 @@ def build_tweet2_trimmed(roll_call: WeeklyRollCall) -> str:
     """Fallback if the full version is rejected for length."""
     return (
         f"Submit a weekly health attestation: {FORMS_URL}\n\n"
-        f"Top ten weekly: {_substack_url(roll_call)}\n\n"
+        f"Top ten weekly: {_roll_call_url(roll_call)}\n\n"
         f"Discord: {DISCORD_URL} | {WEBSITE_URL}"
     )
 

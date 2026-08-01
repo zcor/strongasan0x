@@ -686,7 +686,7 @@ def add_manual_attestation(request):
 
 
 # =============================================================================
-# Self-hosted Roll Call post pages (replaces Substack as the post is migrated)
+# Self-hosted Roll Call post pages.
 # =============================================================================
 
 def roll_call_index(request):

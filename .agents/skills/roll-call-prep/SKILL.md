@@ -161,7 +161,7 @@ Every one of these was a real defect in the 2026-07-19 ode — check for them by
 
 ## 6. Build the post markdown
 
-Assemble `logs/<week-end>/substack_<week-end>.md` in this exact shape — match it rather than
+Assemble `logs/<week-end>/roll_call_<week-end>.md` in this exact shape — match it rather than
 inventing a layout, so the archive stays consistent week to week:
 
 ```md
@@ -206,7 +206,7 @@ trailing double spaces. Anything else will not render. Escape `|` inside warrior
 python manage.py ingest_roll_call \
   --week <monday> \
   --substack-url https://strongasan0x.com/roll-call/<week-end>/ \
-  --text-file logs/<week-end>/substack_<week-end>.md \
+  --text-file logs/<week-end>/roll_call_<week-end>.md \
   --rankings '<json>' \
   --overwrite
 ```

@@ -62,7 +62,7 @@ Re-run the ingest with the publish flag:
 python manage.py ingest_roll_call \
   --week <monday> \
   --substack-url https://strongasan0x.com/roll-call/<week-end>/ \
-  --text-file logs/<week-end>/substack_<week-end>.md \
+  --text-file logs/<week-end>/roll_call_<week-end>.md \
   --rankings '<json>' \
   --overwrite --publish
 ```

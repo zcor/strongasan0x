@@ -172,26 +172,19 @@ class Command(BaseCommand):
         
         # Add links section (unless disabled or rankings-only)
         if not options['rankings_only'] and not options['no_links']:
-            # Use the actual Substack URL from the roll call if available
-            if roll_call.substack_url:
-                substack_link = roll_call.substack_url
-            else:
-                # Fallback: generate slug from publication date (Monday after week end)
-                from datetime import timedelta
-                pub_date = roll_call.week_end_date + timedelta(days=1)
-                month_name = pub_date.strftime('%B').lower()
-                day = pub_date.day
-                year = pub_date.year
-                substack_slug = f"roll-call-{month_name}-{day}-{year}"
-                substack_link = f"https://strongasan0x.substack.com/p/{substack_slug}"
+            # The storage field is legacy. Roll Calls always live on-site.
+            roll_call_link = (
+                f"https://strongasan0x.com/roll-call/"
+                f"{roll_call.week_end_date.isoformat()}/"
+            )
 
             lines.append("")
             lines.append("Details & How to Join 👇")
             lines.append("")
             lines.append("Are you strong as an 0x?   We invite recruits to submit a weekly health attestation:  https://forms.gle/pwBvd15SmsjDPCfK7")
             lines.append("")
-            lines.append(f"We feed it to the oracle and publish the top ten each week:")
-            lines.append(substack_link)
+            lines.append("We feed it to the oracle and publish the top ten each week:")
+            lines.append(roll_call_link)
             lines.append("")
             lines.append("MORE INFO")
             lines.append("Discord: https://discord.gg/2wQpAHme3R")
