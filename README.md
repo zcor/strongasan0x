@@ -49,9 +49,12 @@ python manage.py run_telegram_bot # Telegram bot
 
 1. **Friday-Sunday**: Participants submit attestations via Discord, Telegram, or Warrior Dashboard
 2. **Monday**: Run AI ranking trials: `python manage.py run_ranking_trial`
-3. **Publish**: Ingest and publish results: `python manage.py ingest_roll_call`
-4. **Post**: Share rankings to Discord: `python manage.py post_rankings_to_discord`
+3. **Publish**: Prepare and publish the self-hosted post at `https://strongasan0x.com/roll-call/<week-end>/`
+4. **Post**: Share rankings to 𝕏, Telegram, and Discord
 5. **Roles**: Update Discord roles: `python manage.py assign_top_ten_role`
+
+The exact workflow is in `.agents/skills/roll-call-prep/` and `.agents/skills/roll-call-publish/`.
+Published-week history is recorded in `rollcall/log.md`; `HANDOFF.md` records current operational context.
 
 ## Management Commands
 
