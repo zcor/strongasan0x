@@ -58,6 +58,12 @@ python manage.py run_discord_bot
 python manage.py run_telegram_bot
 ```
 
+## Session closeout
+
+For an explicit request to close out, hand off, finalize, log out, or stop work, use the project
+`closeout` skill and follow [CLOSEOUT.md](CLOSEOUT.md). It preserves non-obvious context and
+commits only agent-owned files; it never implies another publication or social message.
+
 ## Architecture
 
 ### Core App (`rollcall/`)

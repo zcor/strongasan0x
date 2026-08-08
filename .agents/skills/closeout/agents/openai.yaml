@@ -1,0 +1,6 @@
+interface:
+  display_name: "Strong as an 0x Closeout"
+  short_description: "Safely close a Strong as an 0x session"
+  default_prompt: "Use $closeout to safely finish this Strong as an 0x session."
+policy:
+  allow_implicit_invocation: false

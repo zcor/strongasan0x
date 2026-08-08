@@ -1,0 +1,29 @@
+# Handoff: Roll Call runtime closeout
+
+**Date:** 2026-08-08
+**Status:** The Mini's Roll Call runtime has been corrected and verified without reposting the
+week. The durable Telegram service is back under launchd, and the source configuration now has a
+no-send preflight for future syndication.
+
+## What changed this session
+
+- Corrected the project-owned runtime configuration and dependencies on the Mini.
+- Added preflight and dry-run coverage for the public Roll Call URL, social credentials, Telegram
+  group access, and winner-image rendering.
+- Restored the persistent Telegram bot to its direct launchd invocation and verified KeepAlive.
+- Corrected workflow documentation and added the explicit closeout procedure.
+
+## Proven state
+
+- The published 2026-08-02 Roll Call passed the no-send preflight and both social dry runs.
+- The Telegram bot is running as a launchd service, not merely as a supervised shell process.
+- Mini source commit `8175f33` contains the runtime remediation before this closeout source sync.
+
+## Start here next time
+
+For a new week, use `roll-call-prep`; after the page is publicly live, use
+`roll-call-publish` and run its required no-send preflight before any social command.
+
+## Loose ends
+
+- None in the live Roll Call runtime. Do not use this handoff to alter an unrelated dirty checkout.
