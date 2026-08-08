@@ -1,0 +1,7 @@
+interface:
+  display_name: "Roll Call — Prepare Week"
+  short_description: "Trials, ode, and staged roll call post"
+  default_prompt: "Use $roll-call-prep to run this week's Roll Call ranking trials, generate the ode, and stage the post for preview."
+
+policy:
+  allow_implicit_invocation: true

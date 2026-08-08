@@ -17,7 +17,8 @@ no-send preflight for future syndication.
 
 - The published 2026-08-02 Roll Call passed the no-send preflight and both social dry runs.
 - The Telegram bot is running as a launchd service, not merely as a supervised shell process.
-- Mini source commit `8175f33` contains the runtime remediation before this closeout source sync.
+- Runtime remediation is `b2b3d8c` and the closeout procedure is `be8d824`, both pushed to
+  `origin/main` after a normal rebase.
 
 ## Start here next time
 
@@ -27,3 +28,9 @@ For a new week, use `roll-call-prep`; after the page is publicly live, use
 ## Loose ends
 
 - None in the live Roll Call runtime. Do not use this handoff to alter an unrelated dirty checkout.
+
+## Worktree record
+
+- The agent-owned worktree at `/private/tmp/strongasan0x-roll-call-runtime-20260808` used branch
+  `codex/roll-call-runtime-20260808`; its retained recovery point before this final source sync is
+  `14aafd7`. Its runtime and documentation content is now landed on `origin/main`.
