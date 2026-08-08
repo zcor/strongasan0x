@@ -25,10 +25,11 @@ from rollcall.models import (
     TelegramUserMapping,
     WeeklyRollCall,
 )
+from rollcall.services.publish_runtime import telegram_roll_call_chat_id
 from rollcall.services.winner_stanza import render_winner_image
 
 
-# Hard-coded fallbacks — match what's been used historically.
+# Legacy fallback; normal publishing uses TELEGRAM_ATTESTATION_CHANNEL_ID.
 DEFAULT_TELEGRAM_CHAT_ID = -1003122619283
 SUBSTACK_BASE = "https://strongasan0x.substack.com/p"
 
@@ -207,8 +208,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--chat-id",
             type=int,
-            default=DEFAULT_TELEGRAM_CHAT_ID,
-            help=f"Target chat id (default {DEFAULT_TELEGRAM_CHAT_ID})",
+            default=telegram_roll_call_chat_id(),
+            help="Target chat id (defaults to TELEGRAM_ATTESTATION_CHANNEL_ID)",
         )
         parser.add_argument(
             "--dry-run",

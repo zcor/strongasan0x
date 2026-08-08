@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submit weekly health attestations via Discord and Telegram bots, AI models rank them, and results are published to Substack with a Homeric ode.
+Django-based weekly fitness contest platform ("Strong as an 0x"). Warriors submit weekly health attestations via Discord and Telegram bots, AI models rank them, and results are published on the self-hosted Roll Call archive with a Homeric ode.
 
 - Remote: `git@github.com:zcor/strongasan0x.git` (branch: `main`)
 - Runs on port 8001
@@ -27,7 +27,10 @@ merge or push. A rejected push may be duplicate or superseded work; use
 ```bash
 python manage.py runserver 8001
 
-# Weekly publishing (see WEEKLY_PROCESS.md in garmin_project for full checklist)
+# Weekly publishing — the full ordered workflow lives in two skills:
+#   .agents/skills/roll-call-prep/     trials -> ode -> markdown -> staged ingest -> preview
+#   .agents/skills/roll-call-publish/  publish live -> X -> Telegram -> Discord -> roles
+# (garmin_project/WEEKLY_PROCESS.md is superseded: it describes the retired Substack flow)
 python manage.py list_attestations
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --provider deepseek
 python manage.py run_ranking_trial --week-end YYYY-MM-DD --output-only
@@ -38,8 +41,17 @@ python manage.py generate_twitter_rankings --week YYYY-MM-DD
 python manage.py assign_top_ten_role
 python manage.py extract_metrics  # only processes is_published=True weeks
 
-# Full workflow (orchestrates all steps)
-python manage.py publish_roll_call --week-end YYYY-MM-DD --substack-url URL
+# Self-hosted post (Substack is retired — the URL field now stores the on-site link).
+# Run these only through the Mini's Strong as an 0x wrapper; it loads this project's .env
+# instead of inheriting unrelated shell credentials.
+scripts/roll_call_runtime.sh preflight_roll_call_syndication --week-end YYYY-MM-DD  # after page is live; sends nothing
+scripts/roll_call_runtime.sh post_rankings_to_x --week-end YYYY-MM-DD               # dry-run first
+scripts/roll_call_runtime.sh post_rankings_to_telegram --week-end YYYY-MM-DD        # dry-run first
+
+# LEGACY — do not use. publish_roll_call is unmaintained since 2026-02-14: it prompts
+# interactively (EOFError in non-interactive shells), never posts to Telegram, only
+# generates the tweet, and still asks for a Substack URL. Run the steps individually.
+# python manage.py publish_roll_call --week-end YYYY-MM-DD --substack-url URL
 
 # Bots
 python manage.py run_discord_bot
@@ -71,8 +83,9 @@ python manage.py run_telegram_bot
 - **Substack markdown line breaks** — verse lines need trailing double-spaces (`  `) for proper rendering. The `add_trailing_spaces()` function handles this when writing to file via `--output`, but not when outputting to stdout.
 - **`ingest_roll_call` expects 10 rankings** — warns but still works with 9. No `--week-end` flag; use `--week` with Monday date.
 - **Duplicate user mappings** — e.g. Jones | Rarestone Compass had two TelegramUserMappings. Use `.get(id=N)` not `.get(linked_name=...)` when duplicates exist.
-- **CurveCap Garmin attestations** — auto-generated from watch data, don't include weight amounts. Must manually add based on historical patterns: Mon/Wed/Sat circuit class (66-110 lb), Tue/Thu/Fri/Sun heavy lifting (bench 230-260 lb, back/legs 200 lb).
-- **`generate_twitter_rankings`** — date formatting bug shows "Feb. 23 - 1, 2026" instead of "Feb. 23 - Mar. 1, 2026". Substack slug is auto-generated from `--week` date, not the actual Substack URL slug.
+- **Canonical publishing runtime** — use the Mini checkout at `/Users/gerrithall/dev/ox/strongasan0x` through `scripts/roll_call_runtime.sh`. It clears project-specific shell variables so Django reads this checkout's `.env` using the shared Mini Python. The `.env` must contain Strong as an 0x X credentials and `@StrongAsAn0xBot`, not credentials from another project. Run `preflight_roll_call_syndication` after the page is live and before any social command; it verifies the bot identity and group access, required packages, X settings, and the public URL without posting. The persistent Telegram LaunchAgent intentionally invokes the interpreter and `manage.py` directly: launchd does not read the interactive shell's stale variables.
+- **CurveCap Garmin attestations** — the Telegram `raw_text` is the source of record. Do not add later Garmin detail, historical weights, or a different date range by default. CurveCap intentionally reports Sunday–Saturday; that is a standing reporting convention, not a data defect. Garmin zero-days (`0` steps, kcal, and resting HR) are still a missing-sync warning. Historical Y circuit loads are only an approximate pattern, never proof of a particular set this week. In a genuine close tie, only a user-authorized CurveCap edit that favors the opponent is allowed; otherwise judge the submitted attestations as submitted.
+- **`generate_twitter_rankings`** — legacy text-only path; do not use it for normal syndication. `post_rankings_to_x` and `post_rankings_to_telegram` use the ingested canonical on-site URL.
 
 ## Weekly Publishing Logs
 

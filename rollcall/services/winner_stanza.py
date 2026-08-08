@@ -33,9 +33,8 @@ BG = (255, 255, 255)
 FG = (0, 0, 0)
 
 
-# The archive uses bold section headings, while older generated odes used
-# Markdown ``##`` headings. Keep the social image renderer compatible with
-# both forms.
+# Archive odes use bold section headings, while older generated odes used
+# Markdown ``##`` headings. Keep social-image rendering compatible with both.
 HEADER_PATTERN = re.compile(
     r"^(?:##\s*|\*\*)\s*FIRST AMONG HEROES:\s*(.+?)\s*(?:\*\*)?\s*$",
     re.MULTILINE | re.IGNORECASE,

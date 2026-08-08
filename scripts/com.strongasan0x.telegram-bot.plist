@@ -7,8 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/gerrithall/dev/ox/0xfitness/garmin_project/venv/bin/python</string>
-        <string>/Users/gerrithall/dev/ox/strongasan0x/manage.py</string>
+        <string>/Users/gerrithall/dev/ox/strongasan0x/scripts/roll_call_runtime.sh</string>
         <string>run_telegram_bot</string>
     </array>
 
