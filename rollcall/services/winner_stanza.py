@@ -33,9 +33,17 @@ BG = (255, 255, 255)
 FG = (0, 0, 0)
 
 
+# The archive uses bold section headings, while older generated odes used
+# Markdown ``##`` headings. Keep the social image renderer compatible with
+# both forms.
 HEADER_PATTERN = re.compile(
-    r"^##\s*FIRST AMONG HEROES:\s*(.+?)\s*$",
+    r"^(?:##\s*|\*\*)\s*FIRST AMONG HEROES:\s*(.+?)\s*(?:\*\*)?\s*$",
     re.MULTILINE | re.IGNORECASE,
+)
+
+NEXT_SECTION_PATTERN = re.compile(
+    r"^(?:##\s|\*\*.+\*\*\s*$|---\s*$)",
+    re.MULTILINE,
 )
 
 
@@ -51,15 +59,13 @@ def extract_winner_stanza(ode_text: str) -> tuple[str, list[str], str]:
     winner = match.group(1).strip()
     header_text = f"FIRST AMONG HEROES: {winner.upper()}"
 
-    # Body = everything from end-of-header line up to the next `## ` or `---`
+    # Body = everything from end-of-header line up to the next section.
     body_start = match.end()
     rest = ode_text[body_start:]
     end_idx = len(rest)
-    next_h = re.search(r"^##\s", rest, re.MULTILINE)
-    next_rule = re.search(r"^---\s*$", rest, re.MULTILINE)
-    for candidate in (next_h, next_rule):
-        if candidate and candidate.start() < end_idx:
-            end_idx = candidate.start()
+    next_section = NEXT_SECTION_PATTERN.search(rest)
+    if next_section:
+        end_idx = next_section.start()
     body = rest[:end_idx].strip("\n")
 
     # Strip the Substack-style trailing double-space; we lay out lines ourselves.
